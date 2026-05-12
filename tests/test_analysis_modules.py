@@ -8,6 +8,7 @@ from app.services.analysis_modules import (
     RetrievedChunk,
     parse_llm_json_object,
     validate_extracted_claims,
+    validate_extracted_entities,
     validate_extracted_events,
 )
 
@@ -141,3 +142,57 @@ def test_validate_extracted_events_normalizes_unknown_values() -> None:
     assert valid_events[0]["event_type"] == "other"
     assert valid_events[0]["time_precision"] == "unknown"
     assert unsupported == ["nincs pontos ido"]
+
+
+def test_validate_extracted_entities_requires_quote_in_labeled_chunk() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "Kovacs Anna es Nagy Peter kozott telefonhivas tortent.")]
+    payload = {
+        "entities": [
+            {
+                "entity_type": "person",
+                "canonical_name": "Kovacs Anna",
+                "normalized_value": None,
+                "description": None,
+                "mentions": [
+                    {
+                        "surface_text": "Kovacs Anna",
+                        "quote_text": "Kovacs Anna",
+                        "source_label": "chunk_1",
+                    }
+                ],
+            }
+        ],
+        "unsupported_entities": [],
+    }
+
+    valid_entities, unsupported = validate_extracted_entities(payload, chunks)
+
+    assert len(valid_entities) == 1
+    assert valid_entities[0]["entity_type"] == "person"
+    assert valid_entities[0]["surface_text"] == "Kovacs Anna"
+    assert unsupported == []
+
+
+def test_validate_extracted_entities_normalizes_unknown_type() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "ABC-123 rendszam szerepel a forrasban.")]
+    payload = {
+        "entities": [
+            {
+                "entity_type": "suspect",
+                "canonical_name": "ABC-123",
+                "mentions": [
+                    {
+                        "surface_text": "ABC-123",
+                        "quote_text": "ABC-123",
+                        "source_label": "chunk_1",
+                    }
+                ],
+            }
+        ],
+        "unsupported_entities": ["nincs szerepminosites"],
+    }
+
+    valid_entities, unsupported = validate_extracted_entities(payload, chunks)
+
+    assert valid_entities[0]["entity_type"] == "other"
+    assert unsupported == ["nincs szerepminosites"]

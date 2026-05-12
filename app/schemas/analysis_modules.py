@@ -34,12 +34,28 @@ class AnalysisModuleEvent(BaseModel):
     chunk_id: UUID
 
 
+class AnalysisModuleEntity(BaseModel):
+    entity_id: UUID
+    mention_id: UUID
+    entity_type: str
+    canonical_name: str
+    normalized_value: str | None
+    description: str | None
+    surface_text: str
+    quote_text: str
+    source_label: str
+    source_reference_id: UUID
+    document_id: UUID
+    chunk_id: UUID
+
+
 class AnalysisModuleRunResponse(BaseModel):
     analysis_run_id: UUID
     module_key: str
     model: str
     claims: list[AnalysisModuleClaim]
     events: list[AnalysisModuleEvent] = []
+    entities: list[AnalysisModuleEntity] = []
     unsupported_items: list[str]
     selected_chunk_ids: list[UUID]
     validation_status: str

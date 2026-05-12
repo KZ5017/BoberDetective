@@ -22,8 +22,8 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 59 passed
-alembic: 0008_exports (head)
+pytest: 63 passed
+alembic: 0009_entities (head)
 ```
 
 ## What Works Now
@@ -31,13 +31,14 @@ alembic: 0008_exports (head)
 - FastAPI backend scaffold.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0008_exports`.
+- Alembic migrations through `0009_entities`.
 - Immutable TXT import with page/chunk persistence.
 - Keyword search over current page/chunk text.
 - Source references with quote validation.
 - LM Studio provider abstraction and local model smoke checks.
 - Analysis run provenance.
 - Source-cited `extract_claims` and `extract_events` modules.
+- Source-cited `extract_entities` module.
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint.
 - JSON and HTML review report export with SHA256 and export item tracking.
@@ -54,6 +55,7 @@ documents, document_pages, document_chunks,
 source_references,
 analysis_runs, analysis_run_inputs, analysis_run_outputs,
 claims, claim_sources,
+entities, entity_mentions,
 events, event_sources,
 human_reviews,
 exports, export_items,
@@ -91,6 +93,7 @@ Analysis:
 - `POST /api/v1/cases/{case_id}/analysis/source-cited-smoke`
 - `POST /api/v1/cases/{case_id}/analysis/modules/extract_claims`
 - `POST /api/v1/cases/{case_id}/analysis/modules/extract_events`
+- `POST /api/v1/cases/{case_id}/analysis/modules/extract_entities`
 
 Reviewable objects:
 
@@ -100,6 +103,8 @@ Reviewable objects:
 - `GET /api/v1/cases/{case_id}/events`
 - `GET /api/v1/cases/{case_id}/events/{event_id}`
 - `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`
+- `GET /api/v1/cases/{case_id}/entities`
+- `GET /api/v1/cases/{case_id}/entities/{entity_id}`
 - `GET /api/v1/cases/{case_id}/review-report`
 
 Exports:
@@ -141,7 +146,7 @@ The latest live smoke completed this path successfully.
 Recommended order:
 
 1. Create and push the first baseline Git commit.
-2. Add `extract_entities`.
+2. Add entity review workflow.
 3. Add richer review report filtering.
 4. Start a minimal frontend only after the backend review/export loop is stable.
 

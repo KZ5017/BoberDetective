@@ -88,6 +88,10 @@
 - Added event review status mapping and validation tests.
 - Added shared review service helper for claim/event/export review workflows.
 - Added shared review helper tests.
+- Added `entities` and `entity_mentions` SQLAlchemy models and Alembic migration `0009_entities`.
+- Added entity list/detail API endpoints.
+- Added `extract_entities` analysis module with keyword chunk retrieval, LM Studio native execution, quote validation, source-reference creation, entity/mention persistence, and analysis run provenance.
+- Added entity service and entity extraction validation tests.
 
 ### Changed
 
@@ -123,6 +127,7 @@
 - Smoke-tested HTML review report export; it created 3 export items and downloaded as `text/html`.
 - Smoke-tested event review; an extracted event was marked `verified` through append-only human review history.
 - Refactored claim, event, and export review workflows to use the shared review helper for mapping, listing, record creation, and audit writing.
+- Applied Alembic migration `0009_entities` and smoke-tested `extract_entities`; validation passed and 2 person entities were persisted with mentions.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

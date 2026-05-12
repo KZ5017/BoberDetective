@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 59 passed`, `alembic: 0008_exports (head)`.
+- Current verification baseline: `pytest: 63 passed`, `alembic: 0009_entities (head)`.
 
 Initial implementation exists:
 
@@ -51,6 +51,8 @@ Initial implementation exists:
 - export review workflow foundation,
 - event review workflow foundation,
 - shared review service helper,
+- entity persistence foundation,
+- `extract_entities` module foundation,
 - pytest smoke tests.
 
 Completed design documents:
@@ -189,7 +191,7 @@ Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
 2. Broaden source-cited analysis modules beyond `extract_claims` and `extract_events`.
-3. Add `extract_entities`.
+3. Add entity review workflow.
 
 Environment verification notes:
 
@@ -210,8 +212,8 @@ Implementation status:
 - Initial FastAPI scaffold exists under `app/`.
 - Health endpoint works.
 - SQLAlchemy/psycopg DB layer exists.
-- Alembic migrations through `0008_exports` are applied.
-- `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `human_reviews`, `events`, `event_sources`, `exports`, and `export_items` tables exist.
+- Alembic migrations through `0009_entities` are applied.
+- `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, and `export_items` tables exist.
 - Case create/list API works.
 - Case creation writes DB audit event and JSONL audit event.
 - Document/page/chunk persistence foundation exists.
@@ -250,15 +252,18 @@ Implementation status:
 - Claim review writes append-only `human_reviews` records and `claim_review_recorded` audit events.
 - Live review smoke result: claim moved to `verified`, review history count 1.
 - Generalized analysis module execution now exists through `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}`.
-- Currently supported module keys: `extract_claims`, `extract_events`.
+- Currently supported module keys: `extract_claims`, `extract_events`, `extract_entities`.
 - The `extract_claims` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_claims_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists claims, records outputs, and finishes the analysis run.
 - The `extract_events` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_events_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists events/event_sources, records outputs, and finishes the analysis run.
+- The `extract_entities` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_entities_v1` prompt, validates each returned mention quote against the labeled source chunk, creates source references, persists entities/entity_mentions, records outputs, and finishes the analysis run.
 - Unsupported module keys are rejected before execution.
 - Event list/detail works through `GET /api/v1/cases/{case_id}/events` and `GET /api/v1/cases/{case_id}/events/{event_id}`.
 - Event review works through `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`.
 - Supported event review actions: `verify`, `reject`, `mark_needs_review`, `comment`.
 - Event review updates `events.review_status`, writes append-only `human_reviews` records, and writes `event_review_recorded` audit events.
 - Live event review smoke result: `review 200`, event moved to `verified`, review history count 1.
+- Entity list/detail works through `GET /api/v1/cases/{case_id}/entities` and `GET /api/v1/cases/{case_id}/entities/{entity_id}`.
+- Live `extract_entities` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted person entities with mentions and source references.
 - Shared review helper exists in `app/services/reviews.py`.
 - Claim, event, and export review workflows now use the shared helper for status mapping, review history listing, append-only review record creation, and audit writing.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.
@@ -281,7 +286,7 @@ Implementation status:
 - Export review writes `human_reviews` records with `object_type=export` and `export_review_recorded` audit events.
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
-- Latest test run: `59 passed`.
+- Latest test run: `63 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

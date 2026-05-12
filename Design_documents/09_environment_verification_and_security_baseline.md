@@ -365,10 +365,13 @@ LLM benchmark megjegyzés:
 - Event review `events.review_status` mezőt frissít, append-only `human_reviews` rekordot és `event_review_recorded` audit eseményt ír.
 - Élő event review smoke eredmény: `review 200`, event `verified`, review history count 1.
 - Shared review service helper elkészült: claim/event/export review mapping, review history listázás, append-only review rekord és audit írás közös helperből történik.
+- Entity persistence foundation elkészült: `entities` és `entity_mentions` táblák.
+- `extract_entities` analysis module elkészült source reference + mention alapon.
+- Élő `extract_entities` smoke eredmény: `analysis 200`, 2 person entity, 2 mention, source reference kapcsolattal.
 
 Adatbázis és Docker döntés:
 
-Docker telepítve van és a `bober` user hozzáfér. PostgreSQL és Qdrant Docker Compose-on keresztül fut. Az alkalmazott migrációs állapot: `0008_exports`.
+Docker telepítve van és a `bober` user hozzáfér. PostgreSQL és Qdrant Docker Compose-on keresztül fut. Az alkalmazott migrációs állapot: `0009_entities`.
 
 ## 12. WSL stabilitási megjegyzés
 
@@ -384,7 +387,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 59 passed
+pytest: 63 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK
