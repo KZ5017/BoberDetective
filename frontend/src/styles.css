@@ -293,6 +293,10 @@ label {
   padding: 0.7rem;
 }
 
+.compact-item button {
+  justify-self: start;
+}
+
 .compact-item strong {
   color: #202124;
 }
@@ -307,6 +311,53 @@ label {
   color: #9d1c12;
   font-size: 0.86rem;
   margin: 0;
+}
+
+.detail-panel {
+  align-content: start;
+}
+
+.detail-stack,
+.detail-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.detail-stack details {
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  padding: 0.7rem;
+}
+
+.detail-stack summary {
+  color: #52616b;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.text-sample {
+  background: #f8fafb;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.7rem;
+}
+
+pre {
+  background: #ffffff;
+  border: 1px solid #d7dde2;
+  border-radius: 6px;
+  color: #202124;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0;
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.65rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .report-panel {

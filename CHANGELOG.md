@@ -123,6 +123,7 @@
 - Added frontend source detail and review history display for review report items.
 - Added frontend long-running operation feedback with elapsed time, current operation label, last action summary, and analysis output count.
 - Added frontend document list and analysis run history views for the selected case.
+- Added frontend document page/chunk drill-down and analysis run input/output detail views.
 
 ### Changed
 
@@ -182,6 +183,7 @@
 - Verified frontend source-detail build and targeted review report/export tests.
 - Verified frontend operation-feedback build and full backend regression tests.
 - Verified frontend document/history build and targeted document/analysis-run backend tests.
+- Verified frontend drill-down build and full backend regression tests.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

@@ -57,6 +57,7 @@ alembic: 0012_missing_item_candidates (head)
 - Frontend report items show source details, source excerpts, document hashes, and review history.
 - Frontend long-running operation feedback shows current operation, elapsed time, and last action summary.
 - Frontend shows document list and analysis run history for the selected case.
+- Frontend shows document page/chunk drill-down and analysis run input/output detail.
 - Append-only human review history for claims, entities, events, and exports.
 - Shared review helper for claim/entity/event/export review mapping, listing, record creation, and audit writing.
 
@@ -212,7 +213,7 @@ Latest missing item retrieval/export smoke:
 
 Recommended order:
 
-1. Add frontend analysis run detail and document page/chunk drill-down.
+1. Add frontend review filter controls and object-specific detail panels.
 2. Keep retrieval quality improvements incremental as new real query failures appear.
 
 ## Important Local Notes

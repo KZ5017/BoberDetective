@@ -15,15 +15,21 @@ import {
 } from "lucide-react";
 import {
   AnalysisResponse,
+  AnalysisRunDetail,
   AnalysisRunRead,
   CaseRead,
+  DocumentChunkRead,
+  DocumentPageRead,
   DocumentRead,
   ExportDetail,
   ReviewReport,
   createCase,
   createExport,
+  getAnalysisRun,
   getReviewReport,
   importDocument,
+  listDocumentChunks,
+  listDocumentPages,
   listAnalysisRuns,
   listCases,
   listDocuments,
@@ -54,6 +60,8 @@ const busyLabels: Record<string, string> = {
   cases: "Ugylista frissitese",
   "case-create": "Ugy letrehozasa",
   "case-data": "Ugyadatok betoltese",
+  "document-detail": "Irat reszletek betoltese",
+  "run-detail": "Analysis run reszletek betoltese",
   import: "Irat importalasa",
   analysis: "Elemzes futtatasa",
   report: "Review report betoltese",
@@ -69,6 +77,10 @@ export function App() {
   const [cases, setCases] = useState<CaseRead[]>([]);
   const [documents, setDocuments] = useState<DocumentRead[]>([]);
   const [analysisRuns, setAnalysisRuns] = useState<AnalysisRunRead[]>([]);
+  const [selectedDocument, setSelectedDocument] = useState<DocumentRead | null>(null);
+  const [documentPages, setDocumentPages] = useState<DocumentPageRead[]>([]);
+  const [documentChunks, setDocumentChunks] = useState<DocumentChunkRead[]>([]);
+  const [analysisRunDetail, setAnalysisRunDetail] = useState<AnalysisRunDetail | null>(null);
   const [selectedCaseId, setSelectedCaseId] = useState("");
   const [caseName, setCaseName] = useState("");
   const [caseReference, setCaseReference] = useState("");
@@ -102,6 +114,10 @@ export function App() {
     } else {
       setDocuments([]);
       setAnalysisRuns([]);
+      setSelectedDocument(null);
+      setDocumentPages([]);
+      setDocumentChunks([]);
+      setAnalysisRunDetail(null);
       setReport(null);
     }
   }, [selectedCaseId]);
@@ -158,6 +174,31 @@ export function App() {
         setNotice("Ugyadatok frissitve.");
       }
       setLastActionSummary(`${documentsResponse.data.length} irat, ${runsResponse.data.length} analysis run.`);
+    });
+  }
+
+  async function handleDocumentDetail(document: DocumentRead) {
+    if (!selectedCaseId) return;
+    await perform("document-detail", async () => {
+      const [pagesResponse, chunksResponse] = await Promise.all([
+        listDocumentPages(selectedCaseId, document.id),
+        listDocumentChunks(selectedCaseId, document.id)
+      ]);
+      setSelectedDocument(document);
+      setDocumentPages(pagesResponse.data);
+      setDocumentChunks(chunksResponse.data);
+      setNotice("Irat reszletek betoltve.");
+      setLastActionSummary(`${document.original_filename}: ${pagesResponse.data.length} page, ${chunksResponse.data.length} chunk.`);
+    });
+  }
+
+  async function handleAnalysisRunDetail(run: AnalysisRunRead) {
+    if (!selectedCaseId) return;
+    await perform("run-detail", async () => {
+      const detail = await getAnalysisRun(selectedCaseId, run.id);
+      setAnalysisRunDetail(detail);
+      setNotice("Analysis run reszletek betoltve.");
+      setLastActionSummary(`${run.run_type}: ${detail.inputs.length} input, ${detail.outputs.length} output.`);
     });
   }
 
@@ -328,9 +369,54 @@ export function App() {
                   <strong>{document.original_filename}</strong>
                   <span>{document.document_type ?? "unknown"} | {document.processing_status} | {formatBytes(document.file_size_bytes)}</span>
                   <code>{document.sha256_hash}</code>
+                  <button onClick={() => handleDocumentDetail(document)} disabled={Boolean(busy)}>
+                    Details
+                  </button>
                 </article>
               ))}
             </div>
+          </section>
+
+          <section className="panel detail-panel">
+            <div className="section-heading">
+              <h2>Irat reszletek</h2>
+              <FilePlus2 size={20} />
+            </div>
+            {!selectedDocument && <p className="muted">Valassz iratot a reszletekhez.</p>}
+            {selectedDocument && (
+              <div className="detail-stack">
+                <strong>{selectedDocument.original_filename}</strong>
+                <div className="metrics">
+                  <span>{documentPages.length} page</span>
+                  <span>{documentChunks.length} chunk</span>
+                  <span>{selectedDocument.processing_status}</span>
+                </div>
+                <details open>
+                  <summary>Pages</summary>
+                  <div className="detail-list">
+                    {documentPages.map((page) => (
+                      <article key={page.id} className="text-sample">
+                        <strong>Page {page.page_number}</strong>
+                        <span>{page.text_source} | OCR {page.ocr_used ? "yes" : "no"} | {page.text_char_count} chars</span>
+                        <pre>{page.extracted_text}</pre>
+                      </article>
+                    ))}
+                  </div>
+                </details>
+                <details>
+                  <summary>Chunks</summary>
+                  <div className="detail-list">
+                    {documentChunks.map((chunk) => (
+                      <article key={chunk.id} className="text-sample">
+                        <strong>Chunk {chunk.chunk_index}</strong>
+                        <span>pages {chunk.page_start}-{chunk.page_end} | chars {formatRange(chunk.char_start, chunk.char_end)}</span>
+                        <pre>{chunk.chunk_text}</pre>
+                      </article>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            )}
           </section>
 
           <section className="panel">
@@ -404,9 +490,56 @@ export function App() {
                   <span>{new Date(run.started_at).toLocaleString()} {run.finished_at ? `-> ${new Date(run.finished_at).toLocaleTimeString()}` : ""}</span>
                   {run.error_message && <p className="error-text">{run.error_message}</p>}
                   <code>{run.id}</code>
+                  <button onClick={() => handleAnalysisRunDetail(run)} disabled={Boolean(busy)}>
+                    Details
+                  </button>
                 </article>
               ))}
             </div>
+          </section>
+
+          <section className="panel detail-panel">
+            <div className="section-heading">
+              <h2>Analysis run detail</h2>
+              <Archive size={20} />
+            </div>
+            {!analysisRunDetail && <p className="muted">Valassz analysis runt a reszletekhez.</p>}
+            {analysisRunDetail && (
+              <div className="detail-stack">
+                <strong>{analysisRunDetail.run.run_type}</strong>
+                <div className="metrics">
+                  <span>{analysisRunDetail.run.status}</span>
+                  <span>{analysisRunDetail.run.validation_status ?? "no validation"}</span>
+                  <span>{analysisRunDetail.inputs.length} input</span>
+                  <span>{analysisRunDetail.outputs.length} output</span>
+                </div>
+                <code>{analysisRunDetail.run.id}</code>
+                {analysisRunDetail.run.error_message && <p className="error-text">{analysisRunDetail.run.error_message}</p>}
+                <details open>
+                  <summary>Inputs</summary>
+                  <div className="detail-list">
+                    {analysisRunDetail.inputs.map((input) => (
+                      <article key={input.id} className="compact-item">
+                        <strong>{input.sequence_no}. {input.input_type}</strong>
+                        <span>{input.related_object_type ?? "source"} {input.related_object_id ?? input.chunk_id ?? input.document_id ?? ""}</span>
+                        {input.payload_json && <pre>{JSON.stringify(input.payload_json, null, 2)}</pre>}
+                      </article>
+                    ))}
+                  </div>
+                </details>
+                <details>
+                  <summary>Outputs</summary>
+                  <div className="detail-list">
+                    {analysisRunDetail.outputs.map((output) => (
+                      <article key={output.id} className="compact-item">
+                        <strong>{output.output_position ?? 0}. {output.output_type}</strong>
+                        <code>{output.output_object_id}</code>
+                      </article>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            )}
           </section>
 
           <section className="panel report-panel">

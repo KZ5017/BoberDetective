@@ -19,6 +19,26 @@ export type DocumentRead = {
   imported_at: string;
 };
 
+export type DocumentPageRead = {
+  id: string;
+  page_number: number;
+  extracted_text: string;
+  text_source: string;
+  ocr_used: boolean;
+  text_char_count: number;
+};
+
+export type DocumentChunkRead = {
+  id: string;
+  page_start: number;
+  page_end: number;
+  chunk_index: number;
+  chunk_text: string;
+  char_start: number | null;
+  char_end: number | null;
+  token_count: number | null;
+};
+
 export type AnalysisRunRead = {
   id: string;
   run_type: string;
@@ -31,6 +51,27 @@ export type AnalysisRunRead = {
   error_message: string | null;
   input_parameters: Record<string, unknown> | null;
   output_schema_name: string | null;
+};
+
+export type AnalysisRunDetail = {
+  run: AnalysisRunRead;
+  inputs: Array<{
+    id: string;
+    input_type: string;
+    document_id: string | null;
+    page_id: string | null;
+    chunk_id: string | null;
+    related_object_type: string | null;
+    related_object_id: string | null;
+    sequence_no: number;
+    payload_json: Record<string, unknown> | null;
+  }>;
+  outputs: Array<{
+    id: string;
+    output_type: string;
+    output_object_id: string;
+    output_position: number | null;
+  }>;
 };
 
 export type ReviewReportSource = {
@@ -157,8 +198,20 @@ export function listDocuments(caseId: string): Promise<{ data: DocumentRead[] }>
   return request(`/cases/${caseId}/documents`);
 }
 
+export function listDocumentPages(caseId: string, documentId: string): Promise<{ data: DocumentPageRead[] }> {
+  return request(`/cases/${caseId}/documents/${documentId}/pages`);
+}
+
+export function listDocumentChunks(caseId: string, documentId: string): Promise<{ data: DocumentChunkRead[] }> {
+  return request(`/cases/${caseId}/documents/${documentId}/chunks`);
+}
+
 export function listAnalysisRuns(caseId: string): Promise<{ data: AnalysisRunRead[] }> {
   return request(`/cases/${caseId}/analysis-runs`);
+}
+
+export function getAnalysisRun(caseId: string, analysisRunId: string): Promise<AnalysisRunDetail> {
+  return request(`/cases/${caseId}/analysis-runs/${analysisRunId}`);
 }
 
 export function importDocument(caseId: string, file: File, documentType: string): Promise<unknown> {
