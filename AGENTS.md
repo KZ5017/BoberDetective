@@ -198,6 +198,8 @@ Current implementation caveats:
 - Latest live analysis smoke: `detect_missing_items` produced 2 source-cited `attachment` candidates and review report inclusion.
 - Latest export smoke: missing item candidates are included in JSON/HTML review report exports with tracked export items.
 - Latest retrieval smoke: `Keress hivatkozott mellekletet.` now succeeds after Hungarian suffix fallback tuning.
+- Minimal React/Vite frontend scaffold exists under `frontend/`.
+- Latest frontend verification: `npm run build` passed.
 
 ## Security Baseline
 

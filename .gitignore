@@ -19,6 +19,9 @@ htmlcov/
 tmp/
 dist/
 build/
+frontend/node_modules/
+frontend/.vite/
+frontend/tsconfig.tsbuildinfo
 *.sqlite
 *.db
 boberdetective-data/

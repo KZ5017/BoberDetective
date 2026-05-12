@@ -66,10 +66,11 @@ Completed:
 - Live `detect_missing_items` smoke passed on referenced attachment/photo documentation sample
 - Missing item candidate JSON/HTML export smoke coverage
 - Analysis retrieval fallback improved for short/inflected Hungarian queries such as `mellekletet`
+- Minimal React/Vite workbench frontend scaffold
 
 Next:
 
-- Minimal frontend planning
+- Frontend workflow hardening and first review actions from the UI
 
 ## Design documents
 
@@ -147,3 +148,9 @@ Development services:
 
 - PostgreSQL: `127.0.0.1:5432`
 - Qdrant: `127.0.0.1:6333`
+
+Frontend:
+
+- React/Vite scaffold under `frontend/`
+- Dev server: `cd frontend && npm run dev`
+- API proxy: `/api` -> `http://127.0.0.1:8000`

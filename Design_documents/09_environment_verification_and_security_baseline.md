@@ -392,6 +392,8 @@ LLM benchmark megjegyzés:
 - Missing item candidate export smoke eredmény: JSON és HTML review report export `object_type=missing_item_candidate`, `needs_review`, `require_source_valid=true` beállításokkal 1-1 export itemet hozott létre, és a letöltések tartalmazták a `missing_item_candidate` elemet.
 - Analysis retrieval fallback finomítás elkészült: rövid magyar tárgyragos alakok, például `mellekletet` és `kamerafelvetelt`, vissza tudnak esni `melleklet` és `kamerafelvetel` kulcsszavakra.
 - Élő rövid-query smoke eredmény: a korábban elbukó `Keress hivatkozott mellekletet.` lekérdezés `analysis 200`, `validation_status=passed`, 1 source-cited `attachment` candidate.
+- Minimal React/Vite frontend scaffold elkészült `frontend/` alatt. A dev szerver `/api` proxyval kapcsolódik a lokális backendhez, backend CORS lazítás nélkül.
+- Frontend build ellenőrzés: `npm run build` sikeres.
 
 Adatbázis és Docker döntés:
 

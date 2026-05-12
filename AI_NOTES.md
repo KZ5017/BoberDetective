@@ -70,6 +70,7 @@ Initial implementation exists:
 - live `detect_missing_items` smoke passed on a referenced attachment/photo documentation sample,
 - missing item candidate JSON/HTML export smoke coverage,
 - analysis retrieval fallback improvement for short/inflected Hungarian query terms,
+- minimal React/Vite frontend workbench scaffold,
 - pytest smoke tests.
 
 Completed design documents:
@@ -207,7 +208,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Start minimal frontend planning now that the backend review/export loop is stable for MVP objects.
+2. Harden frontend workflows and add first review actions from the UI.
 
 Environment verification notes:
 
@@ -312,6 +313,10 @@ Implementation status:
 - Missing item candidate export smoke result: JSON and HTML review report exports with `object_type=missing_item_candidate`, `needs_review`, and `require_source_valid=true` each created 1 tracked export item; downloads included `missing_item_candidate`.
 - Analysis retrieval now strips common short Hungarian accusative suffixes, so terms such as `mellekletet` and `kamerafelvetelt` can fall back to `melleklet` and `kamerafelvetel`.
 - The formerly failing short query `Keress hivatkozott mellekletet.` now succeeds in live smoke: `analysis 200`, `validation_status=passed`, 1 source-cited `attachment` candidate.
+- Minimal frontend scaffold exists under `frontend/`.
+- Frontend currently supports case list/create, TXT import, analysis module run, review report loading/filtering, and JSON/HTML export creation/download.
+- Frontend uses Vite proxy from `/api` to `http://127.0.0.1:8000`; backend CORS was not loosened.
+- Frontend verification: `npm run build` passed.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.
 - Live `extract_events` module smoke result: `analysis 200`, `validation_status=passed`, 1 persisted event.
 - Keyword search now uses sanitized prefix `to_tsquery` terms so simple Hungarian suffix cases like `kapu` matching `kaput` are less brittle.

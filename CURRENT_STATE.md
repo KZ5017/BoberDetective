@@ -29,6 +29,7 @@ alembic: 0012_missing_item_candidates (head)
 ## What Works Now
 
 - FastAPI backend scaffold.
+- Minimal React/Vite frontend workbench scaffold under `frontend/`.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
 - Alembic migrations through `0012_missing_item_candidates`.
@@ -51,6 +52,7 @@ alembic: 0012_missing_item_candidates (head)
 - Case review report endpoint with object type, review status, source validation filters, and expanded source details.
 - JSON and HTML review report export with SHA256, claim/entity/event item tracking, report filters, and expanded source details.
 - Missing item candidates are covered by JSON/HTML review report export smoke coverage.
+- Frontend build verifies through `cd frontend && npm run build`.
 - Append-only human review history for claims, entities, events, and exports.
 - Shared review helper for claim/entity/event/export review mapping, listing, record creation, and audit writing.
 
@@ -206,7 +208,7 @@ Latest missing item retrieval/export smoke:
 
 Recommended order:
 
-1. Start minimal frontend planning now that the backend review/export loop is stable for MVP objects.
+1. Harden frontend workflows and add first review actions from the UI.
 2. Keep retrieval quality improvements incremental as new real query failures appear.
 
 ## Important Local Notes
@@ -215,3 +217,4 @@ Recommended order:
 - LM Studio native `/api/v1/chat` should use `max_output_tokens`, not `maxTokens`.
 - Send `reasoning: "off"` only for Qwen-style reasoning models.
 - Keep generated data under the configured data root, not inside the Git repository.
+- Frontend dev server proxies `/api` to backend port `8000`.
