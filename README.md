@@ -70,10 +70,11 @@ Completed:
 - Frontend review actions for review report items
 - Frontend source detail and review history display for report items
 - Frontend long-running operation feedback with elapsed time and last action summary
+- Frontend document list and analysis run history views
 
 Next:
 
-- Frontend workflow polish for document lists and analysis run history
+- Frontend workflow polish for analysis run detail and document chunk/page drill-down
 
 ## Design documents
 
@@ -157,4 +158,4 @@ Frontend:
 - React/Vite scaffold under `frontend/`
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
-- Current UI workflows: case create/list, TXT import, analysis run with elapsed-time feedback, review report filtering, source detail inspection, review history, review actions, JSON/HTML export
+- Current UI workflows: case create/list, TXT import, document list, analysis run with elapsed-time feedback, analysis history, review report filtering, source detail inspection, review history, review actions, JSON/HTML export

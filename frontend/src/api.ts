@@ -7,6 +7,32 @@ export type CaseRead = {
   created_at: string;
 };
 
+export type DocumentRead = {
+  id: string;
+  original_filename: string;
+  document_type: string | null;
+  language_code: string | null;
+  file_size_bytes: number;
+  sha256_hash: string;
+  processing_status: string;
+  page_count: number | null;
+  imported_at: string;
+};
+
+export type AnalysisRunRead = {
+  id: string;
+  run_type: string;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  provider_type: string | null;
+  model_name: string | null;
+  validation_status: string | null;
+  error_message: string | null;
+  input_parameters: Record<string, unknown> | null;
+  output_schema_name: string | null;
+};
+
 export type ReviewReportSource = {
   source_reference_id: string;
   document_id: string;
@@ -125,6 +151,14 @@ export function createCase(payload: { case_name: string; case_reference?: string
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+}
+
+export function listDocuments(caseId: string): Promise<{ data: DocumentRead[] }> {
+  return request(`/cases/${caseId}/documents`);
+}
+
+export function listAnalysisRuns(caseId: string): Promise<{ data: AnalysisRunRead[] }> {
+  return request(`/cases/${caseId}/analysis-runs`);
 }
 
 export function importDocument(caseId: string, file: File, documentType: string): Promise<unknown> {

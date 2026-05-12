@@ -271,10 +271,42 @@ label {
   gap: 0.55rem;
 }
 
-.analysis-summary code {
+.analysis-summary code,
+.compact-item code {
   color: #52616b;
   font-size: 0.78rem;
   overflow-wrap: anywhere;
+}
+
+.compact-list {
+  display: grid;
+  gap: 0.55rem;
+  max-height: 22rem;
+  overflow: auto;
+}
+
+.compact-item {
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.7rem;
+}
+
+.compact-item strong {
+  color: #202124;
+}
+
+.compact-item span,
+.muted {
+  color: #65737d;
+  font-size: 0.86rem;
+}
+
+.error-text {
+  color: #9d1c12;
+  font-size: 0.86rem;
+  margin: 0;
 }
 
 .report-panel {

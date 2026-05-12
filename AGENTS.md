@@ -202,6 +202,7 @@ Current implementation caveats:
 - Frontend review actions exist for review report items through allowlisted API paths.
 - Frontend report items show source details and review history.
 - Frontend shows long-running operation feedback with elapsed time and last action summary.
+- Frontend shows selected-case document list and analysis run history.
 - Latest frontend verification: `npm run build` passed.
 
 ## Security Baseline

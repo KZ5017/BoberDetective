@@ -15,14 +15,18 @@ import {
 } from "lucide-react";
 import {
   AnalysisResponse,
+  AnalysisRunRead,
   CaseRead,
+  DocumentRead,
   ExportDetail,
   ReviewReport,
   createCase,
   createExport,
   getReviewReport,
   importDocument,
+  listAnalysisRuns,
   listCases,
+  listDocuments,
   reviewObject,
   runAnalysis
 } from "./api";
@@ -49,6 +53,7 @@ const objectTypes = [
 const busyLabels: Record<string, string> = {
   cases: "Ugylista frissitese",
   "case-create": "Ugy letrehozasa",
+  "case-data": "Ugyadatok betoltese",
   import: "Irat importalasa",
   analysis: "Elemzes futtatasa",
   report: "Review report betoltese",
@@ -62,6 +67,8 @@ const busyLabels: Record<string, string> = {
 
 export function App() {
   const [cases, setCases] = useState<CaseRead[]>([]);
+  const [documents, setDocuments] = useState<DocumentRead[]>([]);
+  const [analysisRuns, setAnalysisRuns] = useState<AnalysisRunRead[]>([]);
   const [selectedCaseId, setSelectedCaseId] = useState("");
   const [caseName, setCaseName] = useState("");
   const [caseReference, setCaseReference] = useState("");
@@ -88,6 +95,16 @@ export function App() {
   useEffect(() => {
     void refreshCases();
   }, []);
+
+  useEffect(() => {
+    if (selectedCaseId) {
+      void refreshCaseData(false);
+    } else {
+      setDocuments([]);
+      setAnalysisRuns([]);
+      setReport(null);
+    }
+  }, [selectedCaseId]);
 
   useEffect(() => {
     if (busyStartedAt === null) {
@@ -126,6 +143,24 @@ export function App() {
     });
   }
 
+  async function refreshCaseData(showNotice = true) {
+    if (!selectedCaseId) return;
+    await perform("case-data", async () => {
+      const [documentsResponse, runsResponse, reportResponse] = await Promise.all([
+        listDocuments(selectedCaseId),
+        listAnalysisRuns(selectedCaseId),
+        getReviewReport(selectedCaseId, objectType || undefined)
+      ]);
+      setDocuments(documentsResponse.data);
+      setAnalysisRuns(runsResponse.data);
+      setReport(reportResponse);
+      if (showNotice) {
+        setNotice("Ugyadatok frissitve.");
+      }
+      setLastActionSummary(`${documentsResponse.data.length} irat, ${runsResponse.data.length} analysis run.`);
+    });
+  }
+
   async function handleCreateCase() {
     await perform("case-create", async () => {
       const created = await createCase({
@@ -146,6 +181,8 @@ export function App() {
     await perform("import", async () => {
       await importDocument(selectedCaseId, file, documentType);
       setFile(null);
+      const documentsResponse = await listDocuments(selectedCaseId);
+      setDocuments(documentsResponse.data);
       setNotice("Irat import kesz.");
       setLastActionSummary(`Import kesz: ${file.name}`);
     });
@@ -156,8 +193,12 @@ export function App() {
     await perform("analysis", async () => {
       const response = await runAnalysis(selectedCaseId, moduleKey, query, limit);
       setAnalysis(response);
-      const reportResponse = await getReviewReport(selectedCaseId, objectType || undefined);
+      const [reportResponse, runsResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, objectType || undefined),
+        listAnalysisRuns(selectedCaseId)
+      ]);
       setReport(reportResponse);
+      setAnalysisRuns(runsResponse.data);
       setNotice("Elemzes lefutott, report frissitve.");
       setLastActionSummary(
         `${response.module_key}: ${response.validation_status}, ${response.selected_chunk_ids.length} chunk, ${analysisOutputCount(response)} output`
@@ -243,6 +284,9 @@ export function App() {
           <button onClick={handleCreateCase} disabled={!caseName || Boolean(busy)}>
             <FolderPlus size={18} /> Ugy letrehozasa
           </button>
+          <button onClick={() => refreshCaseData()} disabled={!selectedCaseId || Boolean(busy)}>
+            <RefreshCw size={18} /> Ugyadatok
+          </button>
         </aside>
 
         <section className="main-grid">
@@ -269,6 +313,23 @@ export function App() {
               <strong>{busy ? formatDuration(elapsedSeconds) : "-"}</strong>
               <span>Utolso muvelet</span>
               <strong>{lastActionSummary || "Meg nincs muvelet."}</strong>
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="section-heading">
+              <h2>Iratok</h2>
+              <Database size={20} />
+            </div>
+            <div className="compact-list">
+              {documents.length === 0 && <p className="muted">Nincs importalt irat.</p>}
+              {documents.map((document) => (
+                <article key={document.id} className="compact-item">
+                  <strong>{document.original_filename}</strong>
+                  <span>{document.document_type ?? "unknown"} | {document.processing_status} | {formatBytes(document.file_size_bytes)}</span>
+                  <code>{document.sha256_hash}</code>
+                </article>
+              ))}
             </div>
           </section>
 
@@ -327,6 +388,25 @@ export function App() {
                 <code>{analysis.analysis_run_id}</code>
               </div>
             )}
+          </section>
+
+          <section className="panel">
+            <div className="section-heading">
+              <h2>Analysis history</h2>
+              <Archive size={20} />
+            </div>
+            <div className="compact-list">
+              {analysisRuns.length === 0 && <p className="muted">Nincs analysis run.</p>}
+              {analysisRuns.slice(0, 8).map((run) => (
+                <article key={run.id} className="compact-item">
+                  <strong>{run.run_type}</strong>
+                  <span>{run.status} | {run.validation_status ?? "no validation"} | {run.model_name ?? "no model"}</span>
+                  <span>{new Date(run.started_at).toLocaleString()} {run.finished_at ? `-> ${new Date(run.finished_at).toLocaleTimeString()}` : ""}</span>
+                  {run.error_message && <p className="error-text">{run.error_message}</p>}
+                  <code>{run.id}</code>
+                </article>
+              ))}
+            </div>
           </section>
 
           <section className="panel report-panel">
@@ -473,4 +553,14 @@ function analysisOutputCount(response: AnalysisResponse) {
     response.contradiction_candidates.length +
     response.missing_item_candidates.length
   );
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KiB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
