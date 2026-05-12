@@ -195,7 +195,8 @@ Current implementation caveats:
 - Qdrant is reachable at `127.0.0.1:6333`.
 - LM Studio is reachable from WSL at `http://127.0.0.1:1234/v1`.
 - Configured Qwen load profile is `context_length=4096`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; latest model-load smoke accepted it through `POST /api/v1/system/llm/load-chat-model`.
-- Latest test run: `98 passed`.
+- LM Studio native chat calls auto-ensure the configured chat model is loaded; they reuse a matching loaded instance id or load the model with the configured profile when missing.
+- Latest test run: `100 passed`.
 - Latest live analysis smoke: `detect_missing_items` produced 2 source-cited `attachment` candidates and review report inclusion.
 - Latest export smoke: missing item candidates are included in JSON/HTML review report exports with tracked export items.
 - Latest retrieval smoke: `Keress hivatkozott mellekletet.` now succeeds after Hungarian suffix fallback tuning.

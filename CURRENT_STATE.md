@@ -22,7 +22,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 98 passed
+pytest: 100 passed
 alembic: 0012_missing_item_candidates (head)
 ```
 
@@ -90,6 +90,7 @@ System:
 
 - `GET /api/v1/system/health`
 - `GET /api/v1/system/llm/smoke`
+- `POST /api/v1/system/llm/load-chat-model`
 
 Cases and documents:
 
@@ -233,6 +234,7 @@ Recommended order:
 - LM Studio native `/api/v1/chat` should use `max_output_tokens`, not `maxTokens`.
 - Send `reasoning: "off"` only for Qwen-style reasoning models.
 - `POST /api/v1/system/llm/load-chat-model` loads the configured chat model through LM Studio native `/api/v1/models/load`.
+- LM Studio native chat calls auto-ensure the configured chat model is loaded before `/api/v1/chat`; if no matching loaded instance is found, the backend loads it once with the configured load profile and then sends the chat request to the loaded instance id.
 - Current preferred LM Studio load profile: `context_length=4096`, `eval_batch_size=4096`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`, `echo_load_config=true`.
 - Latest model-load smoke returned `qwen/qwen3.5-9b:2`, `status=loaded`, `load_time_seconds=10.784`, with LM Studio echoing `context_length=4096`, `eval_batch_size=4096`, `parallel=4`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
 - Keep generated data under the configured data root, not inside the Git repository.

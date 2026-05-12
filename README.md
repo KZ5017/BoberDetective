@@ -33,6 +33,7 @@ Completed:
 - LLMProvider abstraction
 - LM Studio model-list smoke endpoint
 - LM Studio configured chat-model load endpoint with GPU-oriented load profile
+- LM Studio native chat auto-load guard for the configured model
 - Analysis run provenance foundation
 - Synthetic LLM model benchmark script
 - LM Studio native benchmark mode with Qwen reasoning disabled

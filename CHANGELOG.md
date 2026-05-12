@@ -44,6 +44,7 @@
 - Added benchmark scoring tests and raw-output reporting option.
 - Added LM Studio native API provider support for `/api/v1/chat`.
 - Added explicit LM Studio native configured chat-model loading through `/api/v1/system/llm/load-chat-model`.
+- Added an LM Studio native chat auto-load guard that reuses a loaded configured-model instance when present and loads it with the configured GPU-oriented profile when missing.
 - Added native benchmark mode with `reasoning: "off"` for Qwen-style reasoning models.
 - Documented LM Studio native API optimization notes: `max_output_tokens`, `store: false`, `system_prompt`, model-specific reasoning control, and later `/api/v1/models/load` tuning parameters.
 - Added first source-cited analysis smoke endpoint at `POST /api/v1/cases/{case_id}/analysis/source-cited-smoke`.
@@ -183,7 +184,7 @@
 - Smoke-tested missing item candidate JSON/HTML review report exports; both created 1 tracked export item and downloads included `missing_item_candidate`.
 - Latest verification baseline is `95 passed` after missing item export coverage.
 - Improved analysis retrieval fallback for short/inflected Hungarian queries; the formerly failing `Keress hivatkozott mellekletet.` smoke now produces a source-cited missing item candidate.
-- Latest verification baseline is `98 passed` after LM Studio model-load profile coverage.
+- Latest verification baseline is `100 passed` after LM Studio auto-load guard coverage.
 - Verified frontend production build with `npm run build`.
 - Verified frontend review action build and targeted backend review tests.
 - Verified frontend source-detail build and targeted review report/export tests.

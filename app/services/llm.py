@@ -172,6 +172,7 @@ class LMStudioNativeProvider:
     def __init__(self, settings: Settings | None = None, client: httpx.Client | None = None) -> None:
         self._settings = settings or get_settings()
         self._client = client
+        self._loaded_chat_model_instance_id: str | None = None
 
     def list_models(self) -> list[LLMModel]:
         client = self._client or self._build_client()
@@ -230,6 +231,56 @@ class LMStudioNativeProvider:
                 error_message=str(exc),
             )
 
+    def loaded_model_instance_ids(self) -> list[str]:
+        client = self._client or self._build_client()
+        close_client = self._client is None
+        try:
+            response = client.get("/api/v1/models")
+            response.raise_for_status()
+            payload = response.json()
+            models = payload.get("models")
+            if not isinstance(models, list):
+                raise LLMProviderError("LM Studio native API returned an invalid models payload")
+            instance_ids: list[str] = []
+            for item in models:
+                if not isinstance(item, dict):
+                    continue
+                loaded_instances = item.get("loaded_instances")
+                if not isinstance(loaded_instances, list):
+                    continue
+                instance_ids.extend(
+                    str(instance["id"])
+                    for instance in loaded_instances
+                    if isinstance(instance, dict) and instance.get("id")
+                )
+            return instance_ids
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise LLMProviderError(str(exc)) from exc
+        finally:
+            if close_client:
+                client.close()
+
+    def ensure_configured_chat_model_loaded(self) -> str:
+        instance_id = self._matching_loaded_instance_id()
+        if instance_id is not None:
+            self._loaded_chat_model_instance_id = instance_id
+            return instance_id
+        result = self.load_configured_chat_model()
+        if result.status != "loaded" or result.instance_id == "":
+            raise LLMProviderError("LM Studio did not return a loaded chat model instance")
+        self._loaded_chat_model_instance_id = result.instance_id
+        return result.instance_id
+
+    def _matching_loaded_instance_id(self) -> str | None:
+        configured_model = self._settings.llm_chat_model
+        instance_ids = self.loaded_model_instance_ids()
+        if self._loaded_chat_model_instance_id in instance_ids:
+            return self._loaded_chat_model_instance_id
+        for instance_id in instance_ids:
+            if _is_instance_of_model(instance_id, configured_model):
+                return instance_id
+        return None
+
     def load_configured_chat_model(self) -> LLMModelLoadResult:
         client = self._client or self._build_client()
         close_client = self._client is None
@@ -271,16 +322,21 @@ class LMStudioNativeProvider:
         client = self._client or self._build_client()
         close_client = self._client is None
         try:
+            chat_model = (
+                self.ensure_configured_chat_model_loaded()
+                if self._settings.llm_auto_load_chat_model and model == self._settings.llm_chat_model
+                else model
+            )
             system_prompt, user_messages = _split_system_prompt(messages)
             payload = {
-                "model": model,
+                "model": chat_model,
                 "input": [{"type": "text", "content": _messages_to_native_input(user_messages)}],
                 "system_prompt": system_prompt,
                 "temperature": temperature,
                 "max_output_tokens": max_tokens,
                 "store": False,
             }
-            if _supports_native_reasoning_toggle(model):
+            if _supports_native_reasoning_toggle(chat_model):
                 payload["reasoning"] = "off"
             response = client.post(
                 "/api/v1/chat",
@@ -298,7 +354,7 @@ class LMStudioNativeProvider:
             ]
             if not content_parts:
                 raise LLMProviderError("LM Studio native API returned no message content")
-            return LLMChatCompletion(model=model, content="\n".join(content_parts))
+            return LLMChatCompletion(model=chat_model, content="\n".join(content_parts))
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise LLMProviderError(str(exc)) from exc
         finally:
@@ -345,6 +401,10 @@ def _split_system_prompt(messages: list[LLMChatMessage]) -> tuple[str, list[LLMC
 
 def _supports_native_reasoning_toggle(model: str) -> bool:
     return "qwen" in model.casefold()
+
+
+def _is_instance_of_model(instance_id: str, configured_model: str) -> bool:
+    return instance_id == configured_model or instance_id.startswith(f"{configured_model}:")
 
 
 def _optional_float(value) -> float | None:

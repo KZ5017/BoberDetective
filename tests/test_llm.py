@@ -6,7 +6,7 @@ from app.core.config import Settings
 from app.services.llm import LMStudioNativeProvider, LLMChatMessage, OpenAICompatibleLocalProvider
 
 
-def _settings() -> Settings:
+def _settings(*, auto_load: bool = True) -> Settings:
     return Settings(
         environment="test",
         data_root=Path("/tmp/boberdetective-test"),
@@ -22,6 +22,7 @@ def _settings() -> Settings:
         llm_eval_batch_size=4096,
         llm_flash_attention=True,
         llm_offload_kv_cache_to_gpu=True,
+        llm_auto_load_chat_model=auto_load,
         max_upload_bytes=1024,
     )
 
@@ -73,7 +74,7 @@ def test_lm_studio_native_provider_uses_reasoning_off() -> None:
         return httpx.Response(200, json={"output": [{"type": "message", "content": "{\"ok\": true}"}]})
 
     client = httpx.Client(base_url="http://llm.local", transport=httpx.MockTransport(handler))
-    provider = LMStudioNativeProvider(_settings(), client)
+    provider = LMStudioNativeProvider(_settings(auto_load=False), client)
 
     result = provider.chat_completion("qwen/qwen3.5-9b", [LLMChatMessage(role="user", content="hello")])
 
@@ -93,7 +94,7 @@ def test_lm_studio_native_provider_omits_reasoning_for_non_reasoning_model() -> 
         return httpx.Response(200, json={"output": [{"type": "message", "content": "{\"ok\": true}"}]})
 
     client = httpx.Client(base_url="http://llm.local", transport=httpx.MockTransport(handler))
-    provider = LMStudioNativeProvider(_settings(), client)
+    provider = LMStudioNativeProvider(_settings(auto_load=False), client)
 
     provider.chat_completion("meta-llama-3.1-8b-instruct", [LLMChatMessage(role="user", content="hello")])
 
@@ -164,3 +165,55 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
         "flash_attention": True,
         "offload_kv_cache_to_gpu": True,
     }
+
+
+def test_lm_studio_native_provider_uses_loaded_instance_when_available() -> None:
+    paths: list[str] = []
+    captured_payload = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(f"{request.method} {request.url.path}")
+        if request.method == "GET" and request.url.path == "/api/v1/models":
+            return httpx.Response(
+                200,
+                json={"models": [{"key": "chat-model", "loaded_instances": [{"id": "chat-model:3"}]}]},
+            )
+        captured_payload.update(__import__("json").loads(request.content))
+        return httpx.Response(200, json={"output": [{"type": "message", "content": "{\"ok\": true}"}]})
+
+    client = httpx.Client(base_url="http://llm.local", transport=httpx.MockTransport(handler))
+    provider = LMStudioNativeProvider(_settings(), client)
+
+    result = provider.chat_completion("chat-model", [LLMChatMessage(role="user", content="hello")])
+
+    assert paths == ["GET /api/v1/models", "POST /api/v1/chat"]
+    assert captured_payload["model"] == "chat-model:3"
+    assert result.model == "chat-model:3"
+
+
+def test_lm_studio_native_provider_auto_loads_missing_configured_chat_model() -> None:
+    paths: list[str] = []
+    captured_payloads: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(f"{request.method} {request.url.path}")
+        if request.method == "GET" and request.url.path == "/api/v1/models":
+            return httpx.Response(200, json={"models": [{"key": "chat-model", "loaded_instances": []}]})
+        payload = __import__("json").loads(request.content)
+        captured_payloads.append(payload)
+        if request.url.path == "/api/v1/models/load":
+            return httpx.Response(
+                200,
+                json={"type": "llm", "instance_id": "chat-model:4", "load_time_seconds": 2.0, "status": "loaded"},
+            )
+        return httpx.Response(200, json={"output": [{"type": "message", "content": "{\"ok\": true}"}]})
+
+    client = httpx.Client(base_url="http://llm.local", transport=httpx.MockTransport(handler))
+    provider = LMStudioNativeProvider(_settings(), client)
+
+    result = provider.chat_completion("chat-model", [LLMChatMessage(role="user", content="hello")])
+
+    assert paths == ["GET /api/v1/models", "POST /api/v1/models/load", "POST /api/v1/chat"]
+    assert captured_payloads[0]["model"] == "chat-model"
+    assert captured_payloads[1]["model"] == "chat-model:4"
+    assert result.model == "chat-model:4"
