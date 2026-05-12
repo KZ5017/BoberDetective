@@ -43,6 +43,7 @@
 - Added synthetic local LLM benchmark for source-faithfulness and JSON-format adherence.
 - Added benchmark scoring tests and raw-output reporting option.
 - Added LM Studio native API provider support for `/api/v1/chat`.
+- Added explicit LM Studio native configured chat-model loading through `/api/v1/system/llm/load-chat-model`.
 - Added native benchmark mode with `reasoning: "off"` for Qwen-style reasoning models.
 - Documented LM Studio native API optimization notes: `max_output_tokens`, `store: false`, `system_prompt`, model-specific reasoning control, and later `/api/v1/models/load` tuning parameters.
 - Added first source-cited analysis smoke endpoint at `POST /api/v1/cases/{case_id}/analysis/source-cited-smoke`.
@@ -147,6 +148,7 @@
 - Smoke-tested keyword search through FastAPI/TestClient against the PostgreSQL-backed app.
 - Applied Alembic migration `0003_source_references` and smoke-tested source-reference creation/validation.
 - Smoke-tested LM Studio model-list reachability through the backend provider endpoint.
+- Smoke-tested LM Studio model loading with `context_length=4096`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; LM Studio echoed the applied load config.
 - Applied Alembic migration `0004_analysis_runs` and smoke-tested analysis run start/input/output/finish/detail retrieval.
 - Ran initial OpenAI-compatible LM Studio model benchmark; Llama was the practical default under `/v1/chat/completions`.
 - Re-ran the benchmark through LM Studio native API with Qwen reasoning disabled; final native run gave Qwen `12/12` and Llama `10/12`.
@@ -181,7 +183,7 @@
 - Smoke-tested missing item candidate JSON/HTML review report exports; both created 1 tracked export item and downloads included `missing_item_candidate`.
 - Latest verification baseline is `95 passed` after missing item export coverage.
 - Improved analysis retrieval fallback for short/inflected Hungarian queries; the formerly failing `Keress hivatkozott mellekletet.` smoke now produces a source-cited missing item candidate.
-- Latest verification baseline is `97 passed` after retrieval fallback coverage.
+- Latest verification baseline is `98 passed` after LM Studio model-load profile coverage.
 - Verified frontend production build with `npm run build`.
 - Verified frontend review action build and targeted backend review tests.
 - Verified frontend source-detail build and targeted review report/export tests.

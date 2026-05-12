@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from app.core.config import get_settings
-from app.services.llm import get_llm_provider
+from app.services.llm import LMStudioNativeProvider, get_llm_provider
 from app.services.storage import StoragePaths
 
 router = APIRouter()
@@ -37,4 +37,16 @@ def llm_smoke() -> dict:
         "configured_embedding_model": result.configured_embedding_model,
         "configured_embedding_model_available": result.configured_embedding_model_available,
         "error_message": result.error_message,
+    }
+
+
+@router.post("/llm/load-chat-model")
+def load_llm_chat_model() -> dict:
+    result = LMStudioNativeProvider(get_settings()).load_configured_chat_model()
+    return {
+        "type": result.type,
+        "instance_id": result.instance_id,
+        "load_time_seconds": result.load_time_seconds,
+        "status": result.status,
+        "load_config": result.load_config,
     }

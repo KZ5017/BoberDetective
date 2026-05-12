@@ -341,6 +341,9 @@ LLM benchmark megjegyzés:
 - Érzékeny iratoknál `store: false` ajánlott.
 - A `system_prompt` mező használata tisztább, mint a system/user szöveg kézi összefűzése.
 - `reasoning: "off"` csak reasoning-et támogató modelleknél küldhető; Llama esetén hibát ad.
+- LM Studio native model-load endpoint használható a konfigurált chat modell explicit betöltésére: `POST /api/v1/system/llm/load-chat-model`.
+- Jelenlegi preferált GPU-orientált load profil: `context_length=4096`, `eval_batch_size=4096`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`.
+- Élő model-load smoke eredmény: `qwen/qwen3.5-9b:2`, `status=loaded`, `load_time_seconds=10.784`, echoed config: `context_length=4096`, `eval_batch_size=4096`, `parallel=4`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`.
 - First source-cited analysis smoke endpoint elkészült: keyword retrieval -> analysis_run inputs -> Qwen native reasoning-off -> quote validation -> source_reference -> analysis_run output.
 - Claim persistence foundation elkészült: `claims` és `claim_sources` táblák, claim list/detail API, source-cited smoke claim mentéssel.
 - Élő smoke eredmény: `analysis 200`, `validation_status=passed`, claim persisted, 1 source, `source_validation_status=source_valid`.
@@ -422,7 +425,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 97 passed
+pytest: 98 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

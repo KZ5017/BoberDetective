@@ -18,6 +18,10 @@ def _settings() -> Settings:
         llm_chat_model="chat-model",
         llm_embedding_model="embedding-model",
         llm_timeout_seconds=1,
+        llm_context_length=4096,
+        llm_eval_batch_size=4096,
+        llm_flash_attention=True,
+        llm_offload_kv_cache_to_gpu=True,
         max_upload_bytes=1024,
     )
 
@@ -114,3 +118,49 @@ def test_lm_studio_native_provider_lists_loaded_models() -> None:
     provider = LMStudioNativeProvider(_settings(), client)
 
     assert [model.id for model in provider.list_models()] == ["chat-model", "embedding-model"]
+
+
+def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly_profile() -> None:
+    captured_payload = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/models/load"
+        captured_payload.update(__import__("json").loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "type": "llm",
+                "instance_id": "chat-model",
+                "load_time_seconds": 1.25,
+                "status": "loaded",
+                "load_config": {
+                    "context_length": 4096,
+                    "eval_batch_size": 4096,
+                    "flash_attention": True,
+                    "offload_kv_cache_to_gpu": True,
+                },
+            },
+        )
+
+    client = httpx.Client(base_url="http://llm.local", transport=httpx.MockTransport(handler))
+    provider = LMStudioNativeProvider(_settings(), client)
+
+    result = provider.load_configured_chat_model()
+
+    assert captured_payload == {
+        "model": "chat-model",
+        "context_length": 4096,
+        "eval_batch_size": 4096,
+        "flash_attention": True,
+        "offload_kv_cache_to_gpu": True,
+        "echo_load_config": True,
+    }
+    assert result.type == "llm"
+    assert result.instance_id == "chat-model"
+    assert result.status == "loaded"
+    assert result.load_config == {
+        "context_length": 4096,
+        "eval_batch_size": 4096,
+        "flash_attention": True,
+        "offload_kv_cache_to_gpu": True,
+    }

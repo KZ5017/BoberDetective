@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 97 passed`, `alembic: 0012_missing_item_candidates (head)`.
+- Current verification baseline: `pytest: 98 passed`, `alembic: 0012_missing_item_candidates (head)`.
 
 Initial implementation exists:
 
@@ -265,6 +265,9 @@ Implementation status:
 - Benchmark result from 2026-05-12 with LM Studio native `/api/v1/chat` and `reasoning: "off"` for Qwen: final run gave `qwen/qwen3.5-9b` `12/12` in 18.3s and `meta-llama-3.1-8b-instruct` `10/12` in 6.2s.
 - Current interpretation: Qwen is the better first quality candidate when called through LM Studio native API with reasoning disabled; Llama remains the faster fallback/control model.
 - LM Studio native API notes captured in `Design_documents/04_runtime_and_deployment_v1.md`: use `max_output_tokens`, not `maxTokens`; prefer `store: false`; prefer `system_prompt`; send `reasoning: "off"` only for reasoning-capable models such as Qwen.
+- Backend now supports explicit LM Studio native chat-model loading through `POST /api/v1/system/llm/load-chat-model`.
+- Current preferred LM Studio load profile is configured as `context_length=4096`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
+- Live model-load smoke accepted the profile and returned `qwen/qwen3.5-9b:2`, `status=loaded`, `load_time_seconds=10.784`, with echoed `parallel=4`.
 - Future native provider refinement: switch benchmark/runtime payload from locally tested `input.type="text"` to documented `input.type="message"` if local testing confirms compatibility.
 - First source-cited analysis smoke works through `POST /api/v1/cases/{case_id}/analysis/source-cited-smoke`.
 - The smoke endpoint retrieves a chunk by keyword search, records query/chunk as analysis run inputs, calls Qwen through LM Studio native API with reasoning disabled, validates quote text against the chunk, creates a source reference, persists a claim, records outputs, and finishes the run with validation status.
@@ -361,7 +364,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `97 passed`.
+- Latest test run: `98 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

@@ -40,6 +40,15 @@ class LLMSmokeResult:
     error_message: str | None = None
 
 
+@dataclass(frozen=True)
+class LLMModelLoadResult:
+    type: str
+    instance_id: str
+    load_time_seconds: float | None
+    status: str
+    load_config: dict | None
+
+
 class LLMProvider(Protocol):
     provider_name: str
 
@@ -221,6 +230,36 @@ class LMStudioNativeProvider:
                 error_message=str(exc),
             )
 
+    def load_configured_chat_model(self) -> LLMModelLoadResult:
+        client = self._client or self._build_client()
+        close_client = self._client is None
+        try:
+            response = client.post(
+                "/api/v1/models/load",
+                json={
+                    "model": self._settings.llm_chat_model,
+                    "context_length": self._settings.llm_context_length,
+                    "eval_batch_size": self._settings.llm_eval_batch_size,
+                    "flash_attention": self._settings.llm_flash_attention,
+                    "offload_kv_cache_to_gpu": self._settings.llm_offload_kv_cache_to_gpu,
+                    "echo_load_config": True,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return LLMModelLoadResult(
+                type=str(payload.get("type", "")),
+                instance_id=str(payload.get("instance_id", "")),
+                load_time_seconds=_optional_float(payload.get("load_time_seconds")),
+                status=str(payload.get("status", "")),
+                load_config=payload.get("load_config") if isinstance(payload.get("load_config"), dict) else None,
+            )
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise LLMProviderError(str(exc)) from exc
+        finally:
+            if close_client:
+                client.close()
+
     def chat_completion(
         self,
         model: str,
@@ -306,3 +345,9 @@ def _split_system_prompt(messages: list[LLMChatMessage]) -> tuple[str, list[LLMC
 
 def _supports_native_reasoning_toggle(model: str) -> bool:
     return "qwen" in model.casefold()
+
+
+def _optional_float(value) -> float | None:
+    if value is None:
+        return None
+    return float(value)
