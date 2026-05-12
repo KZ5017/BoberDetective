@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.review import HumanReviewRead
+
 
 class EntityRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -48,3 +50,4 @@ class EntityMentionRead(BaseModel):
 class EntityDetail(BaseModel):
     entity: EntityRead
     mentions: list[EntityMentionRead]
+    reviews: list[HumanReviewRead]

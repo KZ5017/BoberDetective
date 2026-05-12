@@ -368,6 +368,9 @@ LLM benchmark megjegyzés:
 - Entity persistence foundation elkészült: `entities` és `entity_mentions` táblák.
 - `extract_entities` analysis module elkészült source reference + mention alapon.
 - Élő `extract_entities` smoke eredmény: `analysis 200`, 2 person entity, 2 mention, source reference kapcsolattal.
+- Entity review workflow foundation elkészült: `POST /api/v1/cases/{case_id}/entities/{entity_id}/reviews`.
+- Entity review `entities.review_status` mezőt frissít, append-only `human_reviews` rekordot és `entity_review_recorded` audit eseményt ír.
+- Élő entity review smoke eredmény: `review 200`, entity `verified`, review history count 1.
 
 Adatbázis és Docker döntés:
 
@@ -387,7 +390,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 63 passed
+pytest: 65 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

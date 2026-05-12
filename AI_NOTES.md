@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 63 passed`, `alembic: 0009_entities (head)`.
+- Current verification baseline: `pytest: 65 passed`, `alembic: 0009_entities (head)`.
 
 Initial implementation exists:
 
@@ -53,6 +53,7 @@ Initial implementation exists:
 - shared review service helper,
 - entity persistence foundation,
 - `extract_entities` module foundation,
+- entity review workflow foundation,
 - pytest smoke tests.
 
 Completed design documents:
@@ -191,7 +192,7 @@ Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
 2. Broaden source-cited analysis modules beyond `extract_claims` and `extract_events`.
-3. Add entity review workflow.
+3. Add entities to review report and exports.
 
 Environment verification notes:
 
@@ -264,8 +265,12 @@ Implementation status:
 - Live event review smoke result: `review 200`, event moved to `verified`, review history count 1.
 - Entity list/detail works through `GET /api/v1/cases/{case_id}/entities` and `GET /api/v1/cases/{case_id}/entities/{entity_id}`.
 - Live `extract_entities` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted person entities with mentions and source references.
+- Entity review works through `POST /api/v1/cases/{case_id}/entities/{entity_id}/reviews`.
+- Supported entity review actions: `verify`, `reject`, `mark_needs_review`, `comment`.
+- Entity review updates `entities.review_status`, writes append-only `human_reviews` records, and writes `entity_review_recorded` audit events.
+- Live entity review smoke result: `review 200`, entity moved to `verified`, review history count 1.
 - Shared review helper exists in `app/services/reviews.py`.
-- Claim, event, and export review workflows now use the shared helper for status mapping, review history listing, append-only review record creation, and audit writing.
+- Claim, entity, event, and export review workflows now use the shared helper for status mapping, review history listing, append-only review record creation, and audit writing.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.
 - Live `extract_events` module smoke result: `analysis 200`, `validation_status=passed`, 1 persisted event.
 - Keyword search now uses sanitized prefix `to_tsquery` terms so simple Hungarian suffix cases like `kapu` matching `kaput` are less brittle.
@@ -286,7 +291,7 @@ Implementation status:
 - Export review writes `human_reviews` records with `object_type=export` and `export_review_recorded` audit events.
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
-- Latest test run: `63 passed`.
+- Latest test run: `65 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

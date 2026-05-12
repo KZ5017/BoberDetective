@@ -49,10 +49,11 @@ Completed:
 - Shared review service helper for claim/event/export review logic
 - Entity persistence foundation with `entities` and `entity_mentions`
 - `extract_entities` analysis module foundation
+- Entity review workflow foundation
 
 Next:
 
-- Entity review workflow
+- Add entities to review report and exports
 - Broaden source-cited analysis modules beyond `extract_claims` and `extract_events`
 
 ## Design documents
@@ -111,6 +112,7 @@ Initial backend scaffold exists under `app/` with:
 - `human_reviews` append-only review history for claims
 - generalized `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}` endpoint, currently supporting `extract_claims` and `extract_events`
 - entity list/detail API
+- entity review API with append-only human review history
 - `extract_entities` analysis module
 - `events` and `event_sources` persistence with source reference linkage
 - event list/detail API
@@ -119,7 +121,7 @@ Initial backend scaffold exists under `app/` with:
 - case review report API at `GET /api/v1/cases/{case_id}/review-report`
 - JSON/HTML review report export API with export item tracking and download endpoint
 - export review API with append-only human review history
-- shared review helper used by claim, event, and export review workflows
+- shared review helper used by claim, entity, event, and export review workflows
 - pytest smoke tests
 
 Development services:

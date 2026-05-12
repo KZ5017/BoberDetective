@@ -22,7 +22,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 63 passed
+pytest: 65 passed
 alembic: 0009_entities (head)
 ```
 
@@ -42,8 +42,8 @@ alembic: 0009_entities (head)
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint.
 - JSON and HTML review report export with SHA256 and export item tracking.
-- Append-only human review history for claims, events, and exports.
-- Shared review helper for claim/event/export review mapping, listing, record creation, and audit writing.
+- Append-only human review history for claims, entities, events, and exports.
+- Shared review helper for claim/entity/event/export review mapping, listing, record creation, and audit writing.
 
 ## Current Tables
 
@@ -105,6 +105,7 @@ Reviewable objects:
 - `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`
 - `GET /api/v1/cases/{case_id}/entities`
 - `GET /api/v1/cases/{case_id}/entities/{entity_id}`
+- `POST /api/v1/cases/{case_id}/entities/{entity_id}/reviews`
 - `GET /api/v1/cases/{case_id}/review-report`
 
 Exports:
@@ -146,7 +147,7 @@ The latest live smoke completed this path successfully.
 Recommended order:
 
 1. Create and push the first baseline Git commit.
-2. Add entity review workflow.
+2. Add entities to review report and export output.
 3. Add richer review report filtering.
 4. Start a minimal frontend only after the backend review/export loop is stable.
 

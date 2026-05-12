@@ -92,6 +92,10 @@
 - Added entity list/detail API endpoints.
 - Added `extract_entities` analysis module with keyword chunk retrieval, LM Studio native execution, quote validation, source-reference creation, entity/mention persistence, and analysis run provenance.
 - Added entity service and entity extraction validation tests.
+- Added entity review API at `POST /api/v1/cases/{case_id}/entities/{entity_id}/reviews`.
+- Added append-only entity review history to entity detail responses.
+- Added `entity_review_recorded` audit events.
+- Added entity review status mapping and validation tests.
 
 ### Changed
 
@@ -128,6 +132,7 @@
 - Smoke-tested event review; an extracted event was marked `verified` through append-only human review history.
 - Refactored claim, event, and export review workflows to use the shared review helper for mapping, listing, record creation, and audit writing.
 - Applied Alembic migration `0009_entities` and smoke-tested `extract_entities`; validation passed and 2 person entities were persisted with mentions.
+- Smoke-tested entity review; an extracted entity was marked `verified` through append-only human review history.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

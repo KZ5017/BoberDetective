@@ -1,13 +1,17 @@
 from uuid import UUID
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.analysis import AnalysisRunModel
 from app.models.entity import EntityMentionModel, EntityModel
+from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
+from app.services.reviews import list_object_reviews, record_object_review, review_status_for_action
 from app.services.storage import StoragePaths
 
 
@@ -48,6 +52,43 @@ def list_entity_mentions(db: Session, entity_id: UUID) -> list[EntityMentionMode
             .order_by(EntityMentionModel.created_at.asc())
         ).scalars()
     )
+
+
+def list_entity_reviews(db: Session, entity_id: UUID) -> list[HumanReviewModel]:
+    return list_object_reviews(db, "entity", entity_id)
+
+
+def review_entity(
+    db: Session,
+    *,
+    case_id: UUID,
+    entity_id: UUID,
+    action_type: str,
+    review_comment: str | None = None,
+) -> EntityModel:
+    entity = get_entity(db, case_id, entity_id)
+    previous_status = entity.review_status
+    new_status = _review_status_for_action(action_type, previous_status)
+
+    if new_status is not None:
+        entity.review_status = new_status
+        entity.updated_at = datetime.now(UTC)
+        db.add(entity)
+
+    record_object_review(
+        db,
+        case_id=case_id,
+        object_type="entity",
+        object_id=entity.id,
+        action_type=action_type,
+        previous_status=previous_status,
+        new_status=new_status,
+        review_comment=review_comment,
+        audit_event_type="entity_review_recorded",
+    )
+    db.commit()
+    db.refresh(entity)
+    return entity
 
 
 def create_entity_with_mention(
@@ -123,3 +164,7 @@ def create_entity_with_mention(
     db.refresh(entity)
     db.refresh(mention)
     return entity, mention
+
+
+def _review_status_for_action(action_type: str, previous_status: str) -> str | None:
+    return review_status_for_action(action_type, previous_status, EntityValidationError)
