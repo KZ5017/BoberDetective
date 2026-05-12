@@ -24,6 +24,7 @@ Current workflows:
 - TXT import,
 - analysis module run,
 - review report filtering,
+- source detail and review history inspection,
 - review actions for report items,
 - JSON/HTML export creation and download.
 

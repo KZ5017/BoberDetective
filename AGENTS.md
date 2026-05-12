@@ -200,6 +200,7 @@ Current implementation caveats:
 - Latest retrieval smoke: `Keress hivatkozott mellekletet.` now succeeds after Hungarian suffix fallback tuning.
 - Minimal React/Vite frontend scaffold exists under `frontend/`.
 - Frontend review actions exist for review report items through allowlisted API paths.
+- Frontend report items show source details and review history.
 - Latest frontend verification: `npm run build` passed.
 
 ## Security Baseline

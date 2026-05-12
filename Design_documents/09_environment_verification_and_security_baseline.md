@@ -394,6 +394,7 @@ LLM benchmark megjegyzés:
 - Élő rövid-query smoke eredmény: a korábban elbukó `Keress hivatkozott mellekletet.` lekérdezés `analysis 200`, `validation_status=passed`, 1 source-cited `attachment` candidate.
 - Minimal React/Vite frontend scaffold elkészült `frontend/` alatt. A dev szerver `/api` proxyval kapcsolódik a lokális backendhez, backend CORS lazítás nélkül.
 - Frontend review actions elkészültek allowlistelt objektumtípus -> review endpoint térképpel.
+- Frontend source detail megjelenítés elkészült: source reference lista, citation, page/chunk hint, quote/excerpt offsetek, source excerpt, dokumentum hash és review history.
 - Frontend build ellenőrzés: `npm run build` sikeres.
 
 Adatbázis és Docker döntés:

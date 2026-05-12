@@ -63,6 +63,7 @@ export function App() {
   const [reviewComments, setReviewComments] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   const selectedCase = useMemo(() => cases.find((item) => item.id === selectedCaseId), [cases, selectedCaseId]);
 
@@ -73,6 +74,7 @@ export function App() {
   async function perform(label: string, action: () => Promise<void>) {
     setBusy(label);
     setError("");
+    setNotice("");
     try {
       await action();
     } catch (err) {
@@ -102,6 +104,7 @@ export function App() {
       setSelectedCaseId(created.id);
       setCaseName("");
       setCaseReference("");
+      setNotice("Ugy letrehozva.");
     });
   }
 
@@ -110,6 +113,7 @@ export function App() {
     await perform("import", async () => {
       await importDocument(selectedCaseId, file, documentType);
       setFile(null);
+      setNotice("Irat import kesz.");
     });
   }
 
@@ -120,6 +124,7 @@ export function App() {
       setAnalysis(response);
       const reportResponse = await getReviewReport(selectedCaseId, objectType || undefined);
       setReport(reportResponse);
+      setNotice("Elemzes lefutott, report frissitve.");
     });
   }
 
@@ -127,6 +132,7 @@ export function App() {
     if (!selectedCaseId) return;
     await perform("report", async () => {
       setReport(await getReviewReport(selectedCaseId, objectType || undefined));
+      setNotice("Review report frissitve.");
     });
   }
 
@@ -134,6 +140,7 @@ export function App() {
     if (!selectedCaseId) return;
     await perform(`export-${exportType}`, async () => {
       setLastExport(await createExport(selectedCaseId, exportType, objectType || undefined));
+      setNotice(`${exportType.toUpperCase()} export elkeszult.`);
     });
   }
 
@@ -144,6 +151,7 @@ export function App() {
       await reviewObject(selectedCaseId, itemObjectType, objectId, actionType, comment);
       setReviewComments((current) => ({ ...current, [objectId]: "" }));
       setReport(await getReviewReport(selectedCaseId, objectType || undefined));
+      setNotice("Review rogzítve, report frissitve.");
     });
   }
 
@@ -162,6 +170,7 @@ export function App() {
       </header>
 
       {error && <div className="notice error">{error}</div>}
+      {notice && <div className="notice success">{notice}</div>}
 
       <section className="workspace">
         <aside className="sidebar">
@@ -294,8 +303,39 @@ export function App() {
                         <span>{item.review_status}</span>
                         <span>{item.source_validation_status}</span>
                         <span>{item.reviews.length} review</span>
+                        <span>{item.sources.length} source</span>
                       </div>
-                      {item.sources[0] && <blockquote>{item.sources[0].quote_text}</blockquote>}
+                      <div className="source-list">
+                        {item.sources.map((source, index) => (
+                          <details key={source.source_reference_id} className="source-detail" open={index === 0}>
+                            <summary>
+                              Source {index + 1}: {source.document_filename ?? "document"} {source.page_number ? `p.${source.page_number}` : ""} {source.chunk_index !== null ? `chunk ${source.chunk_index}` : ""}
+                            </summary>
+                            <div className="source-meta">
+                              <span>{source.support_type}</span>
+                              <span>rank {source.relevance_rank ?? index}</span>
+                              <span>{source.citation_label ?? "no citation label"}</span>
+                              <span>quote {formatRange(source.quote_char_start, source.quote_char_end)}</span>
+                              <span>excerpt {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
+                            </div>
+                            <blockquote>{source.quote_text}</blockquote>
+                            {source.source_text_excerpt && <p className="excerpt">{source.source_text_excerpt}</p>}
+                            {source.document_sha256_hash && <code className="hash">{source.document_sha256_hash}</code>}
+                          </details>
+                        ))}
+                      </div>
+                      {item.reviews.length > 0 && (
+                        <div className="history">
+                          {item.reviews.map((review) => (
+                            <div key={review.id}>
+                              <strong>{review.action_type}</strong>
+                              <span>{review.new_review_status ?? "comment"}</span>
+                              <span>{new Date(review.performed_at).toLocaleString()}</span>
+                              {review.review_comment && <p>{review.review_comment}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className="review-row">
                         <input
                           value={reviewComments[item.object_id] ?? ""}
@@ -347,4 +387,11 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function formatRange(start: number | null, end: number | null) {
+  if (start === null || end === null) {
+    return "-";
+  }
+  return `${start}-${end}`;
 }

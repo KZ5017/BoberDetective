@@ -252,7 +252,8 @@ label {
 }
 
 .report-item p,
-.report-item blockquote {
+.report-item blockquote,
+.source-detail summary {
   color: #52616b;
   font-size: 0.9rem;
 }
@@ -261,6 +262,75 @@ label {
   border-left: 4px solid #2d7a78;
   margin: 0;
   padding-left: 0.75rem;
+}
+
+.source-list,
+.history {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.source-detail {
+  background: #f8fafb;
+  border: 1px solid #d7dde2;
+  border-radius: 6px;
+  padding: 0.65rem;
+}
+
+.source-detail summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.source-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.6rem 0;
+}
+
+.source-meta span {
+  background: #ffffff;
+  border: 1px solid #d7dde2;
+  border-radius: 999px;
+  color: #52616b;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.18rem 0.5rem;
+}
+
+.excerpt {
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 0.55rem;
+}
+
+.hash {
+  color: #52616b;
+  display: block;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.history {
+  border-top: 1px solid #d7dde2;
+  padding-top: 0.6rem;
+}
+
+.history div {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.history span {
+  color: #65737d;
+  font-size: 0.78rem;
+}
+
+.history p {
+  flex-basis: 100%;
 }
 
 .notice {
@@ -272,6 +342,11 @@ label {
 .error {
   background: #fff1f0;
   color: #9d1c12;
+}
+
+.success {
+  background: #eef8f1;
+  color: #166534;
 }
 
 .export-box {

@@ -9,10 +9,20 @@ export type CaseRead = {
 
 export type ReviewReportSource = {
   source_reference_id: string;
+  document_id: string;
   document_filename: string | null;
+  document_sha256_hash: string | null;
+  page_number: number | null;
+  chunk_index: number | null;
+  quote_char_start: number | null;
+  quote_char_end: number | null;
+  source_text_excerpt_char_start: number | null;
+  source_text_excerpt_char_end: number | null;
   citation_label: string | null;
   quote_text: string;
   source_text_excerpt: string | null;
+  support_type: string;
+  relevance_rank: number | null;
 };
 
 export type ReviewReportItem = {

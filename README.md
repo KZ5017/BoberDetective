@@ -68,10 +68,11 @@ Completed:
 - Analysis retrieval fallback improved for short/inflected Hungarian queries such as `mellekletet`
 - Minimal React/Vite workbench frontend scaffold
 - Frontend review actions for review report items
+- Frontend source detail and review history display for report items
 
 Next:
 
-- Frontend workflow hardening for object details and safer long-running analysis feedback
+- Safer long-running analysis feedback in the frontend
 
 ## Design documents
 
@@ -155,4 +156,4 @@ Frontend:
 - React/Vite scaffold under `frontend/`
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
-- Current UI workflows: case create/list, TXT import, analysis run, review report filtering, review actions, JSON/HTML export
+- Current UI workflows: case create/list, TXT import, analysis run, review report filtering, source detail inspection, review history, review actions, JSON/HTML export
