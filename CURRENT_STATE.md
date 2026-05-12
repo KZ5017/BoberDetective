@@ -168,13 +168,20 @@ Latest `summarize_case` live smoke:
 - Result: `analysis 200`, `validation_status=passed`, 3 summary items, all `needs_review` and `source_valid`.
 - Review report with `object_type=summary_item` returned 3 source-cited items.
 
+Latest `detect_contradiction_candidates` live smoke:
+
+- Imported a TXT sample with two source-cited claims about different phone call times.
+- `extract_claims` produced 2 claims.
+- `detect_contradiction_candidates` returned `analysis 200`, `validation_status=passed`, 1 `time_conflict` candidate.
+- Candidate was `needs_review`, `source_valid`, and had two source references.
+- Review report with `object_type=contradiction_candidate` returned the candidate with expanded source details.
+
 ## Next Logical Steps
 
 Recommended order:
 
-1. Smoke-test `detect_contradiction_candidates` end-to-end against LM Studio on a sample with conflicting claims.
-2. Add missing-item candidate foundation.
-3. Start a minimal frontend only after the backend review/export loop is stable.
+1. Add missing-item candidate foundation.
+2. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes
 

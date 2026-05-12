@@ -64,6 +64,7 @@ Initial implementation exists:
 - live `summarize_case` smoke passed with the original broad query after retrieval fallback,
 - contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion,
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs,
+- live `detect_contradiction_candidates` smoke passed on a two-claim time conflict sample,
 - pytest smoke tests.
 
 Completed design documents:
@@ -201,8 +202,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Smoke-test `detect_contradiction_candidates` end-to-end against LM Studio on a sample with conflicting claims.
-3. Add missing-item candidate foundation.
+2. Add missing-item candidate foundation.
 
 Environment verification notes:
 
@@ -270,6 +270,8 @@ Implementation status:
 - The `extract_entities` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_entities_v1` prompt, validates each returned mention quote against the labeled source chunk, creates source references, persists entities/entity_mentions, records outputs, and finishes the analysis run.
 - The `summarize_case` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `summarize_case_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists summary_items/summary_item_sources, records outputs, and finishes the analysis run.
 - The `detect_contradiction_candidates` module takes existing source-cited claims, records them as analysis inputs, calls LM Studio native with the `detect_contradiction_candidates_v1` prompt, validates returned claim labels, persists contradiction_candidates/contradiction_candidate_sources, records outputs, and finishes the analysis run.
+- Live `detect_contradiction_candidates` smoke result: imported a TXT sample with two different phone call times, `extract_claims` produced 2 source-cited claims, contradiction detection returned `analysis 200`, `validation_status=passed`, 1 `time_conflict` candidate with 2 source references.
+- Review report smoke for `object_type=contradiction_candidate` returned the candidate with expanded source details.
 - Analysis module retrieval now tries the original query, a normalized significant-term query, and individual normalized terms. This keeps the public search API strict while making analysis modules less brittle for natural Hungarian prompts.
 - Live `summarize_case` smoke result: the original broad/accented query now returned `analysis 200`, `validation_status=passed`, 3 persisted summary items, all `needs_review` and `source_valid`.
 - Review report smoke for `object_type=summary_item` returned 3 source-cited summary items with expanded source details.

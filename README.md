@@ -60,10 +60,10 @@ Completed:
 - Live `summarize_case` smoke passed with the original broad query after retrieval fallback
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs
+- Live `detect_contradiction_candidates` smoke passed on a two-claim time conflict sample
 
 Next:
 
-- Live `detect_contradiction_candidates` smoke test with LM Studio
 - Missing-item candidate foundation
 
 ## Design documents

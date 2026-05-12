@@ -156,6 +156,7 @@
 - Re-smoke-tested `summarize_case` with the original broad/accented query after retrieval fallback; it produced 3 source-cited summary items.
 - Applied Alembic migration `0011_contradiction_candidates`; latest verification baseline is `84 passed`.
 - Latest verification baseline is `86 passed` after contradiction detection module validation tests.
+- Smoke-tested `detect_contradiction_candidates` against LM Studio; a two-claim phone-call time conflict sample produced 1 source-cited `time_conflict` candidate and review report inclusion.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10
