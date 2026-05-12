@@ -39,6 +39,7 @@ alembic: 0009_entities (head)
 - Analysis run provenance.
 - Source-cited `extract_claims` and `extract_events` modules.
 - Source-cited `extract_entities` module.
+- Analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity services.
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint with object type, review status, source validation filters, and expanded source details.
 - JSON and HTML review report export with SHA256, claim/entity/event item tracking, report filters, and expanded source details.
@@ -147,8 +148,8 @@ The latest live smoke completed this path successfully.
 
 Recommended order:
 
-1. Consider splitting the growing analysis module service into module-specific files.
-2. Add first summary item foundation after the analysis module service is easier to maintain.
+1. Add first summary item foundation.
+2. Add contradiction or missing-item candidate foundation after summary items.
 3. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes

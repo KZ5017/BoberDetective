@@ -378,6 +378,7 @@ LLM benchmark megjegyzés:
 - Élő filtered report/export smoke eredmény: entity-only, `needs_review`, `source_valid` report `200`, JSON export `201`, 2 entity export item.
 - Source/reference detail expansion elkészült a review report source objektumokban: dokumentum fájlnév/SHA256, quote offsetek, chunk/page metaadatok és kontrollált hosszúságú forrásszöveg excerpt.
 - JSON/HTML exportok ugyanezeket a source detail mezőket viszik tovább; a HTML export továbbra is escape-el minden document/LLM/user eredetű szöveget.
+- Analysis module service cleanup elkészült: a közös retrieval/JSON segédek külön fájlba kerültek, a claim/event/entity modulok pedig saját service fájlokat kaptak. Az `analysis_modules.py` vékony public façade maradt.
 
 Adatbázis és Docker döntés:
 

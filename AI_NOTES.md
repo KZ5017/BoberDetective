@@ -57,6 +57,7 @@ Initial implementation exists:
 - review report filtering by object type, review status, and source validation status,
 - review report export filters through `report_filters`,
 - expanded review report source details with document metadata, offsets, chunk/page metadata, and bounded source excerpts,
+- analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity services,
 - pytest smoke tests.
 
 Completed design documents:
@@ -194,8 +195,8 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Consider splitting the growing analysis module service into module-specific files.
-3. Add first summary item foundation after the analysis module service is easier to maintain.
+2. Add first summary item foundation.
+3. Add contradiction or missing-item candidate foundation after summary items.
 
 Environment verification notes:
 
@@ -257,6 +258,7 @@ Implementation status:
 - Live review smoke result: claim moved to `verified`, review history count 1.
 - Generalized analysis module execution now exists through `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}`.
 - Currently supported module keys: `extract_claims`, `extract_events`, `extract_entities`.
+- Analysis module implementation is split across `app/services/analysis_module_common.py`, `analysis_module_claims.py`, `analysis_module_events.py`, and `analysis_module_entities.py`; `analysis_modules.py` remains the thin public façade for API and compatibility imports.
 - The `extract_claims` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_claims_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists claims, records outputs, and finishes the analysis run.
 - The `extract_events` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_events_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists events/event_sources, records outputs, and finishes the analysis run.
 - The `extract_entities` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_entities_v1` prompt, validates each returned mention quote against the labeled source chunk, creates source references, persists entities/entity_mentions, records outputs, and finishes the analysis run.
