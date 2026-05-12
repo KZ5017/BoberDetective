@@ -22,7 +22,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 65 passed
+pytest: 67 passed
 alembic: 0009_entities (head)
 ```
 
@@ -40,8 +40,8 @@ alembic: 0009_entities (head)
 - Source-cited `extract_claims` and `extract_events` modules.
 - Source-cited `extract_entities` module.
 - Claim, event, source, review, export, and audit persistence.
-- Case review report endpoint.
-- JSON and HTML review report export with SHA256 and claim/entity/event item tracking.
+- Case review report endpoint with object type, review status, and source validation filters.
+- JSON and HTML review report export with SHA256, claim/entity/event item tracking, and report filters.
 - Append-only human review history for claims, entities, events, and exports.
 - Shared review helper for claim/entity/event/export review mapping, listing, record creation, and audit writing.
 
@@ -107,6 +107,7 @@ Reviewable objects:
 - `GET /api/v1/cases/{case_id}/entities/{entity_id}`
 - `POST /api/v1/cases/{case_id}/entities/{entity_id}/reviews`
 - `GET /api/v1/cases/{case_id}/review-report`
+  - Optional filters: `object_type`, `review_status`, `source_validation_status`
 
 Exports:
 
@@ -146,10 +147,9 @@ The latest live smoke completed this path successfully.
 
 Recommended order:
 
-1. Create and push the first baseline Git commit.
-2. Add richer review report filtering.
-3. Add source/reference detail expansion in report output.
-4. Start a minimal frontend only after the backend review/export loop is stable.
+1. Add source/reference detail expansion in report output.
+2. Consider splitting the growing analysis module service into module-specific files.
+3. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes
 

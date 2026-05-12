@@ -66,7 +66,7 @@ Git repository initialized on branch main.
 
 Megjegyzés:
 
-Initial commit még nem készült. A `.gitignore` kizárja a `.venv`, cache, `__pycache__` és `*.egg-info` generált fájlokat.
+A repository már `main` ágon követi az `origin/main` távoli ágat. A `.gitignore` kizárja a `.venv`, cache, `__pycache__` és `*.egg-info` generált fájlokat.
 
 Talált extra Windows metadata fájlok:
 
@@ -373,6 +373,9 @@ LLM benchmark megjegyzés:
 - Élő entity review smoke eredmény: `review 200`, entity `verified`, review history count 1.
 - Entity elemek bekerültek a case review reportba és a JSON/HTML review report exportokba is, mention/source_reference kapcsolaton keresztül.
 - Élő entity report/export smoke eredmény: `report 200`, 2 entity item source-szal; HTML export `201`, 2 entity export item.
+- Richer review report filtering elkészült: `object_type`, `review_status`, és `source_validation_status` query filterek a review report endpointon.
+- JSON/HTML review report exportoknál `report_filters` payload mezővel ugyanaz a szűrés rögzíthető az export paraméterei és metadata tartalma között.
+- Élő filtered report/export smoke eredmény: entity-only, `needs_review`, `source_valid` report `200`, JSON export `201`, 2 entity export item.
 
 Adatbázis és Docker döntés:
 
@@ -392,7 +395,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 65 passed
+pytest: 67 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

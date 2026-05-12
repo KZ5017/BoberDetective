@@ -14,7 +14,7 @@ from app.models.review import HumanReviewModel
 from app.schemas.export import ExportCreate
 from app.schemas.review_report import CaseReviewReport, ReviewReportItem
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
-from app.services.review_report import build_case_review_report
+from app.services.review_report import ReviewReportValidationError, build_case_review_report
 from app.services.reviews import latest_review_status, list_object_reviews, record_object_review, review_status_for_action
 from app.services.storage import StoragePaths
 from app.services.users import get_or_create_dev_user
@@ -95,7 +95,10 @@ def create_review_report_export(db: Session, case_id: UUID, payload: ExportCreat
     if payload.export_type not in {"json", "html"} or payload.export_scope != "review_report":
         raise ExportValidationError("Only review_report JSON and HTML export are supported")
 
-    report = build_case_review_report(db, case_id)
+    try:
+        report = build_case_review_report(db, case_id, payload.report_filters)
+    except ReviewReportValidationError as exc:
+        raise ExportValidationError(str(exc)) from exc
     filtered_items = _filter_report_items(report.items, payload.review_filter, payload.require_source_valid)
     content = _build_export_content(report, filtered_items, payload)
     sha256_hash = hashlib.sha256(content).hexdigest()
@@ -109,7 +112,10 @@ def create_review_report_export(db: Session, case_id: UUID, payload: ExportCreat
         sha256_hash=sha256_hash,
         exported_by_user_id=user.id,
         review_filter=payload.review_filter,
-        export_parameters={"require_source_valid": payload.require_source_valid},
+        export_parameters={
+            "require_source_valid": payload.require_source_valid,
+            "report_filters": payload.report_filters.model_dump() if payload.report_filters is not None else None,
+        },
     )
     db.add(export)
     db.flush()
@@ -142,6 +148,7 @@ def create_review_report_export(db: Session, case_id: UUID, payload: ExportCreat
             "export_scope": payload.export_scope,
             "review_filter": payload.review_filter,
             "require_source_valid": payload.require_source_valid,
+            "report_filters": payload.report_filters.model_dump() if payload.report_filters is not None else None,
         },
         output_summary={
             "export_id": str(export.id),
@@ -202,6 +209,7 @@ def _build_export_payload(
             "export_scope": payload.export_scope,
             "review_filter": payload.review_filter,
             "require_source_valid": payload.require_source_valid,
+            "report_filters": payload.report_filters.model_dump() if payload.report_filters is not None else None,
             "generated_at": datetime.now(UTC).isoformat(),
             "item_count": len(filtered_items),
         },
@@ -255,6 +263,7 @@ def _build_html_export(
       <tr><th>Export scope</th><td>{_e(payload.export_scope)}</td></tr>
       <tr><th>Review filter</th><td>{_e(payload.review_filter)}</td></tr>
       <tr><th>Require source valid</th><td>{_e(str(payload.require_source_valid))}</td></tr>
+      <tr><th>Report filters</th><td>{_e(json.dumps(payload.report_filters.model_dump() if payload.report_filters is not None else None, sort_keys=True))}</td></tr>
       <tr><th>Item count</th><td>{len(filtered_items)}</td></tr>
     </table>
   </header>

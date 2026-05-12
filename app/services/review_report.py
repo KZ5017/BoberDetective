@@ -10,14 +10,56 @@ from app.models.event import EventModel, EventSourceModel
 from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
 from app.schemas.review import HumanReviewRead
-from app.schemas.review_report import CaseReviewReport, ReviewReportCounts, ReviewReportItem, ReviewReportSource
+from app.schemas.review_report import CaseReviewReport, ReviewReportCounts, ReviewReportFilters, ReviewReportItem, ReviewReportSource
 
 
-def build_case_review_report(db: Session, case_id: UUID) -> CaseReviewReport:
+ALLOWED_OBJECT_TYPES = {"claim", "entity", "event"}
+ALLOWED_REVIEW_STATUSES = {"new", "needs_review", "verified", "rejected", "corrected"}
+ALLOWED_SOURCE_VALIDATION_STATUSES = {"pending_source_validation", "source_valid", "source_invalid"}
+
+
+class ReviewReportValidationError(ValueError):
+    pass
+
+
+def build_case_review_report(
+    db: Session,
+    case_id: UUID,
+    filters: ReviewReportFilters | None = None,
+) -> CaseReviewReport:
     items = _claim_items(db, case_id) + _entity_items(db, case_id) + _event_items(db, case_id)
+    items = _filter_items(items, filters or ReviewReportFilters())
     items.sort(key=lambda item: (item.review_status != "needs_review", item.created_at), reverse=False)
     counts = _build_counts([item.review_status for item in items])
     return CaseReviewReport(case_id=case_id, counts=counts, items=items)
+
+
+def _filter_items(items: list[ReviewReportItem], filters: ReviewReportFilters) -> list[ReviewReportItem]:
+    object_types = _normalized_filter_values(filters.object_types, ALLOWED_OBJECT_TYPES, "object_type")
+    review_statuses = _normalized_filter_values(filters.review_statuses, ALLOWED_REVIEW_STATUSES, "review_status")
+    source_validation_statuses = _normalized_filter_values(
+        filters.source_validation_statuses,
+        ALLOWED_SOURCE_VALIDATION_STATUSES,
+        "source_validation_status",
+    )
+    filtered = items
+    if object_types is not None:
+        filtered = [item for item in filtered if item.object_type in object_types]
+    if review_statuses is not None:
+        filtered = [item for item in filtered if item.review_status in review_statuses]
+    if source_validation_statuses is not None:
+        filtered = [item for item in filtered if item.source_validation_status in source_validation_statuses]
+    return filtered
+
+
+def _normalized_filter_values(values: list[str] | None, allowed_values: set[str], field_name: str) -> set[str] | None:
+    if values is None:
+        return None
+    normalized = {value.strip() for value in values if value.strip()}
+    invalid_values = normalized - allowed_values
+    if invalid_values:
+        raise ReviewReportValidationError(f"Unsupported {field_name} filter value")
+    return normalized or None
 
 
 def _claim_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:

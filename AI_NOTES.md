@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 65 passed`, `alembic: 0009_entities (head)`.
+- Current verification baseline: `pytest: 67 passed`, `alembic: 0009_entities (head)`.
 
 Initial implementation exists:
 
@@ -54,6 +54,8 @@ Initial implementation exists:
 - entity persistence foundation,
 - `extract_entities` module foundation,
 - entity review workflow foundation,
+- review report filtering by object type, review status, and source validation status,
+- review report export filters through `report_filters`,
 - pytest smoke tests.
 
 Completed design documents:
@@ -191,14 +193,14 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Broaden source-cited analysis modules beyond `extract_claims` and `extract_events`.
-3. Add richer review report filtering.
+2. Add source/reference detail expansion in report output.
+3. Consider splitting the growing analysis module service into module-specific files.
 
 Environment verification notes:
 
 - WSL Ubuntu 24.04 is ready.
 - Python 3.12, Git, Node/npm, curl, Make, Docker CLI, Docker Compose, PostgreSQL CLI, Tesseract, and ShellCheck are available.
-- Git repository is initialized on branch `main`; initial commit has not been created.
+- Git repository is initialized on branch `main` and tracks `origin/main`.
 - Docker daemon access works for `bober`.
 - PostgreSQL and Qdrant are running through Docker Compose.
 - PostgreSQL is reachable at `127.0.0.1:5432`.
@@ -276,13 +278,14 @@ Implementation status:
 - Keyword search now uses sanitized prefix `to_tsquery` terms so simple Hungarian suffix cases like `kapu` matching `kaput` are less brittle.
 - Case review report works through `GET /api/v1/cases/{case_id}/review-report`.
 - The review report is read-only and returns combined claim/entity/event items with review status, source validation status, source references, quote text, analysis run id, and review history.
+- Review report supports optional query filters: `object_type`, `review_status`, and `source_validation_status`.
 - Live review report smoke result: `report 200`, 3 total items, 3 `needs_review`, each with 1 source.
 - Entity items are included in review report and JSON/HTML review report exports through their source-linked mentions.
 - Live entity report/export smoke result: `report 200`, 2 entity items with sources; HTML export `201`, 2 entity export items.
 - JSON review report export works through `POST /api/v1/cases/{case_id}/exports`.
 - Export list/detail/download work through `GET /api/v1/cases/{case_id}/exports`, `GET /api/v1/cases/{case_id}/exports/{export_id}`, and `GET /api/v1/cases/{case_id}/exports/{export_id}/download`.
 - Export creation writes a JSON file under the case export directory, records SHA256, creates `export_items`, and writes DB + JSONL audit.
-- Supported first export request: `export_type=json` or `html`, `export_scope=review_report`, with `review_filter` values `all`, `verified_only`, `needs_review`, `rejected`, and `require_source_valid`.
+- Supported first export request: `export_type=json` or `html`, `export_scope=review_report`, with `review_filter` values `all`, `verified_only`, `needs_review`, `rejected`, `require_source_valid`, and optional `report_filters`.
 - Live export smoke result: `export 201`, 3 export items, JSON download `200`, SHA256 recorded.
 - HTML review report export works through the same export endpoint with `export_type=html`.
 - HTML export escapes item text, body text, citation labels, and quote text before rendering.
@@ -293,7 +296,8 @@ Implementation status:
 - Export review writes `human_reviews` records with `object_type=export` and `export_review_recorded` audit events.
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
-- Latest test run: `65 passed`.
+- Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
+- Latest test run: `67 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

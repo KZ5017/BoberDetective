@@ -97,6 +97,8 @@
 - Added `entity_review_recorded` audit events.
 - Added entity review status mapping and validation tests.
 - Added entity items to the case review report and review report exports.
+- Added case review report filters for object type, review status, and source validation status.
+- Added optional export `report_filters` for JSON/HTML review report exports.
 
 ### Changed
 
@@ -135,6 +137,7 @@
 - Applied Alembic migration `0009_entities` and smoke-tested `extract_entities`; validation passed and 2 person entities were persisted with mentions.
 - Smoke-tested entity review; an extracted entity was marked `verified` through append-only human review history.
 - Smoke-tested entity report/export inclusion; extracted entities appeared in the review report and HTML export item tracking.
+- Smoke-tested filtered review report/export flow for entity items with `needs_review` and `source_valid` filters.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

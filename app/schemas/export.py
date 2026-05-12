@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.review import HumanReviewRead
+from app.schemas.review_report import ReviewReportFilters
 
 
 class ExportCreate(BaseModel):
@@ -11,6 +12,7 @@ class ExportCreate(BaseModel):
     export_scope: str = Field(default="review_report", pattern="^review_report$")
     review_filter: str = Field(default="all", pattern="^(all|verified_only|needs_review|rejected)$")
     require_source_valid: bool = True
+    report_filters: ReviewReportFilters | None = None
 
 
 class ExportRead(BaseModel):

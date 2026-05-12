@@ -1,9 +1,15 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.review import HumanReviewRead
+
+
+class ReviewReportFilters(BaseModel):
+    object_types: list[str] | None = Field(default=None)
+    review_statuses: list[str] | None = Field(default=None)
+    source_validation_statuses: list[str] | None = Field(default=None)
 
 
 class ReviewReportCounts(BaseModel):
