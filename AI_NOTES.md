@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 95 passed`, `alembic: 0012_missing_item_candidates (head)`.
+- Current verification baseline: `pytest: 96 passed`, `alembic: 0012_missing_item_candidates (head)`.
 
 Initial implementation exists:
 
@@ -69,6 +69,7 @@ Initial implementation exists:
 - `detect_missing_items` analysis module foundation over source-cited chunk quotes,
 - live `detect_missing_items` smoke passed on a referenced attachment/photo documentation sample,
 - missing item candidate JSON/HTML export smoke coverage,
+- analysis retrieval fallback improvement for short/inflected Hungarian query terms,
 - pytest smoke tests.
 
 Completed design documents:
@@ -206,7 +207,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Consider improving analysis retrieval for short/inflected Hungarian queries around `melleklet`.
+2. Start minimal frontend planning now that the backend review/export loop is stable for MVP objects.
 
 Environment verification notes:
 
@@ -309,7 +310,8 @@ Implementation status:
 - `detect_missing_items` uses keyword chunk retrieval, LM Studio native execution, quote validation, source-reference creation, missing-item candidate persistence, and analysis run provenance.
 - Live `detect_missing_items` smoke result: `analysis 200`, `validation_status=passed`, 2 persisted `attachment` candidates, both `needs_review` and `source_valid`; review report `object_type=missing_item_candidate` returned 2 items.
 - Missing item candidate export smoke result: JSON and HTML review report exports with `object_type=missing_item_candidate`, `needs_review`, and `require_source_valid=true` each created 1 tracked export item; downloads included `missing_item_candidate`.
-- Note: a too-short query, `Keress hivatkozott mellekletet.`, did not retrieve a chunk; the targeted query `kamerafelvetel melleklet` succeeded. Retrieval tuning around short/inflected Hungarian terms is a likely follow-up.
+- Analysis retrieval now strips common short Hungarian accusative suffixes, so terms such as `mellekletet` and `kamerafelvetelt` can fall back to `melleklet` and `kamerafelvetel`.
+- The formerly failing short query `Keress hivatkozott mellekletet.` now succeeds in live smoke: `analysis 200`, `validation_status=passed`, 1 source-cited `attachment` candidate.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.
 - Live `extract_events` module smoke result: `analysis 200`, `validation_status=passed`, 1 persisted event.
 - Keyword search now uses sanitized prefix `to_tsquery` terms so simple Hungarian suffix cases like `kapu` matching `kaput` are less brittle.
@@ -335,7 +337,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `95 passed`.
+- Latest test run: `96 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

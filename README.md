@@ -65,10 +65,11 @@ Completed:
 - `detect_missing_items` analysis module foundation over source-cited chunk quotes
 - Live `detect_missing_items` smoke passed on referenced attachment/photo documentation sample
 - Missing item candidate JSON/HTML export smoke coverage
+- Analysis retrieval fallback improved for short/inflected Hungarian queries such as `mellekletet`
 
 Next:
 
-- Retrieval improvement for short/inflected Hungarian analysis queries, then minimal frontend planning
+- Minimal frontend planning
 
 ## Design documents
 

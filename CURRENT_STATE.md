@@ -22,7 +22,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 95 passed
+pytest: 96 passed
 alembic: 0012_missing_item_candidates (head)
 ```
 
@@ -41,6 +41,7 @@ alembic: 0012_missing_item_candidates (head)
 - Source-cited `extract_entities` module.
 - Source-cited `summarize_case` module that persists summary items.
 - Analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity/summary services.
+- Analysis retrieval fallback strips common Hungarian suffixes, including short accusative forms such as `mellekletet` -> `melleklet`.
 - Source-cited summary item persistence, API, review workflow, and review report inclusion.
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion.
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs.
@@ -192,19 +193,21 @@ Latest `detect_missing_items` live smoke:
 - Candidates were `needs_review`, `source_valid`, and had source references created from validated chunk quotes.
 - Review report with `object_type=missing_item_candidate` returned 2 source-cited items with expanded source details.
 
-Latest missing item export smoke:
+Latest missing item retrieval/export smoke:
 
 - Created a missing item candidate through `detect_missing_items`.
 - JSON review report export with `object_type=missing_item_candidate`, `needs_review`, and `require_source_valid=true` returned 1 tracked export item.
 - JSON download contained `missing_item_candidate`.
 - HTML review report export returned 1 tracked export item and downloaded as `text/html` with `missing_item_candidate` content.
+- Retried the formerly failing short query `Keress hivatkozott mellekletet.` after retrieval suffix tuning.
+- Result: `analysis 200`, `validation_status=passed`, 1 source-cited `attachment` candidate.
 
 ## Next Logical Steps
 
 Recommended order:
 
-1. Consider improving analysis retrieval for short/inflected Hungarian queries around `melleklet`.
-2. Start a minimal frontend only after the backend review/export loop is stable.
+1. Start minimal frontend planning now that the backend review/export loop is stable for MVP objects.
+2. Keep retrieval quality improvements incremental as new real query failures appear.
 
 ## Important Local Notes
 

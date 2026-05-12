@@ -89,6 +89,15 @@ def test_analysis_retrieval_queries_extracts_source_like_keywords_from_hungarian
     assert "helyszin" in queries
 
 
+def test_analysis_retrieval_queries_strips_common_hungarian_accusative_suffixes() -> None:
+    queries = analysis_retrieval_queries("Keress hivatkozott mellekletet es kamerafelvetelt.")
+
+    assert "melleklet" in queries
+    assert "kamerafelvetel" in queries
+    assert "keress" not in queries
+    assert "hivatkozott" not in queries
+
+
 def test_validate_extracted_claims_requires_quote_in_labeled_chunk() -> None:
     chunks = [
         _retrieved_chunk("chunk_1", "A jegyzokonyv szerint telefonhivas tortent."),

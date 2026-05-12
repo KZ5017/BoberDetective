@@ -35,9 +35,14 @@ ANALYSIS_RETRIEVAL_STOPWORDS = {
     "emeld",
     "es",
     "forrashu",
+    "hivatkozik",
+    "hivatkozott",
+    "hivatkozo",
     "hogy",
+    "keress",
     "keszits",
     "ki",
+    "kulon",
     "mit",
     "nyerd",
     "osszefoglalo",
@@ -66,8 +71,12 @@ HUNGARIAN_SUFFIXES = (
     "vel",
     "ert",
     "rol",
+    "et",
+    "ot",
+    "at",
     "ra",
     "re",
+    "t",
 )
 
 
@@ -129,6 +138,8 @@ def _normalized_analysis_terms(query: str) -> list[str]:
     ascii_query = "".join(char for char in normalized if not unicodedata.combining(char))
     terms: list[str] = []
     for raw_term in re.findall(r"\w+", ascii_query):
+        if raw_term in ANALYSIS_RETRIEVAL_STOPWORDS:
+            continue
         term = _strip_hungarian_suffix(raw_term)
         if len(term) < 4 or term in ANALYSIS_RETRIEVAL_STOPWORDS:
             continue

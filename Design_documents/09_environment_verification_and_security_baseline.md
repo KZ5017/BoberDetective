@@ -390,6 +390,8 @@ LLM benchmark megjegyzés:
 - `detect_missing_items` analysis module foundation elkészült: keyword chunk retrieval -> LM Studio native -> quote validation -> source_reference -> missing_item_candidate persistence.
 - Élő `detect_missing_items` smoke eredmény: hivatkozott mellékletet/fotódokumentációt tartalmazó TXT mintából `analysis 200`, `validation_status=passed`, 2 `attachment` candidate, review report inclusion.
 - Missing item candidate export smoke eredmény: JSON és HTML review report export `object_type=missing_item_candidate`, `needs_review`, `require_source_valid=true` beállításokkal 1-1 export itemet hozott létre, és a letöltések tartalmazták a `missing_item_candidate` elemet.
+- Analysis retrieval fallback finomítás elkészült: rövid magyar tárgyragos alakok, például `mellekletet` és `kamerafelvetelt`, vissza tudnak esni `melleklet` és `kamerafelvetel` kulcsszavakra.
+- Élő rövid-query smoke eredmény: a korábban elbukó `Keress hivatkozott mellekletet.` lekérdezés `analysis 200`, `validation_status=passed`, 1 source-cited `attachment` candidate.
 
 Adatbázis és Docker döntés:
 
@@ -409,7 +411,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 95 passed
+pytest: 96 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK
