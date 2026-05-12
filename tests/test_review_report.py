@@ -63,6 +63,7 @@ def test_review_report_counts_missing_statuses_as_zero() -> None:
 def test_review_report_filters_by_object_type_review_and_source_status() -> None:
     items = [
         _item("claim", "needs_review", "source_valid"),
+        _item("contradiction_candidate", "needs_review", "source_valid"),
         _item("summary_item", "needs_review", "source_valid"),
         _item("entity", "needs_review", "source_valid"),
         _item("event", "verified", "source_valid"),
@@ -72,13 +73,14 @@ def test_review_report_filters_by_object_type_review_and_source_status() -> None
     filtered = _filter_items(
         items,
         ReviewReportFilters(
-            object_types=["entity", "event", "summary_item"],
+            object_types=["contradiction_candidate", "entity", "event", "summary_item"],
             review_statuses=["needs_review"],
             source_validation_statuses=["source_valid"],
         ),
     )
 
     assert [(item.object_type, item.review_status) for item in filtered] == [
+        ("contradiction_candidate", "needs_review"),
         ("summary_item", "needs_review"),
         ("entity", "needs_review"),
     ]

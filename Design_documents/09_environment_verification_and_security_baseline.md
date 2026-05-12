@@ -383,10 +383,11 @@ LLM benchmark megjegyzés:
 - `summarize_case` analysis module foundation elkészült: keyword chunk retrieval -> LM Studio native -> quote validation -> source_reference -> summary_item persistence.
 - Analysis module retrieval fallback elkészült: az eredeti query mellett normalizált lényegi kifejezéscsoportot és egyedi normalizált magyar kulcsszavakat is próbál.
 - Élő `summarize_case` smoke eredmény: a korábban elbukó bő/ékezetes query a fallback után `analysis 200`, `validation_status=passed`, 3 summary item, mind `needs_review` és `source_valid`; review report `object_type=summary_item` 3 elemet adott vissza.
+- Contradiction candidate foundation elkészült: `contradiction_candidates` és `contradiction_candidate_sources` táblák, list/create/detail/review API, append-only `contradiction_candidate` review workflow, és review report inclusion.
 
 Adatbázis és Docker döntés:
 
-Docker telepítve van és a `bober` user hozzáfér. PostgreSQL és Qdrant Docker Compose-on keresztül fut. Az alkalmazott migrációs állapot: `0010_summary_items`.
+Docker telepítve van és a `bober` user hozzáfér. PostgreSQL és Qdrant Docker Compose-on keresztül fut. Az alkalmazott migrációs állapot: `0011_contradiction_candidates`.
 
 ## 12. WSL stabilitási megjegyzés
 
@@ -402,7 +403,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 78 passed
+pytest: 84 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

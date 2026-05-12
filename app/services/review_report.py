@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.claim import ClaimModel, ClaimSourceModel
+from app.models.contradiction import ContradictionCandidateModel, ContradictionCandidateSourceModel
 from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.event import EventModel, EventSourceModel
@@ -15,7 +16,7 @@ from app.schemas.review import HumanReviewRead
 from app.schemas.review_report import CaseReviewReport, ReviewReportCounts, ReviewReportFilters, ReviewReportItem, ReviewReportSource
 
 
-ALLOWED_OBJECT_TYPES = {"claim", "entity", "event", "summary_item"}
+ALLOWED_OBJECT_TYPES = {"claim", "contradiction_candidate", "entity", "event", "summary_item"}
 ALLOWED_REVIEW_STATUSES = {"new", "needs_review", "verified", "rejected", "corrected"}
 ALLOWED_SOURCE_VALIDATION_STATUSES = {"pending_source_validation", "source_valid", "source_invalid"}
 SOURCE_EXCERPT_CONTEXT_CHARS = 160
@@ -30,7 +31,13 @@ def build_case_review_report(
     case_id: UUID,
     filters: ReviewReportFilters | None = None,
 ) -> CaseReviewReport:
-    items = _claim_items(db, case_id) + _entity_items(db, case_id) + _event_items(db, case_id) + _summary_item_items(db, case_id)
+    items = (
+        _claim_items(db, case_id)
+        + _entity_items(db, case_id)
+        + _event_items(db, case_id)
+        + _summary_item_items(db, case_id)
+        + _contradiction_candidate_items(db, case_id)
+    )
     items = _filter_items(items, filters or ReviewReportFilters())
     items.sort(key=lambda item: (item.review_status != "needs_review", item.created_at), reverse=False)
     counts = _build_counts([item.review_status for item in items])
@@ -172,6 +179,33 @@ def _summary_item_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:
     ]
 
 
+def _contradiction_candidate_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:
+    candidates = list(
+        db.execute(
+            select(ContradictionCandidateModel)
+            .where(ContradictionCandidateModel.case_id == case_id)
+            .order_by(ContradictionCandidateModel.created_at.desc())
+        ).scalars()
+    )
+    return [
+        ReviewReportItem(
+            object_type="contradiction_candidate",
+            object_id=candidate.id,
+            title=candidate.title,
+            body_text=candidate.description,
+            subtype=candidate.contradiction_type,
+            review_status=candidate.review_status,
+            source_validation_status=candidate.source_validation_status,
+            created_by_analysis_run_id=candidate.created_by_analysis_run_id,
+            created_at=candidate.created_at,
+            updated_at=candidate.updated_at,
+            sources=_contradiction_candidate_sources(db, candidate.id),
+            reviews=_reviews(db, case_id, "contradiction_candidate", candidate.id),
+        )
+        for candidate in candidates
+    ]
+
+
 def _claim_sources(db: Session, claim_id: UUID) -> list[ReviewReportSource]:
     rows = db.execute(
         select(ClaimSourceModel, SourceReferenceModel)
@@ -200,6 +234,24 @@ def _summary_item_sources(db: Session, summary_item_id: UUID) -> list[ReviewRepo
         .order_by(SummaryItemSourceModel.relevance_rank.asc())
     )
     return [_report_source(db, source_link, source_reference) for source_link, source_reference in rows]
+
+
+def _contradiction_candidate_sources(db: Session, contradiction_candidate_id: UUID) -> list[ReviewReportSource]:
+    rows = db.execute(
+        select(ContradictionCandidateSourceModel, SourceReferenceModel)
+        .join(SourceReferenceModel, SourceReferenceModel.id == ContradictionCandidateSourceModel.source_reference_id)
+        .where(ContradictionCandidateSourceModel.contradiction_candidate_id == contradiction_candidate_id)
+        .order_by(ContradictionCandidateSourceModel.side_label.asc().nullslast())
+    )
+    return [
+        _report_source_from_reference(
+            db,
+            source_reference,
+            support_type=source_link.side_label or "contextual",
+            relevance_rank=index,
+        )
+        for index, (source_link, source_reference) in enumerate(rows)
+    ]
 
 
 def _entity_sources(db: Session, entity_id: UUID) -> list[ReviewReportSource]:

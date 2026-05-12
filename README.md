@@ -58,10 +58,12 @@ Completed:
 - `summarize_case` analysis module foundation for source-cited summary item creation
 - Analysis module retrieval fallback for broader natural-language Hungarian prompts
 - Live `summarize_case` smoke passed with the original broad query after retrieval fallback
+- Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion
 
 Next:
 
-- Contradiction or missing-item candidate foundation
+- `detect_contradiction_candidates` analysis module
+- Missing-item candidate foundation
 
 ## Design documents
 
@@ -129,6 +131,7 @@ Initial backend scaffold exists under `app/` with:
 - case review report API at `GET /api/v1/cases/{case_id}/review-report` with optional `object_type`, `review_status`, and `source_validation_status` filters plus expanded source details
 - JSON/HTML review report export API with claim/entity/event item tracking, optional `report_filters`, expanded source details, and download endpoint
 - summary item list/create/detail/review API
+- contradiction candidate list/create/detail/review API
 - export review API with append-only human review history
 - shared review helper used by claim, entity, event, and export review workflows
 - pytest smoke tests

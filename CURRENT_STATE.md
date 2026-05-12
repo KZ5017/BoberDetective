@@ -22,8 +22,8 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 77 passed
-alembic: 0010_summary_items (head)
+pytest: 84 passed
+alembic: 0011_contradiction_candidates (head)
 ```
 
 ## What Works Now
@@ -31,7 +31,7 @@ alembic: 0010_summary_items (head)
 - FastAPI backend scaffold.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0010_summary_items`.
+- Alembic migrations through `0011_contradiction_candidates`.
 - Immutable TXT import with page/chunk persistence.
 - Keyword search over current page/chunk text.
 - Source references with quote validation.
@@ -42,6 +42,7 @@ alembic: 0010_summary_items (head)
 - Source-cited `summarize_case` module that persists summary items.
 - Analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity/summary services.
 - Source-cited summary item persistence, API, review workflow, and review report inclusion.
+- Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion.
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint with object type, review status, source validation filters, and expanded source details.
 - JSON and HTML review report export with SHA256, claim/entity/event item tracking, report filters, and expanded source details.
@@ -63,6 +64,7 @@ events, event_sources,
 human_reviews,
 exports, export_items,
 summary_items, summary_item_sources,
+contradiction_candidates, contradiction_candidate_sources,
 alembic_version
 ```
 
@@ -115,6 +117,10 @@ Reviewable objects:
 - `POST /api/v1/cases/{case_id}/summary-items`
 - `GET /api/v1/cases/{case_id}/summary-items/{summary_item_id}`
 - `POST /api/v1/cases/{case_id}/summary-items/{summary_item_id}/reviews`
+- `GET /api/v1/cases/{case_id}/contradiction-candidates`
+- `POST /api/v1/cases/{case_id}/contradiction-candidates`
+- `GET /api/v1/cases/{case_id}/contradiction-candidates/{contradiction_candidate_id}`
+- `POST /api/v1/cases/{case_id}/contradiction-candidates/{contradiction_candidate_id}/reviews`
 - `GET /api/v1/cases/{case_id}/review-report`
   - Optional filters: `object_type`, `review_status`, `source_validation_status`
 
@@ -164,8 +170,9 @@ Latest `summarize_case` live smoke:
 
 Recommended order:
 
-1. Add contradiction or missing-item candidate foundation.
-2. Start a minimal frontend only after the backend review/export loop is stable.
+1. Add `detect_contradiction_candidates` analysis module on top of the new contradiction foundation.
+2. Add missing-item candidate foundation.
+3. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes
 

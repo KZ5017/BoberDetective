@@ -106,6 +106,9 @@
 - Added summary item inclusion in case review reports through `object_type=summary_item`.
 - Added `summarize_case` analysis module foundation with source-cited summary item persistence.
 - Added analysis module retrieval fallback query generation for broader natural-language Hungarian prompts.
+- Added `contradiction_candidates` and `contradiction_candidate_sources` SQLAlchemy models and Alembic migration `0011_contradiction_candidates`.
+- Added contradiction candidate list/create/detail API endpoints and append-only review workflow.
+- Added contradiction candidate inclusion in case review reports through `object_type=contradiction_candidate`.
 
 ### Changed
 
@@ -150,6 +153,7 @@
 - Applied Alembic migration `0010_summary_items`; latest verification baseline is `77 passed`.
 - Smoke-tested `summarize_case` against LM Studio; targeted `telefonhivas` retrieval produced 3 source-cited summary items and review report inclusion.
 - Re-smoke-tested `summarize_case` with the original broad/accented query after retrieval fallback; it produced 3 source-cited summary items.
+- Applied Alembic migration `0011_contradiction_candidates`; latest verification baseline is `84 passed`.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

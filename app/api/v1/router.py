@@ -5,6 +5,7 @@ from app.api.v1.analysis_smoke import router as analysis_smoke_router
 from app.api.v1.analysis_runs import router as analysis_runs_router
 from app.api.v1.cases import router as cases_router
 from app.api.v1.claims import router as claims_router
+from app.api.v1.contradictions import router as contradictions_router
 from app.api.v1.documents import router as documents_router
 from app.api.v1.entities import router as entities_router
 from app.api.v1.events import router as events_router
@@ -21,6 +22,7 @@ api_router.include_router(analysis_smoke_router, tags=["analysis"])
 api_router.include_router(analysis_runs_router, tags=["analysis-runs"])
 api_router.include_router(cases_router, prefix="/cases", tags=["cases"])
 api_router.include_router(claims_router, tags=["claims"])
+api_router.include_router(contradictions_router, tags=["contradictions"])
 api_router.include_router(documents_router, tags=["documents"])
 api_router.include_router(entities_router, tags=["entities"])
 api_router.include_router(events_router, tags=["events"])
