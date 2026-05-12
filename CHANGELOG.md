@@ -119,6 +119,7 @@
 - Added analysis retrieval fallback coverage for short Hungarian accusative forms such as `mellekletet` and `kamerafelvetelt`.
 - Added minimal React/Vite frontend workbench scaffold with case create/list, TXT import, analysis run, review report, and JSON/HTML export controls.
 - Added Vite API proxy from `/api` to local backend port `8000`.
+- Added frontend review actions for report items using allowlisted object-type review endpoints.
 
 ### Changed
 
@@ -174,6 +175,7 @@
 - Improved analysis retrieval fallback for short/inflected Hungarian queries; the formerly failing `Keress hivatkozott mellekletet.` smoke now produces a source-cited missing item candidate.
 - Latest verification baseline is `96 passed` after retrieval fallback coverage.
 - Verified frontend production build with `npm run build`.
+- Verified frontend review action build and targeted backend review tests.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

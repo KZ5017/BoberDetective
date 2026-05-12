@@ -207,10 +207,24 @@ label {
 
 .button-row,
 .metrics,
-.tags {
+.tags,
+.review-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+}
+
+.review-row {
+  align-items: center;
+}
+
+.review-row input {
+  flex: 1 1 180px;
+}
+
+.review-row button {
+  min-width: 2.45rem;
+  padding-inline: 0.65rem;
 }
 
 .report-panel {

@@ -24,6 +24,13 @@ export type ReviewReportItem = {
   review_status: string;
   source_validation_status: string;
   sources: ReviewReportSource[];
+  reviews: Array<{
+    id: string;
+    action_type: string;
+    new_review_status: string | null;
+    review_comment: string | null;
+    performed_at: string;
+  }>;
 };
 
 export type ReviewReport = {
@@ -62,6 +69,15 @@ export type AnalysisResponse = {
   missing_item_candidates: unknown[];
 };
 
+const reviewPathByType: Record<string, (caseId: string, objectId: string) => string> = {
+  claim: (caseId, objectId) => `/cases/${caseId}/claims/${objectId}/reviews`,
+  event: (caseId, objectId) => `/cases/${caseId}/events/${objectId}/reviews`,
+  entity: (caseId, objectId) => `/cases/${caseId}/entities/${objectId}/reviews`,
+  summary_item: (caseId, objectId) => `/cases/${caseId}/summary-items/${objectId}/reviews`,
+  contradiction_candidate: (caseId, objectId) => `/cases/${caseId}/contradiction-candidates/${objectId}/reviews`,
+  missing_item_candidate: (caseId, objectId) => `/cases/${caseId}/missing-item-candidates/${objectId}/reviews`
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/v1${path}`, init);
   if (!response.ok) {
@@ -69,6 +85,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(body?.detail ?? `${response.status} ${response.statusText}`);
   }
   return response.json() as Promise<T>;
+}
+
+export function reviewObject(
+  caseId: string,
+  objectType: string,
+  objectId: string,
+  actionType: "verify" | "reject" | "mark_needs_review" | "comment",
+  reviewComment?: string
+): Promise<unknown> {
+  const pathFactory = reviewPathByType[objectType];
+  if (!pathFactory) {
+    throw new Error(`Unsupported review object type: ${objectType}`);
+  }
+  return request(pathFactory(caseId, objectId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action_type: actionType, review_comment: reviewComment || null })
+  });
 }
 
 export function listCases(): Promise<{ data: CaseRead[] }> {

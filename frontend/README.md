@@ -18,6 +18,15 @@ npm run dev
 
 The Vite dev server proxies `/api` to `http://127.0.0.1:8000`.
 
+Current workflows:
+
+- case list/create,
+- TXT import,
+- analysis module run,
+- review report filtering,
+- review actions for report items,
+- JSON/HTML export creation and download.
+
 ## Verification
 
 ```bash

@@ -71,6 +71,7 @@ Initial implementation exists:
 - missing item candidate JSON/HTML export smoke coverage,
 - analysis retrieval fallback improvement for short/inflected Hungarian query terms,
 - minimal React/Vite frontend workbench scaffold,
+- frontend review actions for review report items,
 - pytest smoke tests.
 
 Completed design documents:
@@ -208,7 +209,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Harden frontend workflows and add first review actions from the UI.
+2. Harden frontend object details and long-running analysis feedback.
 
 Environment verification notes:
 
@@ -315,6 +316,8 @@ Implementation status:
 - The formerly failing short query `Keress hivatkozott mellekletet.` now succeeds in live smoke: `analysis 200`, `validation_status=passed`, 1 source-cited `attachment` candidate.
 - Minimal frontend scaffold exists under `frontend/`.
 - Frontend currently supports case list/create, TXT import, analysis module run, review report loading/filtering, and JSON/HTML export creation/download.
+- Frontend now supports review actions for report items: `verify`, `reject`, `mark_needs_review`, and `comment`.
+- Review action calls use a frontend allowlist that maps known object types to their review endpoints; unsupported object types are rejected client-side.
 - Frontend uses Vite proxy from `/api` to `http://127.0.0.1:8000`; backend CORS was not loosened.
 - Frontend verification: `npm run build` passed.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.

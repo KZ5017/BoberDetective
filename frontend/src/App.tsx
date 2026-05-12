@@ -7,6 +7,7 @@ import {
   FilePlus2,
   FolderPlus,
   Loader2,
+  MessageSquare,
   Play,
   RefreshCw,
   Search,
@@ -22,6 +23,7 @@ import {
   getReviewReport,
   importDocument,
   listCases,
+  reviewObject,
   runAnalysis
 } from "./api";
 
@@ -58,6 +60,7 @@ export function App() {
   const [report, setReport] = useState<ReviewReport | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [lastExport, setLastExport] = useState<ExportDetail | null>(null);
+  const [reviewComments, setReviewComments] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -131,6 +134,16 @@ export function App() {
     if (!selectedCaseId) return;
     await perform(`export-${exportType}`, async () => {
       setLastExport(await createExport(selectedCaseId, exportType, objectType || undefined));
+    });
+  }
+
+  async function handleReview(itemObjectType: string, objectId: string, actionType: "verify" | "reject" | "mark_needs_review" | "comment") {
+    if (!selectedCaseId) return;
+    const comment = reviewComments[objectId] ?? "";
+    await perform(`review-${actionType}`, async () => {
+      await reviewObject(selectedCaseId, itemObjectType, objectId, actionType, comment);
+      setReviewComments((current) => ({ ...current, [objectId]: "" }));
+      setReport(await getReviewReport(selectedCaseId, objectType || undefined));
     });
   }
 
@@ -280,8 +293,28 @@ export function App() {
                         <span>{item.object_type}</span>
                         <span>{item.review_status}</span>
                         <span>{item.source_validation_status}</span>
+                        <span>{item.reviews.length} review</span>
                       </div>
                       {item.sources[0] && <blockquote>{item.sources[0].quote_text}</blockquote>}
+                      <div className="review-row">
+                        <input
+                          value={reviewComments[item.object_id] ?? ""}
+                          onChange={(event) => setReviewComments((current) => ({ ...current, [item.object_id]: event.target.value }))}
+                          placeholder="Review megjegyzes"
+                        />
+                        <button title="Verify" onClick={() => handleReview(item.object_type, item.object_id, "verify")} disabled={Boolean(busy)}>
+                          <CheckCircle2 size={18} />
+                        </button>
+                        <button title="Reject" onClick={() => handleReview(item.object_type, item.object_id, "reject")} disabled={Boolean(busy)}>
+                          Reject
+                        </button>
+                        <button title="Needs review" onClick={() => handleReview(item.object_type, item.object_id, "mark_needs_review")} disabled={Boolean(busy)}>
+                          Review
+                        </button>
+                        <button title="Comment" onClick={() => handleReview(item.object_type, item.object_id, "comment")} disabled={Boolean(busy)}>
+                          <MessageSquare size={18} />
+                        </button>
+                      </div>
                     </article>
                   ))}
                 </div>

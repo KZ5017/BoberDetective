@@ -67,10 +67,11 @@ Completed:
 - Missing item candidate JSON/HTML export smoke coverage
 - Analysis retrieval fallback improved for short/inflected Hungarian queries such as `mellekletet`
 - Minimal React/Vite workbench frontend scaffold
+- Frontend review actions for review report items
 
 Next:
 
-- Frontend workflow hardening and first review actions from the UI
+- Frontend workflow hardening for object details and safer long-running analysis feedback
 
 ## Design documents
 
@@ -154,3 +155,4 @@ Frontend:
 - React/Vite scaffold under `frontend/`
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
+- Current UI workflows: case create/list, TXT import, analysis run, review report filtering, review actions, JSON/HTML export

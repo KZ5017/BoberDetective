@@ -199,6 +199,7 @@ Current implementation caveats:
 - Latest export smoke: missing item candidates are included in JSON/HTML review report exports with tracked export items.
 - Latest retrieval smoke: `Keress hivatkozott mellekletet.` now succeeds after Hungarian suffix fallback tuning.
 - Minimal React/Vite frontend scaffold exists under `frontend/`.
+- Frontend review actions exist for review report items through allowlisted API paths.
 - Latest frontend verification: `npm run build` passed.
 
 ## Security Baseline

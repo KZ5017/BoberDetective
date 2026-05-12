@@ -53,6 +53,7 @@ alembic: 0012_missing_item_candidates (head)
 - JSON and HTML review report export with SHA256, claim/entity/event item tracking, report filters, and expanded source details.
 - Missing item candidates are covered by JSON/HTML review report export smoke coverage.
 - Frontend build verifies through `cd frontend && npm run build`.
+- Frontend review actions work for review report item object types through allowlisted API paths.
 - Append-only human review history for claims, entities, events, and exports.
 - Shared review helper for claim/entity/event/export review mapping, listing, record creation, and audit writing.
 
@@ -208,7 +209,7 @@ Latest missing item retrieval/export smoke:
 
 Recommended order:
 
-1. Harden frontend workflows and add first review actions from the UI.
+1. Harden frontend object details and long-running analysis feedback.
 2. Keep retrieval quality improvements incremental as new real query failures appear.
 
 ## Important Local Notes
