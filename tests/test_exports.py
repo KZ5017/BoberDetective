@@ -15,11 +15,15 @@ def _item(review_status: str, source_validation_status: str = "source_valid", ha
             ReviewReportSource(
                 source_reference_id=uuid4(),
                 document_id=uuid4(),
+                document_filename="irat.txt",
+                document_sha256_hash="a" * 64,
                 page_id=None,
                 chunk_id=uuid4(),
                 page_number=1,
+                chunk_index=0,
                 citation_label="doc.txt, chunk 0",
                 quote_text="forras idezet",
+                source_text_excerpt="forras idezet",
                 source_kind="chunk_quote",
                 support_type="direct",
                 relevance_rank=0,
@@ -102,3 +106,5 @@ def test_html_export_escapes_item_and_source_text() -> None:
 
     assert malicious not in html
     assert "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in html
+    assert "irat.txt" in html
+    assert "Excerpt chars" in html

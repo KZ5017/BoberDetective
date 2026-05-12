@@ -24,11 +24,23 @@ class ReviewReportCounts(BaseModel):
 class ReviewReportSource(BaseModel):
     source_reference_id: UUID
     document_id: UUID
+    document_filename: str | None = None
+    document_sha256_hash: str | None = None
     page_id: UUID | None
     chunk_id: UUID | None
     page_number: int | None
+    chunk_index: int | None = None
+    chunk_char_start: int | None = None
+    chunk_char_end: int | None = None
+    page_text_source: str | None = None
+    page_ocr_used: bool | None = None
     citation_label: str | None
     quote_text: str
+    quote_char_start: int | None = None
+    quote_char_end: int | None = None
+    source_text_excerpt: str | None = None
+    source_text_excerpt_char_start: int | None = None
+    source_text_excerpt_char_end: int | None = None
     source_kind: str
     support_type: str
     relevance_rank: int | None

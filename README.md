@@ -52,11 +52,12 @@ Completed:
 - Entity review workflow foundation
 - Case review report filtering by object type, review status, and source validation status
 - Review report export filters
+- Expanded review report source details with document metadata, offsets, chunk/page metadata, and bounded source excerpts
 
 Next:
 
-- Source/reference detail expansion in report output
 - Analysis module service cleanup as module count grows
+- First summary item foundation
 
 ## Design documents
 
@@ -120,8 +121,8 @@ Initial backend scaffold exists under `app/` with:
 - event list/detail API
 - event review API with append-only human review history
 - `extract_events` analysis module
-- case review report API at `GET /api/v1/cases/{case_id}/review-report` with optional `object_type`, `review_status`, and `source_validation_status` filters
-- JSON/HTML review report export API with claim/entity/event item tracking, optional `report_filters`, and download endpoint
+- case review report API at `GET /api/v1/cases/{case_id}/review-report` with optional `object_type`, `review_status`, and `source_validation_status` filters plus expanded source details
+- JSON/HTML review report export API with claim/entity/event item tracking, optional `report_filters`, expanded source details, and download endpoint
 - export review API with append-only human review history
 - shared review helper used by claim, entity, event, and export review workflows
 - pytest smoke tests

@@ -376,6 +376,8 @@ LLM benchmark megjegyzés:
 - Richer review report filtering elkészült: `object_type`, `review_status`, és `source_validation_status` query filterek a review report endpointon.
 - JSON/HTML review report exportoknál `report_filters` payload mezővel ugyanaz a szűrés rögzíthető az export paraméterei és metadata tartalma között.
 - Élő filtered report/export smoke eredmény: entity-only, `needs_review`, `source_valid` report `200`, JSON export `201`, 2 entity export item.
+- Source/reference detail expansion elkészült a review report source objektumokban: dokumentum fájlnév/SHA256, quote offsetek, chunk/page metaadatok és kontrollált hosszúságú forrásszöveg excerpt.
+- JSON/HTML exportok ugyanezeket a source detail mezőket viszik tovább; a HTML export továbbra is escape-el minden document/LLM/user eredetű szöveget.
 
 Adatbázis és Docker döntés:
 
@@ -395,7 +397,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 67 passed
+pytest: 70 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

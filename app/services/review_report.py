@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.claim import ClaimModel, ClaimSourceModel
+from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.review import HumanReviewModel
@@ -16,6 +17,7 @@ from app.schemas.review_report import CaseReviewReport, ReviewReportCounts, Revi
 ALLOWED_OBJECT_TYPES = {"claim", "entity", "event"}
 ALLOWED_REVIEW_STATUSES = {"new", "needs_review", "verified", "rejected", "corrected"}
 ALLOWED_SOURCE_VALIDATION_STATUSES = {"pending_source_validation", "source_valid", "source_invalid"}
+SOURCE_EXCERPT_CONTEXT_CHARS = 160
 
 
 class ReviewReportValidationError(ValueError):
@@ -149,7 +151,7 @@ def _claim_sources(db: Session, claim_id: UUID) -> list[ReviewReportSource]:
         .where(ClaimSourceModel.claim_id == claim_id)
         .order_by(ClaimSourceModel.relevance_rank.asc())
     )
-    return [_report_source(source_link, source_reference) for source_link, source_reference in rows]
+    return [_report_source(db, source_link, source_reference) for source_link, source_reference in rows]
 
 
 def _event_sources(db: Session, event_id: UUID) -> list[ReviewReportSource]:
@@ -159,7 +161,7 @@ def _event_sources(db: Session, event_id: UUID) -> list[ReviewReportSource]:
         .where(EventSourceModel.event_id == event_id)
         .order_by(EventSourceModel.relevance_rank.asc())
     )
-    return [_report_source(source_link, source_reference) for source_link, source_reference in rows]
+    return [_report_source(db, source_link, source_reference) for source_link, source_reference in rows]
 
 
 def _entity_sources(db: Session, entity_id: UUID) -> list[ReviewReportSource]:
@@ -170,15 +172,9 @@ def _entity_sources(db: Session, entity_id: UUID) -> list[ReviewReportSource]:
         .order_by(EntityMentionModel.created_at.asc())
     )
     return [
-        ReviewReportSource(
-            source_reference_id=source_reference.id,
-            document_id=source_reference.document_id,
-            page_id=source_reference.page_id,
-            chunk_id=source_reference.chunk_id,
-            page_number=source_reference.page_number,
-            citation_label=source_reference.citation_label,
-            quote_text=source_reference.quote_text,
-            source_kind=source_reference.source_kind,
+        _report_source_from_reference(
+            db,
+            source_reference,
             support_type="direct",
             relevance_rank=index,
         )
@@ -186,19 +182,93 @@ def _entity_sources(db: Session, entity_id: UUID) -> list[ReviewReportSource]:
     ]
 
 
-def _report_source(source_link: ClaimSourceModel | EventSourceModel, source_reference: SourceReferenceModel) -> ReviewReportSource:
-    return ReviewReportSource(
-        source_reference_id=source_reference.id,
-        document_id=source_reference.document_id,
-        page_id=source_reference.page_id,
-        chunk_id=source_reference.chunk_id,
-        page_number=source_reference.page_number,
-        citation_label=source_reference.citation_label,
-        quote_text=source_reference.quote_text,
-        source_kind=source_reference.source_kind,
+def _report_source(
+    db: Session,
+    source_link: ClaimSourceModel | EventSourceModel,
+    source_reference: SourceReferenceModel,
+) -> ReviewReportSource:
+    return _report_source_from_reference(
+        db,
+        source_reference,
         support_type=source_link.support_type,
         relevance_rank=source_link.relevance_rank,
     )
+
+
+def _report_source_from_reference(
+    db: Session | None,
+    source_reference: SourceReferenceModel,
+    *,
+    support_type: str,
+    relevance_rank: int | None,
+) -> ReviewReportSource:
+    document = db.get(DocumentModel, source_reference.document_id) if db is not None else None
+    page = db.get(DocumentPageModel, source_reference.page_id) if db is not None and source_reference.page_id else None
+    chunk = db.get(DocumentChunkModel, source_reference.chunk_id) if db is not None and source_reference.chunk_id else None
+    source_text = _source_text_for_excerpt(source_reference, page, chunk)
+    excerpt, excerpt_start, excerpt_end = _source_excerpt(
+        source_text,
+        source_reference.quote_text,
+        source_reference.quote_char_start,
+        source_reference.quote_char_end,
+    )
+    return ReviewReportSource(
+        source_reference_id=source_reference.id,
+        document_id=source_reference.document_id,
+        document_filename=document.original_filename if document is not None else None,
+        document_sha256_hash=document.sha256_hash if document is not None else None,
+        page_id=source_reference.page_id,
+        chunk_id=source_reference.chunk_id,
+        page_number=source_reference.page_number,
+        chunk_index=chunk.chunk_index if chunk is not None else None,
+        chunk_char_start=chunk.char_start if chunk is not None else None,
+        chunk_char_end=chunk.char_end if chunk is not None else None,
+        page_text_source=page.text_source if page is not None else None,
+        page_ocr_used=page.ocr_used if page is not None else None,
+        citation_label=source_reference.citation_label,
+        quote_text=source_reference.quote_text,
+        quote_char_start=source_reference.quote_char_start,
+        quote_char_end=source_reference.quote_char_end,
+        source_text_excerpt=excerpt,
+        source_text_excerpt_char_start=excerpt_start,
+        source_text_excerpt_char_end=excerpt_end,
+        source_kind=source_reference.source_kind,
+        support_type=support_type,
+        relevance_rank=relevance_rank,
+    )
+
+
+def _source_text_for_excerpt(
+    source_reference: SourceReferenceModel,
+    page: DocumentPageModel | None,
+    chunk: DocumentChunkModel | None,
+) -> str | None:
+    if source_reference.chunk_id is not None and chunk is not None:
+        return chunk.chunk_text
+    if source_reference.page_id is not None and page is not None:
+        return page.extracted_text
+    return None
+
+
+def _source_excerpt(
+    source_text: str | None,
+    quote_text: str,
+    quote_char_start: int | None,
+    quote_char_end: int | None,
+) -> tuple[str | None, int | None, int | None]:
+    if source_text is None:
+        return None, None, None
+    quote_start = quote_char_start
+    quote_end = quote_char_end
+    if quote_start is None or quote_end is None or source_text[quote_start:quote_end] != quote_text:
+        found_at = source_text.find(quote_text)
+        if found_at < 0:
+            return None, None, None
+        quote_start = found_at
+        quote_end = found_at + len(quote_text)
+    excerpt_start = max(0, quote_start - SOURCE_EXCERPT_CONTEXT_CHARS)
+    excerpt_end = min(len(source_text), quote_end + SOURCE_EXCERPT_CONTEXT_CHARS)
+    return source_text[excerpt_start:excerpt_end], excerpt_start, excerpt_end
 
 
 def _reviews(db: Session, case_id: UUID, object_type: str, object_id: UUID) -> list[HumanReviewRead]:

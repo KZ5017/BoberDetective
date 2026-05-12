@@ -293,8 +293,15 @@ def _html_item(index: int, item: ReviewReportItem) -> str:
 def _html_source(source) -> str:
     return f"""<div>
   <p class="label">Source reference: <code>{_e(str(source.source_reference_id))}</code> | Citation: {_e(source.citation_label or "")}</p>
+  <p class="label">Document: {_e(source.document_filename or "")} | Page: {_e(_fmt_optional(source.page_number))} | Chunk: {_e(_fmt_optional(source.chunk_index))}</p>
+  <p class="label">Quote chars: {_e(_fmt_optional(source.quote_char_start))}-{_e(_fmt_optional(source.quote_char_end))} | Excerpt chars: {_e(_fmt_optional(source.source_text_excerpt_char_start))}-{_e(_fmt_optional(source.source_text_excerpt_char_end))}</p>
   <blockquote>{_e(source.quote_text)}</blockquote>
+  <p>{_e(source.source_text_excerpt or "")}</p>
 </div>"""
+
+
+def _fmt_optional(value) -> str:
+    return "" if value is None else str(value)
 
 
 def _e(value: str) -> str:

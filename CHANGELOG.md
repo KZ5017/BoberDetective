@@ -99,6 +99,7 @@
 - Added entity items to the case review report and review report exports.
 - Added case review report filters for object type, review status, and source validation status.
 - Added optional export `report_filters` for JSON/HTML review report exports.
+- Added expanded review report source details: document filename/SHA256, quote offsets, chunk/page metadata, and bounded source excerpts.
 
 ### Changed
 
@@ -138,6 +139,7 @@
 - Smoke-tested entity review; an extracted entity was marked `verified` through append-only human review history.
 - Smoke-tested entity report/export inclusion; extracted entities appeared in the review report and HTML export item tracking.
 - Smoke-tested filtered review report/export flow for entity items with `needs_review` and `source_valid` filters.
+- Expanded JSON/HTML report exports now carry the same source detail fields, with HTML escaping retained.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 67 passed`, `alembic: 0009_entities (head)`.
+- Current verification baseline: `pytest: 70 passed`, `alembic: 0009_entities (head)`.
 
 Initial implementation exists:
 
@@ -56,6 +56,7 @@ Initial implementation exists:
 - entity review workflow foundation,
 - review report filtering by object type, review status, and source validation status,
 - review report export filters through `report_filters`,
+- expanded review report source details with document metadata, offsets, chunk/page metadata, and bounded source excerpts,
 - pytest smoke tests.
 
 Completed design documents:
@@ -193,8 +194,8 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Add source/reference detail expansion in report output.
-3. Consider splitting the growing analysis module service into module-specific files.
+2. Consider splitting the growing analysis module service into module-specific files.
+3. Add first summary item foundation after the analysis module service is easier to maintain.
 
 Environment verification notes:
 
@@ -279,6 +280,7 @@ Implementation status:
 - Case review report works through `GET /api/v1/cases/{case_id}/review-report`.
 - The review report is read-only and returns combined claim/entity/event items with review status, source validation status, source references, quote text, analysis run id, and review history.
 - Review report supports optional query filters: `object_type`, `review_status`, and `source_validation_status`.
+- Review report sources now include document filename/SHA256, quote offsets, chunk/page metadata, and bounded source text excerpts for human verification.
 - Live review report smoke result: `report 200`, 3 total items, 3 `needs_review`, each with 1 source.
 - Entity items are included in review report and JSON/HTML review report exports through their source-linked mentions.
 - Live entity report/export smoke result: `report 200`, 2 entity items with sources; HTML export `201`, 2 entity export items.
@@ -297,7 +299,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `67 passed`.
+- Latest test run: `70 passed`.
 
 ## Suggested Prompt For A New Codex Session
 
