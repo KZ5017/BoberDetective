@@ -384,6 +384,7 @@ LLM benchmark megjegyzés:
 - Analysis module retrieval fallback elkészült: az eredeti query mellett normalizált lényegi kifejezéscsoportot és egyedi normalizált magyar kulcsszavakat is próbál.
 - Élő `summarize_case` smoke eredmény: a korábban elbukó bő/ékezetes query a fallback után `analysis 200`, `validation_status=passed`, 3 summary item, mind `needs_review` és `source_valid`; review report `object_type=summary_item` 3 elemet adott vissza.
 - Contradiction candidate foundation elkészült: `contradiction_candidates` és `contradiction_candidate_sources` táblák, list/create/detail/review API, append-only `contradiction_candidate` review workflow, és review report inclusion.
+- `detect_contradiction_candidates` analysis module foundation elkészült: source-cited claim inputs -> LM Studio native -> claim label validation -> contradiction_candidate persistence.
 
 Adatbázis és Docker döntés:
 
@@ -403,7 +404,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 84 passed
+pytest: 86 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

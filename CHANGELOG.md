@@ -109,6 +109,7 @@
 - Added `contradiction_candidates` and `contradiction_candidate_sources` SQLAlchemy models and Alembic migration `0011_contradiction_candidates`.
 - Added contradiction candidate list/create/detail API endpoints and append-only review workflow.
 - Added contradiction candidate inclusion in case review reports through `object_type=contradiction_candidate`.
+- Added `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs.
 
 ### Changed
 
@@ -154,6 +155,7 @@
 - Smoke-tested `summarize_case` against LM Studio; targeted `telefonhivas` retrieval produced 3 source-cited summary items and review report inclusion.
 - Re-smoke-tested `summarize_case` with the original broad/accented query after retrieval fallback; it produced 3 source-cited summary items.
 - Applied Alembic migration `0011_contradiction_candidates`; latest verification baseline is `84 passed`.
+- Latest verification baseline is `86 passed` after contradiction detection module validation tests.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

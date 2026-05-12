@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 84 passed`, `alembic: 0011_contradiction_candidates (head)`.
+- Current verification baseline: `pytest: 86 passed`, `alembic: 0011_contradiction_candidates (head)`.
 
 Initial implementation exists:
 
@@ -63,6 +63,7 @@ Initial implementation exists:
 - analysis module retrieval fallback for broader natural-language Hungarian prompts,
 - live `summarize_case` smoke passed with the original broad query after retrieval fallback,
 - contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion,
+- `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs,
 - pytest smoke tests.
 
 Completed design documents:
@@ -200,7 +201,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Add `detect_contradiction_candidates` analysis module on top of the new contradiction foundation.
+2. Smoke-test `detect_contradiction_candidates` end-to-end against LM Studio on a sample with conflicting claims.
 3. Add missing-item candidate foundation.
 
 Environment verification notes:
@@ -262,12 +263,13 @@ Implementation status:
 - Claim review writes append-only `human_reviews` records and `claim_review_recorded` audit events.
 - Live review smoke result: claim moved to `verified`, review history count 1.
 - Generalized analysis module execution now exists through `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}`.
-- Currently supported module keys: `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`.
+- Currently supported module keys: `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_contradiction_candidates`.
 - Analysis module implementation is split across `app/services/analysis_module_common.py`, `analysis_module_claims.py`, `analysis_module_events.py`, `analysis_module_entities.py`, and `analysis_module_summaries.py`; `analysis_modules.py` remains the thin public façade for API and compatibility imports.
 - The `extract_claims` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_claims_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists claims, records outputs, and finishes the analysis run.
 - The `extract_events` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_events_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists events/event_sources, records outputs, and finishes the analysis run.
 - The `extract_entities` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_entities_v1` prompt, validates each returned mention quote against the labeled source chunk, creates source references, persists entities/entity_mentions, records outputs, and finishes the analysis run.
 - The `summarize_case` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `summarize_case_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists summary_items/summary_item_sources, records outputs, and finishes the analysis run.
+- The `detect_contradiction_candidates` module takes existing source-cited claims, records them as analysis inputs, calls LM Studio native with the `detect_contradiction_candidates_v1` prompt, validates returned claim labels, persists contradiction_candidates/contradiction_candidate_sources, records outputs, and finishes the analysis run.
 - Analysis module retrieval now tries the original query, a normalized significant-term query, and individual normalized terms. This keeps the public search API strict while making analysis modules less brittle for natural Hungarian prompts.
 - Live `summarize_case` smoke result: the original broad/accented query now returned `analysis 200`, `validation_status=passed`, 3 persisted summary items, all `needs_review` and `source_valid`.
 - Review report smoke for `object_type=summary_item` returned 3 source-cited summary items with expanded source details.
@@ -318,7 +320,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `84 passed`.
+- Latest test run: `86 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

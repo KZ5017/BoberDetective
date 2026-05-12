@@ -61,6 +61,19 @@ class AnalysisModuleSummaryItem(BaseModel):
     chunk_id: UUID
 
 
+class AnalysisModuleContradictionCandidate(BaseModel):
+    contradiction_candidate_id: UUID
+    contradiction_type: str
+    title: str
+    description: str
+    claim_id_a: UUID | None
+    claim_id_b: UUID | None
+    event_id_a: UUID | None = None
+    event_id_b: UUID | None = None
+    severity_hint: str | None
+    source_reference_ids: list[UUID]
+
+
 class AnalysisModuleRunResponse(BaseModel):
     analysis_run_id: UUID
     module_key: str
@@ -69,6 +82,7 @@ class AnalysisModuleRunResponse(BaseModel):
     events: list[AnalysisModuleEvent] = []
     entities: list[AnalysisModuleEntity] = []
     summary_items: list[AnalysisModuleSummaryItem] = []
+    contradiction_candidates: list[AnalysisModuleContradictionCandidate] = []
     unsupported_items: list[str]
     selected_chunk_ids: list[UUID]
     validation_status: str

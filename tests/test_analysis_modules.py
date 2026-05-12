@@ -3,12 +3,16 @@ from uuid import uuid4
 import pytest
 
 from app.models.document import DocumentChunkModel
+from app.models.claim import ClaimModel
+from app.models.source_reference import SourceReferenceModel
+from app.services.analysis_module_contradictions import RetrievedClaim
 from app.services.analysis_modules import (
     AnalysisModuleError,
     RetrievedChunk,
     analysis_retrieval_queries,
     parse_llm_json_object,
     validate_extracted_claims,
+    validate_extracted_contradiction_candidates,
     validate_extracted_entities,
     validate_extracted_events,
     validate_extracted_summary_items,
@@ -36,6 +40,30 @@ def _retrieved_chunk(label: str, text: str) -> RetrievedChunk:
             is_current=True,
         ),
         retrieval_score=1.0,
+    )
+
+
+def _retrieved_claim(label: str, text: str) -> RetrievedClaim:
+    claim_id = uuid4()
+    return RetrievedClaim(
+        label=label,
+        claim=ClaimModel(
+            id=claim_id,
+            case_id=uuid4(),
+            claim_type="document_fact",
+            claim_text=text,
+            created_by_analysis_run_id=uuid4(),
+            source_validation_status="source_valid",
+            review_status="needs_review",
+        ),
+        source_reference=SourceReferenceModel(
+            id=uuid4(),
+            case_id=uuid4(),
+            document_id=uuid4(),
+            chunk_id=uuid4(),
+            quote_text=text,
+            source_kind="chunk_quote",
+        ),
     )
 
 
@@ -258,3 +286,65 @@ def test_validate_extracted_summary_items_normalizes_unknown_values() -> None:
     assert valid_items[0]["support_type"] == "direct"
     assert valid_items[0]["confidence"] is None
     assert unsupported == ["nincs kockazati kovetkeztetes"]
+
+
+def test_validate_extracted_contradiction_candidates_requires_two_labeled_claims() -> None:
+    claims = [
+        _retrieved_claim("claim_1", "A hivas 18:42-kor tortent."),
+        _retrieved_claim("claim_2", "A hivas 19:10-kor tortent."),
+    ]
+    payload = {
+        "contradiction_candidates": [
+            {
+                "contradiction_type": "time_conflict",
+                "title": "Eltérő hívásidőpontok",
+                "description": "A két claim eltérő időpontot ad meg ugyanarra a hívásra.",
+                "claim_label_a": "claim_1",
+                "claim_label_b": "claim_2",
+                "severity_hint": "medium",
+                "confidence": "low",
+            }
+        ],
+        "unsupported_contradiction_candidates": [],
+    }
+
+    valid_candidates, unsupported = validate_extracted_contradiction_candidates(payload, claims)
+
+    assert len(valid_candidates) == 1
+    assert valid_candidates[0]["contradiction_type"] == "time_conflict"
+    assert valid_candidates[0]["severity_hint"] == "medium"
+    assert str(valid_candidates[0]["confidence"]) == "0.3000"
+    assert unsupported == []
+
+
+def test_validate_extracted_contradiction_candidates_rejects_self_reference_and_unknown_values() -> None:
+    claims = [
+        _retrieved_claim("claim_1", "A hivas 18:42-kor tortent."),
+        _retrieved_claim("claim_2", "A hivas 19:10-kor tortent."),
+    ]
+    payload = {
+        "contradiction_candidates": [
+            {
+                "contradiction_type": "legal_conclusion",
+                "title": "Onhivatkozas",
+                "description": "Nem ervenyes par.",
+                "claim_label_a": "claim_1",
+                "claim_label_b": "claim_1",
+                "severity_hint": "critical",
+                "confidence": 2,
+            },
+            {
+                "contradiction_type": "legal_conclusion",
+                "title": "Ismeretlen cimke",
+                "description": "Nem letezo claim cimke.",
+                "claim_label_a": "claim_1",
+                "claim_label_b": "claim_99",
+            },
+        ],
+        "unsupported_contradiction_candidates": ["nincs eleg par"],
+    }
+
+    valid_candidates, unsupported = validate_extracted_contradiction_candidates(payload, claims)
+
+    assert valid_candidates == []
+    assert unsupported == ["nincs eleg par"]

@@ -22,7 +22,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 84 passed
+pytest: 86 passed
 alembic: 0011_contradiction_candidates (head)
 ```
 
@@ -43,6 +43,7 @@ alembic: 0011_contradiction_candidates (head)
 - Analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity/summary services.
 - Source-cited summary item persistence, API, review workflow, and review report inclusion.
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion.
+- `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs.
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint with object type, review status, source validation filters, and expanded source details.
 - JSON and HTML review report export with SHA256, claim/entity/event item tracking, report filters, and expanded source details.
@@ -101,6 +102,7 @@ Analysis:
 - `POST /api/v1/cases/{case_id}/analysis/modules/extract_events`
 - `POST /api/v1/cases/{case_id}/analysis/modules/extract_entities`
 - `POST /api/v1/cases/{case_id}/analysis/modules/summarize_case`
+- `POST /api/v1/cases/{case_id}/analysis/modules/detect_contradiction_candidates`
 
 Reviewable objects:
 
@@ -170,7 +172,7 @@ Latest `summarize_case` live smoke:
 
 Recommended order:
 
-1. Add `detect_contradiction_candidates` analysis module on top of the new contradiction foundation.
+1. Smoke-test `detect_contradiction_candidates` end-to-end against LM Studio on a sample with conflicting claims.
 2. Add missing-item candidate foundation.
 3. Start a minimal frontend only after the backend review/export loop is stable.
 
