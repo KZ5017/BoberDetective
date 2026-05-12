@@ -96,6 +96,7 @@
 - Added append-only entity review history to entity detail responses.
 - Added `entity_review_recorded` audit events.
 - Added entity review status mapping and validation tests.
+- Added entity items to the case review report and review report exports.
 
 ### Changed
 
@@ -133,6 +134,7 @@
 - Refactored claim, event, and export review workflows to use the shared review helper for mapping, listing, record creation, and audit writing.
 - Applied Alembic migration `0009_entities` and smoke-tested `extract_entities`; validation passed and 2 person entities were persisted with mentions.
 - Smoke-tested entity review; an extracted entity was marked `verified` through append-only human review history.
+- Smoke-tested entity report/export inclusion; extracted entities appeared in the review report and HTML export item tracking.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

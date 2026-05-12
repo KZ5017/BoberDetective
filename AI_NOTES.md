@@ -192,7 +192,7 @@ Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
 2. Broaden source-cited analysis modules beyond `extract_claims` and `extract_events`.
-3. Add entities to review report and exports.
+3. Add richer review report filtering.
 
 Environment verification notes:
 
@@ -275,8 +275,10 @@ Implementation status:
 - Live `extract_events` module smoke result: `analysis 200`, `validation_status=passed`, 1 persisted event.
 - Keyword search now uses sanitized prefix `to_tsquery` terms so simple Hungarian suffix cases like `kapu` matching `kaput` are less brittle.
 - Case review report works through `GET /api/v1/cases/{case_id}/review-report`.
-- The review report is read-only and returns combined claim/event items with review status, source validation status, source references, quote text, analysis run id, and review history.
+- The review report is read-only and returns combined claim/entity/event items with review status, source validation status, source references, quote text, analysis run id, and review history.
 - Live review report smoke result: `report 200`, 3 total items, 3 `needs_review`, each with 1 source.
+- Entity items are included in review report and JSON/HTML review report exports through their source-linked mentions.
+- Live entity report/export smoke result: `report 200`, 2 entity items with sources; HTML export `201`, 2 entity export items.
 - JSON review report export works through `POST /api/v1/cases/{case_id}/exports`.
 - Export list/detail/download work through `GET /api/v1/cases/{case_id}/exports`, `GET /api/v1/cases/{case_id}/exports/{export_id}`, and `GET /api/v1/cases/{case_id}/exports/{export_id}/download`.
 - Export creation writes a JSON file under the case export directory, records SHA256, creates `export_items`, and writes DB + JSONL audit.

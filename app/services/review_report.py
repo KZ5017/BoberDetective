@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.claim import ClaimModel, ClaimSourceModel
+from app.models.entity import EntityMentionModel, EntityModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
@@ -13,7 +14,7 @@ from app.schemas.review_report import CaseReviewReport, ReviewReportCounts, Revi
 
 
 def build_case_review_report(db: Session, case_id: UUID) -> CaseReviewReport:
-    items = _claim_items(db, case_id) + _event_items(db, case_id)
+    items = _claim_items(db, case_id) + _entity_items(db, case_id) + _event_items(db, case_id)
     items.sort(key=lambda item: (item.review_status != "needs_review", item.created_at), reverse=False)
     counts = _build_counts([item.review_status for item in items])
     return CaseReviewReport(case_id=case_id, counts=counts, items=items)
@@ -69,6 +70,36 @@ def _event_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:
     ]
 
 
+def _entity_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:
+    entities = list(
+        db.execute(
+            select(EntityModel)
+            .where(EntityModel.case_id == case_id)
+            .order_by(EntityModel.entity_type.asc(), EntityModel.canonical_name.asc())
+        ).scalars()
+    )
+    items: list[ReviewReportItem] = []
+    for entity in entities:
+        sources = _entity_sources(db, entity.id)
+        items.append(
+            ReviewReportItem(
+                object_type="entity",
+                object_id=entity.id,
+                title=entity.canonical_name,
+                body_text=entity.description,
+                subtype=entity.entity_type,
+                review_status=entity.review_status,
+                source_validation_status="source_valid" if sources else "source_invalid",
+                created_by_analysis_run_id=entity.created_by_analysis_run_id,
+                created_at=entity.created_at,
+                updated_at=entity.updated_at,
+                sources=sources,
+                reviews=_reviews(db, case_id, "entity", entity.id),
+            )
+        )
+    return items
+
+
 def _claim_sources(db: Session, claim_id: UUID) -> list[ReviewReportSource]:
     rows = db.execute(
         select(ClaimSourceModel, SourceReferenceModel)
@@ -87,6 +118,30 @@ def _event_sources(db: Session, event_id: UUID) -> list[ReviewReportSource]:
         .order_by(EventSourceModel.relevance_rank.asc())
     )
     return [_report_source(source_link, source_reference) for source_link, source_reference in rows]
+
+
+def _entity_sources(db: Session, entity_id: UUID) -> list[ReviewReportSource]:
+    rows = db.execute(
+        select(EntityMentionModel, SourceReferenceModel)
+        .join(SourceReferenceModel, SourceReferenceModel.id == EntityMentionModel.source_reference_id)
+        .where(EntityMentionModel.entity_id == entity_id)
+        .order_by(EntityMentionModel.created_at.asc())
+    )
+    return [
+        ReviewReportSource(
+            source_reference_id=source_reference.id,
+            document_id=source_reference.document_id,
+            page_id=source_reference.page_id,
+            chunk_id=source_reference.chunk_id,
+            page_number=source_reference.page_number,
+            citation_label=source_reference.citation_label,
+            quote_text=source_reference.quote_text,
+            source_kind=source_reference.source_kind,
+            support_type="direct",
+            relevance_rank=index,
+        )
+        for index, (_mention, source_reference) in enumerate(rows)
+    ]
 
 
 def _report_source(source_link: ClaimSourceModel | EventSourceModel, source_reference: SourceReferenceModel) -> ReviewReportSource:

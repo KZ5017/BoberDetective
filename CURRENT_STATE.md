@@ -41,7 +41,7 @@ alembic: 0009_entities (head)
 - Source-cited `extract_entities` module.
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint.
-- JSON and HTML review report export with SHA256 and export item tracking.
+- JSON and HTML review report export with SHA256 and claim/entity/event item tracking.
 - Append-only human review history for claims, entities, events, and exports.
 - Shared review helper for claim/entity/event/export review mapping, listing, record creation, and audit writing.
 
@@ -147,8 +147,8 @@ The latest live smoke completed this path successfully.
 Recommended order:
 
 1. Create and push the first baseline Git commit.
-2. Add entities to review report and export output.
-3. Add richer review report filtering.
+2. Add richer review report filtering.
+3. Add source/reference detail expansion in report output.
 4. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes

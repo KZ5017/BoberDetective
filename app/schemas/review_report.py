@@ -36,7 +36,7 @@ class ReviewReportItem(BaseModel):
     subtype: str
     review_status: str
     source_validation_status: str
-    created_by_analysis_run_id: UUID
+    created_by_analysis_run_id: UUID | None
     created_at: datetime
     updated_at: datetime
     sources: list[ReviewReportSource]

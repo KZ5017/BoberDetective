@@ -371,6 +371,8 @@ LLM benchmark megjegyzés:
 - Entity review workflow foundation elkészült: `POST /api/v1/cases/{case_id}/entities/{entity_id}/reviews`.
 - Entity review `entities.review_status` mezőt frissít, append-only `human_reviews` rekordot és `entity_review_recorded` audit eseményt ír.
 - Élő entity review smoke eredmény: `review 200`, entity `verified`, review history count 1.
+- Entity elemek bekerültek a case review reportba és a JSON/HTML review report exportokba is, mention/source_reference kapcsolaton keresztül.
+- Élő entity report/export smoke eredmény: `report 200`, 2 entity item source-szal; HTML export `201`, 2 entity export item.
 
 Adatbázis és Docker döntés:
 

@@ -53,7 +53,7 @@ Completed:
 
 Next:
 
-- Add entities to review report and exports
+- Richer review report filtering
 - Broaden source-cited analysis modules beyond `extract_claims` and `extract_events`
 
 ## Design documents
@@ -119,7 +119,7 @@ Initial backend scaffold exists under `app/` with:
 - event review API with append-only human review history
 - `extract_events` analysis module
 - case review report API at `GET /api/v1/cases/{case_id}/review-report`
-- JSON/HTML review report export API with export item tracking and download endpoint
+- JSON/HTML review report export API with claim/entity/event item tracking and download endpoint
 - export review API with append-only human review history
 - shared review helper used by claim, entity, event, and export review workflows
 - pytest smoke tests
