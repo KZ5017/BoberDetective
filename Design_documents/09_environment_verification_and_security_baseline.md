@@ -378,8 +378,9 @@ LLM benchmark megjegyzés:
 - Élő filtered report/export smoke eredmény: entity-only, `needs_review`, `source_valid` report `200`, JSON export `201`, 2 entity export item.
 - Source/reference detail expansion elkészült a review report source objektumokban: dokumentum fájlnév/SHA256, quote offsetek, chunk/page metaadatok és kontrollált hosszúságú forrásszöveg excerpt.
 - JSON/HTML exportok ugyanezeket a source detail mezőket viszik tovább; a HTML export továbbra is escape-el minden document/LLM/user eredetű szöveget.
-- Analysis module service cleanup elkészült: a közös retrieval/JSON segédek külön fájlba kerültek, a claim/event/entity modulok pedig saját service fájlokat kaptak. Az `analysis_modules.py` vékony public façade maradt.
+- Analysis module service cleanup elkészült: a közös retrieval/JSON segédek külön fájlba kerültek, a claim/event/entity/summary modulok pedig saját service fájlokat kaptak. Az `analysis_modules.py` vékony public façade maradt.
 - Summary item foundation elkészült: `summary_items` és `summary_item_sources` táblák, list/create/detail/review API, append-only `summary_item` review workflow, és review report inclusion.
+- `summarize_case` analysis module foundation elkészült: keyword chunk retrieval -> LM Studio native -> quote validation -> source_reference -> summary_item persistence.
 
 Adatbázis és Docker döntés:
 
@@ -399,7 +400,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 75 passed
+pytest: 77 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

@@ -104,6 +104,7 @@
 - Added `summary_items` and `summary_item_sources` SQLAlchemy models and Alembic migration `0010_summary_items`.
 - Added summary item list/create/detail API endpoints and append-only review workflow.
 - Added summary item inclusion in case review reports through `object_type=summary_item`.
+- Added `summarize_case` analysis module foundation with source-cited summary item persistence.
 
 ### Changed
 
@@ -145,7 +146,7 @@
 - Smoke-tested filtered review report/export flow for entity items with `needs_review` and `source_valid` filters.
 - Expanded JSON/HTML report exports now carry the same source detail fields, with HTML escaping retained.
 - Refactored `app/services/analysis_modules.py` into a thin public façade while preserving existing API behavior and compatibility imports.
-- Applied Alembic migration `0010_summary_items`; latest verification baseline is `75 passed`.
+- Applied Alembic migration `0010_summary_items`; latest verification baseline is `77 passed`.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

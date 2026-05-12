@@ -7,9 +7,10 @@ from app.services.analysis_module_claims import run_extract_claims, validate_ext
 from app.services.analysis_module_common import AnalysisModuleError, RetrievedChunk, parse_llm_json_object
 from app.services.analysis_module_entities import run_extract_entities, validate_extracted_entities
 from app.services.analysis_module_events import run_extract_events, validate_extracted_events
+from app.services.analysis_module_summaries import run_summarize_case, validate_extracted_summary_items
 
 
-SUPPORTED_MODULES = {"extract_claims", "extract_events", "extract_entities"}
+SUPPORTED_MODULES = {"extract_claims", "extract_events", "extract_entities", "summarize_case"}
 
 
 def run_analysis_module(
@@ -24,4 +25,6 @@ def run_analysis_module(
         return run_extract_events(db, case_id, payload)
     if module_key == "extract_entities":
         return run_extract_entities(db, case_id, payload)
+    if module_key == "summarize_case":
+        return run_summarize_case(db, case_id, payload)
     raise AnalysisModuleError("Unsupported analysis module")

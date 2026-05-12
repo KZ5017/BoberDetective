@@ -49,6 +49,18 @@ class AnalysisModuleEntity(BaseModel):
     chunk_id: UUID
 
 
+class AnalysisModuleSummaryItem(BaseModel):
+    summary_item_id: UUID
+    summary_type: str
+    title: str
+    body_text: str
+    quote_text: str
+    source_label: str
+    source_reference_id: UUID
+    document_id: UUID
+    chunk_id: UUID
+
+
 class AnalysisModuleRunResponse(BaseModel):
     analysis_run_id: UUID
     module_key: str
@@ -56,6 +68,7 @@ class AnalysisModuleRunResponse(BaseModel):
     claims: list[AnalysisModuleClaim]
     events: list[AnalysisModuleEvent] = []
     entities: list[AnalysisModuleEntity] = []
+    summary_items: list[AnalysisModuleSummaryItem] = []
     unsupported_items: list[str]
     selected_chunk_ids: list[UUID]
     validation_status: str

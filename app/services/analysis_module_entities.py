@@ -143,6 +143,7 @@ def run_extract_entities(db: Session, case_id: UUID, payload: AnalysisModuleRunR
             claims=[],
             events=[],
             entities=response_entities,
+            summary_items=[],
             unsupported_items=unsupported_items,
             selected_chunk_ids=[retrieved.chunk.id for retrieved in retrieved_chunks],
             validation_status=validation_status,

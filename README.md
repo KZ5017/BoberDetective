@@ -53,12 +53,13 @@ Completed:
 - Case review report filtering by object type, review status, and source validation status
 - Review report export filters
 - Expanded review report source details with document metadata, offsets, chunk/page metadata, and bounded source excerpts
-- Analysis module service split into common helpers and claim/event/entity module-specific services
+- Analysis module service split into common helpers and claim/event/entity/summary module-specific services
 - Summary item persistence, source linkage, API, review workflow, and review report inclusion
+- `summarize_case` analysis module foundation for source-cited summary item creation
 
 Next:
 
-- First `summarize_case` analysis module
+- Live `summarize_case` smoke test with LM Studio
 - Contradiction or missing-item candidate foundation
 
 ## Design documents
@@ -115,7 +116,7 @@ Initial backend scaffold exists under `app/` with:
 - source-cited analysis smoke API with Qwen native reasoning-off
 - `claims` and `claim_sources` persistence with source reference linkage
 - `human_reviews` append-only review history for claims
-- generalized `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}` endpoint, currently supporting `extract_claims`, `extract_events`, and `extract_entities`
+- generalized `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}` endpoint, currently supporting `extract_claims`, `extract_events`, `extract_entities`, and `summarize_case`
 - module-specific analysis services under `app/services/analysis_module_*.py`
 - entity list/detail API
 - entity review API with append-only human review history

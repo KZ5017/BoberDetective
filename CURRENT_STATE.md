@@ -22,7 +22,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 75 passed
+pytest: 77 passed
 alembic: 0010_summary_items (head)
 ```
 
@@ -39,7 +39,8 @@ alembic: 0010_summary_items (head)
 - Analysis run provenance.
 - Source-cited `extract_claims` and `extract_events` modules.
 - Source-cited `extract_entities` module.
-- Analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity services.
+- Source-cited `summarize_case` module that persists summary items.
+- Analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity/summary services.
 - Source-cited summary item persistence, API, review workflow, and review report inclusion.
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint with object type, review status, source validation filters, and expanded source details.
@@ -97,6 +98,7 @@ Analysis:
 - `POST /api/v1/cases/{case_id}/analysis/modules/extract_claims`
 - `POST /api/v1/cases/{case_id}/analysis/modules/extract_events`
 - `POST /api/v1/cases/{case_id}/analysis/modules/extract_entities`
+- `POST /api/v1/cases/{case_id}/analysis/modules/summarize_case`
 
 Reviewable objects:
 
@@ -154,7 +156,7 @@ The latest live smoke completed this path successfully.
 
 Recommended order:
 
-1. Add the first `summarize_case` analysis module that creates source-cited summary items.
+1. Smoke-test `summarize_case` end-to-end against LM Studio on a real imported TXT sample.
 2. Add contradiction or missing-item candidate foundation.
 3. Start a minimal frontend only after the backend review/export loop is stable.
 

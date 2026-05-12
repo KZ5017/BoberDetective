@@ -10,6 +10,7 @@ from app.services.analysis_modules import (
     validate_extracted_claims,
     validate_extracted_entities,
     validate_extracted_events,
+    validate_extracted_summary_items,
 )
 
 
@@ -196,3 +197,53 @@ def test_validate_extracted_entities_normalizes_unknown_type() -> None:
 
     assert valid_entities[0]["entity_type"] == "other"
     assert unsupported == ["nincs szerepminosites"]
+
+
+def test_validate_extracted_summary_items_requires_quote_in_labeled_chunk() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "Az irat szerint a hivas 18:42-kor tortent.")]
+    payload = {
+        "summary_items": [
+            {
+                "summary_type": "case_overview",
+                "title": "Telefonhivas",
+                "body_text": "A forras egy 18:42-kor tortent hivast emlit.",
+                "quote_text": "hivas 18:42-kor tortent",
+                "source_label": "chunk_1",
+                "confidence": "medium",
+                "support_type": "direct",
+            }
+        ],
+        "unsupported_summary_items": [],
+    }
+
+    valid_items, unsupported = validate_extracted_summary_items(payload, chunks)
+
+    assert len(valid_items) == 1
+    assert valid_items[0]["summary_type"] == "case_overview"
+    assert str(valid_items[0]["confidence"]) == "0.6000"
+    assert unsupported == []
+
+
+def test_validate_extracted_summary_items_normalizes_unknown_values() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "A dokumentum ugyiratot emlit.")]
+    payload = {
+        "summary_items": [
+            {
+                "summary_type": "risk_score",
+                "title": "Ugyirat",
+                "body_text": "A dokumentum ugyiratot emlit.",
+                "quote_text": "dokumentum ugyiratot emlit",
+                "source_label": "chunk_1",
+                "confidence": 1.5,
+                "support_type": "unsupported",
+            }
+        ],
+        "unsupported_summary_items": ["nincs kockazati kovetkeztetes"],
+    }
+
+    valid_items, unsupported = validate_extracted_summary_items(payload, chunks)
+
+    assert valid_items[0]["summary_type"] == "other"
+    assert valid_items[0]["support_type"] == "direct"
+    assert valid_items[0]["confidence"] is None
+    assert unsupported == ["nincs kockazati kovetkeztetes"]

@@ -142,6 +142,7 @@ def run_extract_events(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
             claims=[],
             events=response_events,
             entities=[],
+            summary_items=[],
             unsupported_items=unsupported_items,
             selected_chunk_ids=[retrieved.chunk.id for retrieved in retrieved_chunks],
             validation_status=validation_status,

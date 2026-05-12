@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 75 passed`, `alembic: 0010_summary_items (head)`.
+- Current verification baseline: `pytest: 77 passed`, `alembic: 0010_summary_items (head)`.
 
 Initial implementation exists:
 
@@ -57,8 +57,9 @@ Initial implementation exists:
 - review report filtering by object type, review status, and source validation status,
 - review report export filters through `report_filters`,
 - expanded review report source details with document metadata, offsets, chunk/page metadata, and bounded source excerpts,
-- analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity services,
+- analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity/summary services,
 - source-cited summary item persistence, source linkage, API, review workflow, and review report inclusion,
+- `summarize_case` analysis module foundation with quote validation and summary item persistence,
 - pytest smoke tests.
 
 Completed design documents:
@@ -196,7 +197,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Add the first `summarize_case` analysis module that creates source-cited summary items.
+2. Smoke-test `summarize_case` end-to-end against LM Studio on a real imported TXT sample.
 3. Add contradiction or missing-item candidate foundation.
 
 Environment verification notes:
@@ -258,11 +259,12 @@ Implementation status:
 - Claim review writes append-only `human_reviews` records and `claim_review_recorded` audit events.
 - Live review smoke result: claim moved to `verified`, review history count 1.
 - Generalized analysis module execution now exists through `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}`.
-- Currently supported module keys: `extract_claims`, `extract_events`, `extract_entities`.
-- Analysis module implementation is split across `app/services/analysis_module_common.py`, `analysis_module_claims.py`, `analysis_module_events.py`, and `analysis_module_entities.py`; `analysis_modules.py` remains the thin public façade for API and compatibility imports.
+- Currently supported module keys: `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`.
+- Analysis module implementation is split across `app/services/analysis_module_common.py`, `analysis_module_claims.py`, `analysis_module_events.py`, `analysis_module_entities.py`, and `analysis_module_summaries.py`; `analysis_modules.py` remains the thin public façade for API and compatibility imports.
 - The `extract_claims` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_claims_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists claims, records outputs, and finishes the analysis run.
 - The `extract_events` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_events_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists events/event_sources, records outputs, and finishes the analysis run.
 - The `extract_entities` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_entities_v1` prompt, validates each returned mention quote against the labeled source chunk, creates source references, persists entities/entity_mentions, records outputs, and finishes the analysis run.
+- The `summarize_case` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `summarize_case_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists summary_items/summary_item_sources, records outputs, and finishes the analysis run.
 - Unsupported module keys are rejected before execution.
 - Event list/detail works through `GET /api/v1/cases/{case_id}/events` and `GET /api/v1/cases/{case_id}/events/{event_id}`.
 - Event review works through `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`.
@@ -306,7 +308,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `75 passed`.
+- Latest test run: `77 passed`.
 
 ## Suggested Prompt For A New Codex Session
 
