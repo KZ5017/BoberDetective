@@ -1,0 +1,143 @@
+from uuid import uuid4
+
+import pytest
+
+from app.models.document import DocumentChunkModel
+from app.services.analysis_modules import (
+    AnalysisModuleError,
+    RetrievedChunk,
+    parse_llm_json_object,
+    validate_extracted_claims,
+    validate_extracted_events,
+)
+
+
+def _retrieved_chunk(label: str, text: str) -> RetrievedChunk:
+    return RetrievedChunk(
+        label=label,
+        document_name="irat.txt",
+        chunk=DocumentChunkModel(
+            id=uuid4(),
+            case_id=uuid4(),
+            document_id=uuid4(),
+            page_start=1,
+            page_end=1,
+            chunk_index=0,
+            chunk_text=text,
+            char_start=0,
+            char_end=len(text),
+            token_count=10,
+            chunking_strategy="char_window_v1",
+            chunker_version="1",
+            version_no=1,
+            is_current=True,
+        ),
+        retrieval_score=1.0,
+    )
+
+
+def test_parse_llm_json_object_accepts_fenced_json() -> None:
+    payload = parse_llm_json_object('```json\n{"claims":[],"unsupported_claims":[]}\n```')
+
+    assert payload["claims"] == []
+
+
+def test_parse_llm_json_object_rejects_array() -> None:
+    with pytest.raises(AnalysisModuleError):
+        parse_llm_json_object("[]")
+
+
+def test_validate_extracted_claims_requires_quote_in_labeled_chunk() -> None:
+    chunks = [
+        _retrieved_chunk("chunk_1", "A jegyzokonyv szerint telefonhivas tortent."),
+        _retrieved_chunk("chunk_2", "Masik forras masik tartalommal."),
+    ]
+    payload = {
+        "claims": [
+            {
+                "claim_type": "document_fact",
+                "claim_text": "Telefonhivas tortent.",
+                "quote_text": "telefonhivas tortent",
+                "source_label": "chunk_1",
+            },
+            {
+                "claim_type": "document_fact",
+                "claim_text": "Rossz chunk.",
+                "quote_text": "telefonhivas tortent",
+                "source_label": "chunk_2",
+            },
+        ],
+        "unsupported_claims": ["nincs eleg forras"],
+    }
+
+    valid_claims, unsupported = validate_extracted_claims(payload, chunks)
+
+    assert len(valid_claims) == 1
+    assert valid_claims[0]["source_label"] == "chunk_1"
+    assert unsupported == ["nincs eleg forras"]
+
+
+def test_validate_extracted_claims_normalizes_unknown_claim_type() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "A forras szerint adat szerepel.")]
+    payload = {
+        "claims": [
+            {
+                "claim_type": "accusation",
+                "claim_text": "Adat szerepel.",
+                "quote_text": "adat szerepel",
+                "source_label": "chunk_1",
+            }
+        ],
+        "unsupported_claims": [],
+    }
+
+    valid_claims, _ = validate_extracted_claims(payload, chunks)
+
+    assert valid_claims[0]["claim_type"] == "unknown"
+
+
+def test_validate_extracted_events_requires_quote_in_labeled_chunk() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "18:42-kor telefonhivas tortent Kovacs Anna es Nagy Peter kozott.")]
+    payload = {
+        "events": [
+            {
+                "event_type": "call",
+                "event_title": "Telefonhivas",
+                "event_description": "A forras telefonhivast emlit.",
+                "event_time_raw": "18:42-kor",
+                "time_precision": "minute",
+                "location_text": None,
+                "quote_text": "18:42-kor telefonhivas tortent",
+                "source_label": "chunk_1",
+            }
+        ],
+        "unsupported_events": [],
+    }
+
+    valid_events, unsupported = validate_extracted_events(payload, chunks)
+
+    assert len(valid_events) == 1
+    assert valid_events[0]["event_type"] == "call"
+    assert unsupported == []
+
+
+def test_validate_extracted_events_normalizes_unknown_values() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "A forras szerint esemeny tortent.")]
+    payload = {
+        "events": [
+            {
+                "event_type": "accusation",
+                "event_title": "Esemeny",
+                "time_precision": "certain",
+                "quote_text": "esemeny tortent",
+                "source_label": "chunk_1",
+            }
+        ],
+        "unsupported_events": ["nincs pontos ido"],
+    }
+
+    valid_events, unsupported = validate_extracted_events(payload, chunks)
+
+    assert valid_events[0]["event_type"] == "other"
+    assert valid_events[0]["time_precision"] == "unknown"
+    assert unsupported == ["nincs pontos ido"]

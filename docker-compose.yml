@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: boberdetective-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-boberdetective}
+      POSTGRES_USER: ${POSTGRES_USER:-boberdetective}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boberdetective_dev_password}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ${BOBERDETECTIVE_DATA_ROOT:-/home/bober/boberdetective-data}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.5
+    container_name: boberdetective-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - ${BOBERDETECTIVE_DATA_ROOT:-/home/bober/boberdetective-data}/qdrant:/qdrant/storage
+
