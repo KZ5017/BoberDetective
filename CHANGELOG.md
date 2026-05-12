@@ -129,6 +129,7 @@
 - Added frontend review report filters for object type, review status, and source validation status.
 - Added frontend object detail panel for selected review report items.
 - Added frontend focused review queue shortcuts and export history list.
+- Added Hungarian UI labels for the frontend, including display mappings for backend enum/internal values.
 - Added source-bound analysis retrieval fallback to first current case chunks when keyword retrieval has no hits.
 
 ### Changed

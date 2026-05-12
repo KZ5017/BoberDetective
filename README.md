@@ -77,6 +77,7 @@ Completed:
 - Frontend document page/chunk and analysis run input/output drill-down
 - Frontend review status/source validation filters and object detail panel
 - Frontend export history and focused review queue controls
+- Frontend visible text localized to Hungarian with labels for backend enum/internal values
 - End-to-end frontend/API smoke passed through case creation, TXT import, all MVP analysis modules, review queue filter, claim review, JSON export, export history backing endpoint, download, and Vite proxy
 
 Next:

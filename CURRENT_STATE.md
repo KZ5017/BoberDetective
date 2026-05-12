@@ -61,6 +61,7 @@ alembic: 0012_missing_item_candidates (head)
 - Frontend shows document page/chunk drill-down and analysis run input/output detail.
 - Frontend review report supports object type, review status, and source validation filters plus object detail panel.
 - Frontend shows export history and focused review queue shortcuts.
+- Frontend visible labels are localized to Hungarian, including mapped labels for backend enum/internal values.
 - Append-only human review history for claims, entities, events, and exports.
 - Shared review helper for claim/entity/event/export review mapping, listing, record creation, and audit writing.
 
@@ -231,6 +232,7 @@ Recommended order:
 ## Important Local Notes
 
 - WSL sometimes fails parallel file reads with transient service errors. Single WSL commands are more reliable.
+- Keep visible frontend text Hungarian. Internal API keys and enum values may remain English, but map them to Hungarian labels before rendering.
 - LM Studio native `/api/v1/chat` should use `max_output_tokens`, not `maxTokens`.
 - Send `reasoning: "off"` only for Qwen-style reasoning models.
 - `POST /api/v1/system/llm/load-chat-model` loads the configured chat model through LM Studio native `/api/v1/models/load`.

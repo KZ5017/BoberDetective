@@ -336,6 +336,7 @@ Implementation status:
 - Frontend object detail panel shows object-specific facts, sources, and review history for the selected report item.
 - Frontend now has focused queue shortcuts for general review, missing items, contradictions, and all report items.
 - Frontend export history lists prior JSON/HTML exports and download links.
+- Frontend visible UI text is localized to Hungarian, with backend enum/internal values mapped to Hungarian labels before display.
 - Frontend uses Vite proxy from `/api` to `http://127.0.0.1:8000`; backend CORS was not loosened.
 - Frontend verification: `npm run build` passed.
 - End-to-end frontend/API smoke passed through live backend and Vite dev server: case creation, TXT import, document/chunk/search checks, all MVP analysis modules, review report/filter, claim review, JSON export/list/download, frontend index, and Vite `/api` proxy.
@@ -397,3 +398,4 @@ Then wait for my actual task.
 - Do not add cloud integrations.
 - Do not begin coding unless explicitly asked.
 - Keep assumptions and unverified items clearly marked.
+- Keep future visible frontend text Hungarian; do not expose raw English enum/internal values directly in the UI unless they are technical identifiers intentionally shown in code/hash/id contexts.

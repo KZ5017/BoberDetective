@@ -154,6 +154,7 @@ Read these before making plans or edits:
 - Avoid changing `README.md` heavily; small link/status updates are acceptable.
 - Do not create `TODO.md`; keep next steps in `AI_NOTES.md`.
 - Keep the fresh-session quick-start state in `CURRENT_STATE.md`.
+- Keep user-facing frontend text in Hungarian. Internal API keys and enum values may remain English, but visible labels, buttons, placeholders, status text, and empty states should be shown with Hungarian labels.
 
 ## Current State
 
@@ -209,6 +210,7 @@ Current implementation caveats:
 - Frontend shows document page/chunk and analysis run input/output drill-down.
 - Frontend review report supports object/review/source filters and selected object detail.
 - Frontend shows export history and focused review queue shortcuts.
+- Frontend visible labels are localized to Hungarian; keep future UI text Hungarian and map backend enum/internal values before displaying them.
 - Latest frontend verification: `npm run build` passed.
 
 ## Security Baseline

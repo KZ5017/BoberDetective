@@ -67,18 +67,71 @@ const busyLabels: Record<string, string> = {
   cases: "Ugylista frissitese",
   "case-create": "Ugy letrehozasa",
   "case-data": "Ugyadatok betoltese",
-  "document-detail": "Irat reszletek betoltese",
-  "run-detail": "Analysis run reszletek betoltese",
-  exports: "Export history betoltese",
+  "document-detail": "Iratreszletek betoltese",
+  "run-detail": "Elemzesi futas reszleteinek betoltese",
+  exports: "Export elozmenyek betoltese",
   import: "Irat importalasa",
   analysis: "Elemzes futtatasa",
-  report: "Review report betoltese",
+  report: "Attekintesi jelentés betoltese",
   "export-json": "JSON export keszitese",
   "export-html": "HTML export keszitese",
-  "review-verify": "Review rogzítese",
-  "review-reject": "Review rogzítese",
-  "review-mark_needs_review": "Review rogzítese",
-  "review-comment": "Komment rogzítese"
+  "review-verify": "Felulvizsgalat rogzítese",
+  "review-reject": "Felulvizsgalat rogzítese",
+  "review-mark_needs_review": "Felulvizsgalat rogzítese",
+  "review-comment": "Megjegyzes rogzítese"
+};
+
+const moduleLabels: Record<string, string> = {
+  extract_claims: "Allitasok kinyerese",
+  extract_events: "Esemenyek kinyerese",
+  extract_entities: "Entitasok kinyerese",
+  summarize_case: "Ugyosszefoglalo keszitese",
+  detect_contradiction_candidates: "Ellentmondasjeloltek keresese",
+  detect_missing_items: "Hianyzo iratok keresese"
+};
+
+const objectTypeLabels: Record<string, string> = {
+  claim: "Allitas",
+  event: "Esemeny",
+  entity: "Entitas",
+  summary_item: "Osszefoglalo elem",
+  contradiction_candidate: "Ellentmondasjelolt",
+  missing_item_candidate: "Hianyzo irat jelolt",
+  export: "Export"
+};
+
+const reviewStatusLabels: Record<string, string> = {
+  needs_review: "Ellenorzesre var",
+  verified: "Ellenorizve",
+  rejected: "Elutasitva",
+  corrected: "Javitva",
+  new: "Uj"
+};
+
+const sourceValidationLabels: Record<string, string> = {
+  source_valid: "Forras ervenyes",
+  source_invalid: "Forras ervenytelen",
+  pending_source_validation: "Forras ellenorzesre var"
+};
+
+const runStatusLabels: Record<string, string> = {
+  running: "Folyamatban",
+  succeeded: "Sikeres",
+  failed: "Sikertelen",
+  cancelled: "Megszakitva"
+};
+
+const validationStatusLabels: Record<string, string> = {
+  passed: "Atment",
+  failed: "Sikertelen",
+  warning: "Figyelmeztetes"
+};
+
+const actionLabels: Record<string, string> = {
+  verify: "Ellenorzes",
+  reject: "Elutasitas",
+  mark_needs_review: "Ellenorzesre jeloles",
+  comment: "Megjegyzes"
 };
 
 export function App() {
@@ -197,7 +250,7 @@ export function App() {
       if (showNotice) {
         setNotice("Ugyadatok frissitve.");
       }
-      setLastActionSummary(`${documentsResponse.data.length} irat, ${runsResponse.data.length} analysis run.`);
+      setLastActionSummary(`${documentsResponse.data.length} irat, ${runsResponse.data.length} elemzesi futas.`);
     });
   }
 
@@ -210,8 +263,8 @@ export function App() {
       const reportResponse = await getReviewReport(selectedCaseId, filters);
       setReport(reportResponse);
       setSelectedReportItem(reportResponse.items[0] ?? null);
-      setNotice("Review queue betoltve.");
-      setLastActionSummary(`${summary}: ${reportResponse.items.length} item.`);
+      setNotice("Ellenorzesi lista betoltve.");
+      setLastActionSummary(`${summary}: ${reportResponse.items.length} elem.`);
     });
   }
 
@@ -220,7 +273,7 @@ export function App() {
     await perform("exports", async () => {
       const response = await listExports(selectedCaseId);
       setExports(response.data);
-      setNotice("Export history frissitve.");
+      setNotice("Export elozmenyek frissitve.");
       setLastActionSummary(`${response.data.length} export.`);
     });
   }
@@ -236,7 +289,7 @@ export function App() {
       setDocumentPages(pagesResponse.data);
       setDocumentChunks(chunksResponse.data);
       setNotice("Irat reszletek betoltve.");
-      setLastActionSummary(`${document.original_filename}: ${pagesResponse.data.length} page, ${chunksResponse.data.length} chunk.`);
+      setLastActionSummary(`${document.original_filename}: ${pagesResponse.data.length} oldal, ${chunksResponse.data.length} szovegresz.`);
     });
   }
 
@@ -245,8 +298,8 @@ export function App() {
     await perform("run-detail", async () => {
       const detail = await getAnalysisRun(selectedCaseId, run.id);
       setAnalysisRunDetail(detail);
-      setNotice("Analysis run reszletek betoltve.");
-      setLastActionSummary(`${run.run_type}: ${detail.inputs.length} input, ${detail.outputs.length} output.`);
+      setNotice("Elemzesi futas reszletei betoltve.");
+      setLastActionSummary(`${labelModule(run.run_type)}: ${detail.inputs.length} bemenet, ${detail.outputs.length} kimenet.`);
     });
   }
 
@@ -288,9 +341,9 @@ export function App() {
       ]);
       setReport(reportResponse);
       setAnalysisRuns(runsResponse.data);
-      setNotice("Elemzes lefutott, report frissitve.");
+      setNotice("Elemzes lefutott, jelentés frissitve.");
       setLastActionSummary(
-        `${response.module_key}: ${response.validation_status}, ${response.selected_chunk_ids.length} chunk, ${analysisOutputCount(response)} output`
+        `${labelModule(response.module_key)}: ${labelValidationStatus(response.validation_status)}, ${response.selected_chunk_ids.length} szovegresz, ${analysisOutputCount(response)} kimenet`
       );
     });
   }
@@ -301,8 +354,8 @@ export function App() {
       const reportResponse = await getReviewReport(selectedCaseId, reportFilters);
       setReport(reportResponse);
       setSelectedReportItem((current) => (current ? reportResponse.items.find((item) => item.object_id === current.object_id) ?? null : null));
-      setNotice("Review report frissitve.");
-      setLastActionSummary(`Report betoltve: ${reportResponse.items.length} item.`);
+      setNotice("Attekintesi jelentés frissitve.");
+      setLastActionSummary(`Jelentes betoltve: ${reportResponse.items.length} elem.`);
     });
   }
 
@@ -327,8 +380,8 @@ export function App() {
       const reportResponse = await getReviewReport(selectedCaseId, reportFilters);
       setReport(reportResponse);
       setSelectedReportItem(reportResponse.items.find((item) => item.object_id === objectId) ?? null);
-      setNotice("Review rogzítve, report frissitve.");
-      setLastActionSummary(`${itemObjectType} review: ${actionType}`);
+      setNotice("Felulvizsgalat rogzítve, jelentes frissitve.");
+      setLastActionSummary(`${labelObjectType(itemObjectType)}: ${labelAction(actionType)}`);
     });
   }
 
@@ -340,9 +393,9 @@ export function App() {
           <p>Lokalis nyomozati iratintelligencia munkapad</p>
         </div>
         <div className="status-strip">
-          <span><ShieldCheck size={16} /> local</span>
-          <span><Database size={16} /> source-cited</span>
-          <span><CheckCircle2 size={16} /> review-first</span>
+          <span><ShieldCheck size={16} /> helyi</span>
+          <span><Database size={16} /> forrashivatkozott</span>
+          <span><CheckCircle2 size={16} /> emberi ellenorzes</span>
         </div>
       </header>
 
@@ -422,10 +475,10 @@ export function App() {
               {documents.map((document) => (
                 <article key={document.id} className="compact-item">
                   <strong>{document.original_filename}</strong>
-                  <span>{document.document_type ?? "unknown"} | {document.processing_status} | {formatBytes(document.file_size_bytes)}</span>
+                  <span>{document.document_type ?? "ismeretlen"} | {labelProcessingStatus(document.processing_status)} | {formatBytes(document.file_size_bytes)}</span>
                   <code>{document.sha256_hash}</code>
                   <button onClick={() => handleDocumentDetail(document)} disabled={Boolean(busy)}>
-                    Details
+                    Reszletek
                   </button>
                 </article>
               ))}
@@ -442,29 +495,29 @@ export function App() {
               <div className="detail-stack">
                 <strong>{selectedDocument.original_filename}</strong>
                 <div className="metrics">
-                  <span>{documentPages.length} page</span>
-                  <span>{documentChunks.length} chunk</span>
-                  <span>{selectedDocument.processing_status}</span>
+                  <span>{documentPages.length} oldal</span>
+                  <span>{documentChunks.length} szovegresz</span>
+                  <span>{labelProcessingStatus(selectedDocument.processing_status)}</span>
                 </div>
                 <details open>
-                  <summary>Pages</summary>
+                  <summary>Oldalak</summary>
                   <div className="detail-list">
                     {documentPages.map((page) => (
                       <article key={page.id} className="text-sample">
-                        <strong>Page {page.page_number}</strong>
-                        <span>{page.text_source} | OCR {page.ocr_used ? "yes" : "no"} | {page.text_char_count} chars</span>
+                        <strong>{page.page_number}. oldal</strong>
+                        <span>{labelTextSource(page.text_source)} | OCR {page.ocr_used ? "igen" : "nem"} | {page.text_char_count} karakter</span>
                         <pre>{page.extracted_text}</pre>
                       </article>
                     ))}
                   </div>
                 </details>
                 <details>
-                  <summary>Chunks</summary>
+                  <summary>Szovegreszek</summary>
                   <div className="detail-list">
                     {documentChunks.map((chunk) => (
                       <article key={chunk.id} className="text-sample">
-                        <strong>Chunk {chunk.chunk_index}</strong>
-                        <span>pages {chunk.page_start}-{chunk.page_end} | chars {formatRange(chunk.char_start, chunk.char_end)}</span>
+                        <strong>{chunk.chunk_index}. szovegresz</strong>
+                        <span>oldalak: {chunk.page_start}-{chunk.page_end} | karakterek: {formatRange(chunk.char_start, chunk.char_end)}</span>
                         <pre>{chunk.chunk_text}</pre>
                       </article>
                     ))}
@@ -490,7 +543,7 @@ export function App() {
               </label>
             </div>
             <button onClick={handleImport} disabled={!selectedCaseId || !file || Boolean(busy)}>
-              <FilePlus2 size={18} /> Import
+              <FilePlus2 size={18} /> Importalas
             </button>
           </section>
 
@@ -503,7 +556,7 @@ export function App() {
               <label>
                 Modul
                 <select value={moduleKey} onChange={(event) => setModuleKey(event.target.value)}>
-                  {modules.map((item) => <option key={item}>{item}</option>)}
+                  {modules.map((item) => <option key={item} value={item}>{labelModule(item)}</option>)}
                 </select>
               </label>
               <label>
@@ -512,7 +565,7 @@ export function App() {
               </label>
             </div>
             <label>
-              Query
+              Keresdes
               <textarea value={query} onChange={(event) => setQuery(event.target.value)} rows={3} />
             </label>
             <button onClick={handleRunAnalysis} disabled={!selectedCaseId || !query || Boolean(busy)}>
@@ -521,10 +574,10 @@ export function App() {
             {analysis && (
               <div className="analysis-summary">
                 <div className="metrics">
-                  <span>{analysis.validation_status}</span>
-                  <span>{analysis.selected_chunk_ids.length} chunk</span>
-                  <span>{analysis.unsupported_items.length} unsupported</span>
-                  <span>{analysisOutputCount(analysis)} output</span>
+                  <span>{labelValidationStatus(analysis.validation_status)}</span>
+                  <span>{analysis.selected_chunk_ids.length} szovegresz</span>
+                  <span>{analysis.unsupported_items.length} nem tamogatott</span>
+                  <span>{analysisOutputCount(analysis)} kimenet</span>
                 </div>
                 <code>{analysis.analysis_run_id}</code>
               </div>
@@ -533,20 +586,20 @@ export function App() {
 
           <section className="panel">
             <div className="section-heading">
-              <h2>Analysis history</h2>
+              <h2>Elemzesi elozmenyek</h2>
               <Archive size={20} />
             </div>
             <div className="compact-list">
-              {analysisRuns.length === 0 && <p className="muted">Nincs analysis run.</p>}
+              {analysisRuns.length === 0 && <p className="muted">Nincs elemzesi futas.</p>}
               {analysisRuns.slice(0, 8).map((run) => (
                 <article key={run.id} className="compact-item">
-                  <strong>{run.run_type}</strong>
-                  <span>{run.status} | {run.validation_status ?? "no validation"} | {run.model_name ?? "no model"}</span>
+                  <strong>{labelModule(run.run_type)}</strong>
+                  <span>{labelRunStatus(run.status)} | {run.validation_status ? labelValidationStatus(run.validation_status) : "nincs validacio"} | {run.model_name ?? "nincs modell"}</span>
                   <span>{new Date(run.started_at).toLocaleString()} {run.finished_at ? `-> ${new Date(run.finished_at).toLocaleTimeString()}` : ""}</span>
                   {run.error_message && <p className="error-text">{run.error_message}</p>}
                   <code>{run.id}</code>
                   <button onClick={() => handleAnalysisRunDetail(run)} disabled={Boolean(busy)}>
-                    Details
+                    Reszletek
                   </button>
                 </article>
               ))}
@@ -555,39 +608,39 @@ export function App() {
 
           <section className="panel detail-panel">
             <div className="section-heading">
-              <h2>Analysis run detail</h2>
+              <h2>Elemzesi futas reszletei</h2>
               <Archive size={20} />
             </div>
-            {!analysisRunDetail && <p className="muted">Valassz analysis runt a reszletekhez.</p>}
+            {!analysisRunDetail && <p className="muted">Valassz elemzesi futast a reszletekhez.</p>}
             {analysisRunDetail && (
               <div className="detail-stack">
-                <strong>{analysisRunDetail.run.run_type}</strong>
+                <strong>{labelModule(analysisRunDetail.run.run_type)}</strong>
                 <div className="metrics">
-                  <span>{analysisRunDetail.run.status}</span>
-                  <span>{analysisRunDetail.run.validation_status ?? "no validation"}</span>
-                  <span>{analysisRunDetail.inputs.length} input</span>
-                  <span>{analysisRunDetail.outputs.length} output</span>
+                  <span>{labelRunStatus(analysisRunDetail.run.status)}</span>
+                  <span>{analysisRunDetail.run.validation_status ? labelValidationStatus(analysisRunDetail.run.validation_status) : "nincs validacio"}</span>
+                  <span>{analysisRunDetail.inputs.length} bemenet</span>
+                  <span>{analysisRunDetail.outputs.length} kimenet</span>
                 </div>
                 <code>{analysisRunDetail.run.id}</code>
                 {analysisRunDetail.run.error_message && <p className="error-text">{analysisRunDetail.run.error_message}</p>}
                 <details open>
-                  <summary>Inputs</summary>
+                  <summary>Bemenetek</summary>
                   <div className="detail-list">
                     {analysisRunDetail.inputs.map((input) => (
                       <article key={input.id} className="compact-item">
-                        <strong>{input.sequence_no}. {input.input_type}</strong>
-                        <span>{input.related_object_type ?? "source"} {input.related_object_id ?? input.chunk_id ?? input.document_id ?? ""}</span>
+                        <strong>{input.sequence_no}. {labelAnalysisInputType(input.input_type)}</strong>
+                        <span>{input.related_object_type ? labelObjectType(input.related_object_type) : "Forras"} {input.related_object_id ?? input.chunk_id ?? input.document_id ?? ""}</span>
                         {input.payload_json && <pre>{JSON.stringify(input.payload_json, null, 2)}</pre>}
                       </article>
                     ))}
                   </div>
                 </details>
                 <details>
-                  <summary>Outputs</summary>
+                  <summary>Kimenetek</summary>
                   <div className="detail-list">
                     {analysisRunDetail.outputs.map((output) => (
                       <article key={output.id} className="compact-item">
-                        <strong>{output.output_position ?? 0}. {output.output_type}</strong>
+                        <strong>{output.output_position ?? 0}. {labelAnalysisOutputType(output.output_type)}</strong>
                         <code>{output.output_object_id}</code>
                       </article>
                     ))}
@@ -599,26 +652,26 @@ export function App() {
 
           <section className="panel report-panel">
             <div className="section-heading">
-              <h2>Review report</h2>
+              <h2>Attekintesi jelentés</h2>
               <Archive size={20} />
             </div>
             <div className="form-row">
               <label>
                 Objektum
                 <select value={objectType} onChange={(event) => setObjectType(event.target.value)}>
-                  {objectTypes.map((item) => <option key={item} value={item}>{item || "all"}</option>)}
+                  {objectTypes.map((item) => <option key={item} value={item}>{item ? labelObjectType(item) : "Osszes"}</option>)}
                 </select>
               </label>
               <label>
-                Review status
+                Felulvizsgalat allapota
                 <select value={reviewStatus} onChange={(event) => setReviewStatus(event.target.value)}>
-                  {reviewStatuses.map((item) => <option key={item} value={item}>{item || "all"}</option>)}
+                  {reviewStatuses.map((item) => <option key={item} value={item}>{item ? labelReviewStatus(item) : "Osszes"}</option>)}
                 </select>
               </label>
               <label>
-                Source status
+                Forras allapota
                 <select value={sourceValidationStatus} onChange={(event) => setSourceValidationStatus(event.target.value)}>
-                  {sourceValidationStatuses.map((item) => <option key={item} value={item}>{item || "all"}</option>)}
+                  {sourceValidationStatuses.map((item) => <option key={item} value={item}>{item ? labelSourceValidationStatus(item) : "Osszes"}</option>)}
                 </select>
               </label>
               <button onClick={handleLoadReport} disabled={!selectedCaseId || Boolean(busy)}>
@@ -628,40 +681,40 @@ export function App() {
             <div className="queue-row">
               <button
                 className="secondary-button"
-                onClick={() => applyReviewQueue({ reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Review queue")}
+                onClick={() => applyReviewQueue({ reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Ellenorzesi lista")}
                 disabled={!selectedCaseId || Boolean(busy)}
               >
-                Review queue
+                Ellenorzesi lista
               </button>
               <button
                 className="secondary-button"
-                onClick={() => applyReviewQueue({ objectType: "missing_item_candidate", reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Missing item queue")}
+                onClick={() => applyReviewQueue({ objectType: "missing_item_candidate", reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Hianyzo iratok")}
                 disabled={!selectedCaseId || Boolean(busy)}
               >
-                Missing items
+                Hianyzo iratok
               </button>
               <button
                 className="secondary-button"
-                onClick={() => applyReviewQueue({ objectType: "contradiction_candidate", reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Contradiction queue")}
+                onClick={() => applyReviewQueue({ objectType: "contradiction_candidate", reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Ellentmondasok")}
                 disabled={!selectedCaseId || Boolean(busy)}
               >
-                Contradictions
+                Ellentmondasok
               </button>
               <button
                 className="secondary-button"
-                onClick={() => applyReviewQueue({}, "All report items")}
+                onClick={() => applyReviewQueue({}, "Osszes jelenteselem")}
                 disabled={!selectedCaseId || Boolean(busy)}
               >
-                All
+                Osszes
               </button>
             </div>
             {report && (
               <>
                 <div className="metrics">
-                  <span>{report.counts.total} total</span>
-                  <span>{report.counts.needs_review} review</span>
-                  <span>{report.counts.verified} verified</span>
-                  <span>{report.counts.rejected} rejected</span>
+                  <span>{report.counts.total} osszesen</span>
+                  <span>{report.counts.needs_review} ellenorzesre var</span>
+                  <span>{report.counts.verified} ellenorizve</span>
+                  <span>{report.counts.rejected} elutasitva</span>
                 </div>
                 <div className="item-list">
                   {report.items.map((item) => (
@@ -671,27 +724,27 @@ export function App() {
                         <p>{item.body_text}</p>
                       </div>
                       <div className="tags">
-                        <span>{item.object_type}</span>
-                        <span>{item.review_status}</span>
-                        <span>{item.source_validation_status}</span>
-                        <span>{item.reviews.length} review</span>
-                        <span>{item.sources.length} source</span>
+                        <span>{labelObjectType(item.object_type)}</span>
+                        <span>{labelReviewStatus(item.review_status)}</span>
+                        <span>{labelSourceValidationStatus(item.source_validation_status)}</span>
+                        <span>{item.reviews.length} felulvizsgalat</span>
+                        <span>{item.sources.length} forras</span>
                       </div>
                       <button className="secondary-button" onClick={() => setSelectedReportItem(item)}>
-                        Detail
+                        Reszletek
                       </button>
                       <div className="source-list">
                         {item.sources.map((source, index) => (
                           <details key={source.source_reference_id} className="source-detail" open={index === 0}>
                             <summary>
-                              Source {index + 1}: {source.document_filename ?? "document"} {source.page_number ? `p.${source.page_number}` : ""} {source.chunk_index !== null ? `chunk ${source.chunk_index}` : ""}
+                              {index + 1}. forras: {source.document_filename ?? "irat"} {source.page_number ? `${source.page_number}. oldal` : ""} {source.chunk_index !== null ? `${source.chunk_index}. szovegresz` : ""}
                             </summary>
                             <div className="source-meta">
-                              <span>{source.support_type}</span>
-                              <span>rank {source.relevance_rank ?? index}</span>
-                              <span>{source.citation_label ?? "no citation label"}</span>
-                              <span>quote {formatRange(source.quote_char_start, source.quote_char_end)}</span>
-                              <span>excerpt {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
+                              <span>{labelSupportType(source.support_type)}</span>
+                              <span>sorrend {source.relevance_rank ?? index}</span>
+                              <span>{source.citation_label ?? "nincs hivatkozasi cimke"}</span>
+                              <span>idezet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
+                              <span>reszlet {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
                             </div>
                             <blockquote>{source.quote_text}</blockquote>
                             {source.source_text_excerpt && <p className="excerpt">{source.source_text_excerpt}</p>}
@@ -703,8 +756,8 @@ export function App() {
                         <div className="history">
                           {item.reviews.map((review) => (
                             <div key={review.id}>
-                              <strong>{review.action_type}</strong>
-                              <span>{review.new_review_status ?? "comment"}</span>
+                              <strong>{labelAction(review.action_type)}</strong>
+                              <span>{review.new_review_status ? labelReviewStatus(review.new_review_status) : "megjegyzes"}</span>
                               <span>{new Date(review.performed_at).toLocaleString()}</span>
                               {review.review_comment && <p>{review.review_comment}</p>}
                             </div>
@@ -715,18 +768,19 @@ export function App() {
                         <input
                           value={reviewComments[item.object_id] ?? ""}
                           onChange={(event) => setReviewComments((current) => ({ ...current, [item.object_id]: event.target.value }))}
-                          placeholder="Review megjegyzes"
+                          placeholder="Felulvizsgalati megjegyzes"
+                          aria-label="Felulvizsgalati megjegyzes"
                         />
-                        <button title="Verify" onClick={() => handleReview(item.object_type, item.object_id, "verify")} disabled={Boolean(busy)}>
+                        <button title="Ellenorizve" onClick={() => handleReview(item.object_type, item.object_id, "verify")} disabled={Boolean(busy)}>
                           <CheckCircle2 size={18} />
                         </button>
-                        <button title="Reject" onClick={() => handleReview(item.object_type, item.object_id, "reject")} disabled={Boolean(busy)}>
-                          Reject
+                        <button title="Elutasitas" onClick={() => handleReview(item.object_type, item.object_id, "reject")} disabled={Boolean(busy)}>
+                          Elutasit
                         </button>
-                        <button title="Needs review" onClick={() => handleReview(item.object_type, item.object_id, "mark_needs_review")} disabled={Boolean(busy)}>
-                          Review
+                        <button title="Ellenorzesre var" onClick={() => handleReview(item.object_type, item.object_id, "mark_needs_review")} disabled={Boolean(busy)}>
+                          Ellenorzesre
                         </button>
-                        <button title="Comment" onClick={() => handleReview(item.object_type, item.object_id, "comment")} disabled={Boolean(busy)}>
+                        <button title="Megjegyzes" onClick={() => handleReview(item.object_type, item.object_id, "comment")} disabled={Boolean(busy)}>
                           <MessageSquare size={18} />
                         </button>
                       </div>
@@ -739,18 +793,18 @@ export function App() {
 
           <section className="panel detail-panel">
             <div className="section-heading">
-              <h2>Object detail</h2>
+              <h2>Objektum reszletei</h2>
               <Search size={20} />
             </div>
-            {!selectedReportItem && <p className="muted">Valassz report itemet a reszletekhez.</p>}
+            {!selectedReportItem && <p className="muted">Valassz jelenteselemet a reszletekhez.</p>}
             {selectedReportItem && (
               <div className="detail-stack">
                 <strong>{selectedReportItem.title}</strong>
                 <div className="metrics">
-                  <span>{selectedReportItem.object_type}</span>
+                  <span>{labelObjectType(selectedReportItem.object_type)}</span>
                   <span>{selectedReportItem.subtype}</span>
-                  <span>{selectedReportItem.review_status}</span>
-                  <span>{selectedReportItem.source_validation_status}</span>
+                  <span>{labelReviewStatus(selectedReportItem.review_status)}</span>
+                  <span>{labelSourceValidationStatus(selectedReportItem.source_validation_status)}</span>
                 </div>
                 <code>{selectedReportItem.object_id}</code>
                 {selectedReportItem.body_text && <p>{selectedReportItem.body_text}</p>}
@@ -763,24 +817,24 @@ export function App() {
                   ))}
                 </div>
                 <details open>
-                  <summary>Sources</summary>
+                  <summary>Forrasok</summary>
                   <div className="detail-list">
                     {selectedReportItem.sources.map((source, index) => (
                       <article key={source.source_reference_id} className="text-sample">
-                        <strong>{index + 1}. {source.document_filename ?? "document"}</strong>
-                        <span>{source.citation_label ?? "no citation"} | quote {formatRange(source.quote_char_start, source.quote_char_end)}</span>
+                        <strong>{index + 1}. {source.document_filename ?? "irat"}</strong>
+                        <span>{source.citation_label ?? "nincs hivatkozas"} | idezet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
                         <pre>{source.quote_text}</pre>
                       </article>
                     ))}
                   </div>
                 </details>
                 <details>
-                  <summary>Review history</summary>
+                  <summary>Felulvizsgalati elozmenyek</summary>
                   <div className="detail-list">
                     {selectedReportItem.reviews.map((review) => (
                       <article key={review.id} className="compact-item">
-                        <strong>{review.action_type}</strong>
-                        <span>{review.new_review_status ?? "comment"} | {new Date(review.performed_at).toLocaleString()}</span>
+                        <strong>{labelAction(review.action_type)}</strong>
+                        <span>{review.new_review_status ? labelReviewStatus(review.new_review_status) : "megjegyzes"} | {new Date(review.performed_at).toLocaleString()}</span>
                         {review.review_comment && <p>{review.review_comment}</p>}
                       </article>
                     ))}
@@ -806,16 +860,16 @@ export function App() {
             {lastExport && (
               <div className="export-box">
                 <strong>{lastExport.export.export_type.toUpperCase()}</strong>
-                <span>{lastExport.items.length} item</span>
-                <a href={`/api/v1/cases/${selectedCaseId}/exports/${lastExport.export.id}/download`}>Download</a>
+                <span>{lastExport.items.length} elem</span>
+                <a href={`/api/v1/cases/${selectedCaseId}/exports/${lastExport.export.id}/download`}>Letoltes</a>
               </div>
             )}
           </section>
 
           <section className="panel">
             <div className="section-heading">
-              <h2>Export history</h2>
-              <button className="icon-button" onClick={refreshExports} title="Export history frissites" disabled={!selectedCaseId || Boolean(busy)}>
+              <h2>Export elozmenyek</h2>
+              <button className="icon-button" onClick={refreshExports} title="Export elozmenyek frissitese" disabled={!selectedCaseId || Boolean(busy)}>
                 <RefreshCw size={18} />
               </button>
             </div>
@@ -823,10 +877,10 @@ export function App() {
               {exports.length === 0 && <p className="muted">Nincs export.</p>}
               {exports.slice(0, 10).map((item) => (
                 <article key={item.id} className="compact-item">
-                  <strong>{item.export_type.toUpperCase()} {item.export_scope}</strong>
-                  <span>{item.review_filter ?? "all"} | {new Date(item.created_at).toLocaleString()}</span>
+                  <strong>{item.export_type.toUpperCase()} {labelExportScope(item.export_scope)}</strong>
+                  <span>{labelExportFilter(item.review_filter)} | {new Date(item.created_at).toLocaleString()}</span>
                   {item.sha256_hash && <code>{item.sha256_hash}</code>}
-                  <a href={`/api/v1/cases/${selectedCaseId}/exports/${item.id}/download`}>Download</a>
+                  <a href={`/api/v1/cases/${selectedCaseId}/exports/${item.id}/download`}>Letoltes</a>
                 </article>
               ))}
             </div>
@@ -871,25 +925,125 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
+function labelModule(value: string) {
+  return moduleLabels[value] ?? value;
+}
+
+function labelObjectType(value: string) {
+  return objectTypeLabels[value] ?? value;
+}
+
+function labelReviewStatus(value: string) {
+  return reviewStatusLabels[value] ?? value;
+}
+
+function labelSourceValidationStatus(value: string) {
+  return sourceValidationLabels[value] ?? value;
+}
+
+function labelRunStatus(value: string) {
+  return runStatusLabels[value] ?? value;
+}
+
+function labelValidationStatus(value: string) {
+  return validationStatusLabels[value] ?? value;
+}
+
+function labelAction(value: string) {
+  return actionLabels[value] ?? value;
+}
+
+function labelProcessingStatus(value: string) {
+  const labels: Record<string, string> = {
+    imported: "Importalva",
+    pending: "Varakozik",
+    processing: "Feldolgozas alatt",
+    processed: "Feldolgozva",
+    failed: "Sikertelen"
+  };
+  return labels[value] ?? value;
+}
+
+function labelTextSource(value: string) {
+  const labels: Record<string, string> = {
+    txt_import: "TXT import",
+    ocr: "OCR",
+    docling: "Docling",
+    manual: "Kezi"
+  };
+  return labels[value] ?? value;
+}
+
+function labelSupportType(value: string) {
+  const labels: Record<string, string> = {
+    direct: "Kozvetlen",
+    indirect: "Kozvetett",
+    context: "Kontekstus"
+  };
+  return labels[value] ?? value;
+}
+
+function labelAnalysisInputType(value: string) {
+  const labels: Record<string, string> = {
+    query_text: "Keresdes",
+    chunk: "Szovegresz",
+    claim: "Allitas",
+    event: "Esemeny",
+    source_reference: "Forrashivatkozas"
+  };
+  return labels[value] ?? value;
+}
+
+function labelAnalysisOutputType(value: string) {
+  const labels: Record<string, string> = {
+    claim: "Allitas",
+    event: "Esemeny",
+    entity: "Entitas",
+    mention: "Emlites",
+    source_reference: "Forrashivatkozas",
+    summary_item: "Osszefoglalo elem",
+    contradiction_candidate: "Ellentmondasjelolt",
+    missing_item_candidate: "Hianyzo irat jelolt"
+  };
+  return labels[value] ?? value;
+}
+
+function labelExportFilter(value: string | null) {
+  const labels: Record<string, string> = {
+    all: "Osszes",
+    verified_only: "Csak ellenorzott",
+    needs_review: "Ellenorzesre var",
+    rejected: "Elutasitott"
+  };
+  return labels[value ?? "all"] ?? (value ?? "Osszes");
+}
+
+function labelExportScope(value: string) {
+  const labels: Record<string, string> = {
+    review_report: "attekintesi jelentés"
+  };
+  return labels[value] ?? value;
+}
+
 function objectDetailFacts(item: ReviewReportItem) {
   const base = [
-    { label: "Sources", value: String(item.sources.length) },
-    { label: "Reviews", value: String(item.reviews.length) }
+    { label: "Forrasok", value: String(item.sources.length) },
+    { label: "Felulvizsgalatok", value: String(item.reviews.length) }
   ];
   if (item.object_type === "contradiction_candidate") {
-    return [...base, { label: "Candidate kind", value: item.subtype }];
+    return [...base, { label: "Jelolt tipusa", value: item.subtype }];
   }
   if (item.object_type === "missing_item_candidate") {
-    return [...base, { label: "Referenced item", value: item.title }];
+    return [...base, { label: "Hivatkozott irat", value: item.title }];
   }
   if (item.object_type === "summary_item") {
-    return [...base, { label: "Summary type", value: item.subtype }];
+    return [...base, { label: "Osszefoglalo tipusa", value: item.subtype }];
   }
   if (item.object_type === "entity") {
-    return [...base, { label: "Entity type", value: item.subtype }];
+    return [...base, { label: "Entitas tipusa", value: item.subtype }];
   }
   if (item.object_type === "event") {
-    return [...base, { label: "Event type", value: item.subtype }];
+    return [...base, { label: "Esemeny tipusa", value: item.subtype }];
   }
-  return [...base, { label: "Claim type", value: item.subtype }];
+  return [...base, { label: "Allitas tipusa", value: item.subtype }];
 }

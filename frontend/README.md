@@ -36,6 +36,11 @@ Current workflows:
 - JSON/HTML export creation and download,
 - export history.
 
+UI language rule:
+
+- Keep visible frontend text Hungarian.
+- Backend enum/internal values can remain English in API payloads, but map them to Hungarian labels before rendering.
+
 ## Verification
 
 ```bash

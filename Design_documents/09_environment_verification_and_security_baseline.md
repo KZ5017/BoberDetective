@@ -404,6 +404,7 @@ LLM benchmark megjegyzés:
 - Frontend drill-down elkészült: document pages/chunks és analysis run inputs/outputs.
 - Frontend review filter és object detail panel elkészült: object type, review status, source validation status filterek, kiválasztott report item részletek.
 - Frontend export history és focused review queue controls elkészültek.
+- Frontend látható felületi szövegek magyarítása elkészült; a backend enum/internal értékeket magyar címkével kell megjeleníteni, nem nyers angol kulcsként.
 - Frontend build ellenőrzés: `npm run build` sikeres.
 - Frontend/API end-to-end smoke ellenőrzés sikeres: live backend + Vite dev szerveren case létrehozás, TXT import, összes MVP analysis modul, review queue filter, claim review, JSON export/list/download, frontend index és `/api` proxy.
 - Analysis retrieval source-bound fallback elkészült: ha a keyword retrieval nem talál chunkot, a modul az ügy első aktuális chunkjaira esik vissza, így a tág UI promptok sem futnak forrás nélküli kontextussal.
