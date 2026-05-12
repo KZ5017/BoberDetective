@@ -7,6 +7,7 @@ from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageM
 from app.models.event import EventModel, EventSourceModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.export import ExportItemModel, ExportModel
+from app.models.missing_item import MissingItemCandidateModel, MissingItemCandidateSourceModel
 from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
 from app.models.summary_item import SummaryItemModel, SummaryItemSourceModel
@@ -33,6 +34,8 @@ __all__ = [
     "ExportItemModel",
     "ExportModel",
     "HumanReviewModel",
+    "MissingItemCandidateModel",
+    "MissingItemCandidateSourceModel",
     "SourceReferenceModel",
     "SummaryItemModel",
     "SummaryItemSourceModel",

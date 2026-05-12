@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 86 passed`, `alembic: 0011_contradiction_candidates (head)`.
+- Current verification baseline: `pytest: 92 passed`, `alembic: 0012_missing_item_candidates (head)`.
 
 Initial implementation exists:
 
@@ -65,6 +65,7 @@ Initial implementation exists:
 - contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion,
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs,
 - live `detect_contradiction_candidates` smoke passed on a two-claim time conflict sample,
+- missing item candidate persistence, source linkage, API, review workflow, and review report inclusion,
 - pytest smoke tests.
 
 Completed design documents:
@@ -202,7 +203,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Add missing-item candidate foundation.
+2. Add `detect_missing_items` analysis module on top of the new missing-item foundation.
 
 Environment verification notes:
 
@@ -223,8 +224,8 @@ Implementation status:
 - Initial FastAPI scaffold exists under `app/`.
 - Health endpoint works.
 - SQLAlchemy/psycopg DB layer exists.
-- Alembic migrations through `0011_contradiction_candidates` are applied.
-- `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, `export_items`, `summary_items`, `summary_item_sources`, `contradiction_candidates`, and `contradiction_candidate_sources` tables exist.
+- Alembic migrations through `0012_missing_item_candidates` are applied.
+- `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, `export_items`, `summary_items`, `summary_item_sources`, `contradiction_candidates`, `contradiction_candidate_sources`, `missing_item_candidates`, and `missing_item_candidate_sources` tables exist.
 - Case create/list API works.
 - Case creation writes DB audit event and JSONL audit event.
 - Document/page/chunk persistence foundation exists.
@@ -297,6 +298,10 @@ Implementation status:
 - Contradiction candidate creation requires a same-case analysis run, at least two same-case source references, and either a same-case claim pair or event pair.
 - Contradiction candidate reviews use append-only `human_reviews` with `object_type=contradiction_candidate`.
 - Contradiction candidates are included in the case review report and can be selected through `object_type=contradiction_candidate`.
+- Missing item candidate list/create/detail/review API exists through `/api/v1/cases/{case_id}/missing-item-candidates`.
+- Missing item candidate creation requires a same-case analysis run and at least one same-case source reference.
+- Missing item candidate reviews use append-only `human_reviews` with `object_type=missing_item_candidate`.
+- Missing item candidates are included in the case review report and can be selected through `object_type=missing_item_candidate`.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.
 - Live `extract_events` module smoke result: `analysis 200`, `validation_status=passed`, 1 persisted event.
 - Keyword search now uses sanitized prefix `to_tsquery` terms so simple Hungarian suffix cases like `kapu` matching `kaput` are less brittle.
@@ -322,7 +327,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `86 passed`.
+- Latest test run: `92 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

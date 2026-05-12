@@ -110,6 +110,9 @@
 - Added contradiction candidate list/create/detail API endpoints and append-only review workflow.
 - Added contradiction candidate inclusion in case review reports through `object_type=contradiction_candidate`.
 - Added `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs.
+- Added `missing_item_candidates` and `missing_item_candidate_sources` SQLAlchemy models and Alembic migration `0012_missing_item_candidates`.
+- Added missing item candidate list/create/detail API endpoints and append-only review workflow.
+- Added missing item candidate inclusion in case review reports through `object_type=missing_item_candidate`.
 
 ### Changed
 
@@ -157,6 +160,7 @@
 - Applied Alembic migration `0011_contradiction_candidates`; latest verification baseline is `84 passed`.
 - Latest verification baseline is `86 passed` after contradiction detection module validation tests.
 - Smoke-tested `detect_contradiction_candidates` against LM Studio; a two-claim phone-call time conflict sample produced 1 source-cited `time_conflict` candidate and review report inclusion.
+- Applied Alembic migration `0012_missing_item_candidates`; latest verification baseline is `92 passed`.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

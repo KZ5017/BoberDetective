@@ -386,10 +386,11 @@ LLM benchmark megjegyzés:
 - Contradiction candidate foundation elkészült: `contradiction_candidates` és `contradiction_candidate_sources` táblák, list/create/detail/review API, append-only `contradiction_candidate` review workflow, és review report inclusion.
 - `detect_contradiction_candidates` analysis module foundation elkészült: source-cited claim inputs -> LM Studio native -> claim label validation -> contradiction_candidate persistence.
 - Élő `detect_contradiction_candidates` smoke eredmény: két eltérő telefonhívás-időpontot tartalmazó TXT mintából `extract_claims` 2 claimet hozott létre, contradiction detection `analysis 200`, `validation_status=passed`, 1 `time_conflict` candidate, 2 source reference, review report inclusion.
+- Missing item candidate foundation elkészült: `missing_item_candidates` és `missing_item_candidate_sources` táblák, list/create/detail/review API, append-only `missing_item_candidate` review workflow, és review report inclusion.
 
 Adatbázis és Docker döntés:
 
-Docker telepítve van és a `bober` user hozzáfér. PostgreSQL és Qdrant Docker Compose-on keresztül fut. Az alkalmazott migrációs állapot: `0011_contradiction_candidates`.
+Docker telepítve van és a `bober` user hozzáfér. PostgreSQL és Qdrant Docker Compose-on keresztül fut. Az alkalmazott migrációs állapot: `0012_missing_item_candidates`.
 
 ## 12. WSL stabilitási megjegyzés
 
@@ -405,7 +406,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 86 passed
+pytest: 92 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

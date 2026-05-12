@@ -9,6 +9,7 @@ from app.models.contradiction import ContradictionCandidateModel, ContradictionC
 from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.event import EventModel, EventSourceModel
+from app.models.missing_item import MissingItemCandidateModel, MissingItemCandidateSourceModel
 from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
 from app.models.summary_item import SummaryItemModel, SummaryItemSourceModel
@@ -16,7 +17,7 @@ from app.schemas.review import HumanReviewRead
 from app.schemas.review_report import CaseReviewReport, ReviewReportCounts, ReviewReportFilters, ReviewReportItem, ReviewReportSource
 
 
-ALLOWED_OBJECT_TYPES = {"claim", "contradiction_candidate", "entity", "event", "summary_item"}
+ALLOWED_OBJECT_TYPES = {"claim", "contradiction_candidate", "entity", "event", "missing_item_candidate", "summary_item"}
 ALLOWED_REVIEW_STATUSES = {"new", "needs_review", "verified", "rejected", "corrected"}
 ALLOWED_SOURCE_VALIDATION_STATUSES = {"pending_source_validation", "source_valid", "source_invalid"}
 SOURCE_EXCERPT_CONTEXT_CHARS = 160
@@ -37,6 +38,7 @@ def build_case_review_report(
         + _event_items(db, case_id)
         + _summary_item_items(db, case_id)
         + _contradiction_candidate_items(db, case_id)
+        + _missing_item_candidate_items(db, case_id)
     )
     items = _filter_items(items, filters or ReviewReportFilters())
     items.sort(key=lambda item: (item.review_status != "needs_review", item.created_at), reverse=False)
@@ -206,6 +208,33 @@ def _contradiction_candidate_items(db: Session, case_id: UUID) -> list[ReviewRep
     ]
 
 
+def _missing_item_candidate_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:
+    candidates = list(
+        db.execute(
+            select(MissingItemCandidateModel)
+            .where(MissingItemCandidateModel.case_id == case_id)
+            .order_by(MissingItemCandidateModel.created_at.desc())
+        ).scalars()
+    )
+    return [
+        ReviewReportItem(
+            object_type="missing_item_candidate",
+            object_id=candidate.id,
+            title=candidate.referenced_item_text,
+            body_text=candidate.description,
+            subtype=candidate.missing_item_type,
+            review_status=candidate.review_status,
+            source_validation_status=candidate.source_validation_status,
+            created_by_analysis_run_id=candidate.created_by_analysis_run_id,
+            created_at=candidate.created_at,
+            updated_at=candidate.updated_at,
+            sources=_missing_item_candidate_sources(db, candidate.id),
+            reviews=_reviews(db, case_id, "missing_item_candidate", candidate.id),
+        )
+        for candidate in candidates
+    ]
+
+
 def _claim_sources(db: Session, claim_id: UUID) -> list[ReviewReportSource]:
     rows = db.execute(
         select(ClaimSourceModel, SourceReferenceModel)
@@ -252,6 +281,16 @@ def _contradiction_candidate_sources(db: Session, contradiction_candidate_id: UU
         )
         for index, (source_link, source_reference) in enumerate(rows)
     ]
+
+
+def _missing_item_candidate_sources(db: Session, missing_item_candidate_id: UUID) -> list[ReviewReportSource]:
+    rows = db.execute(
+        select(MissingItemCandidateSourceModel, SourceReferenceModel)
+        .join(SourceReferenceModel, SourceReferenceModel.id == MissingItemCandidateSourceModel.source_reference_id)
+        .where(MissingItemCandidateSourceModel.missing_item_candidate_id == missing_item_candidate_id)
+        .order_by(MissingItemCandidateSourceModel.relevance_rank.asc())
+    )
+    return [_report_source_from_reference(db, source_reference, support_type="direct", relevance_rank=index) for index, (_source_link, source_reference) in enumerate(rows)]
 
 
 def _entity_sources(db: Session, entity_id: UUID) -> list[ReviewReportSource]:

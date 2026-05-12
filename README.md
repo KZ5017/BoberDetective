@@ -61,10 +61,11 @@ Completed:
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs
 - Live `detect_contradiction_candidates` smoke passed on a two-claim time conflict sample
+- Missing item candidate persistence, source linkage, API, review workflow, and review report inclusion
 
 Next:
 
-- Missing-item candidate foundation
+- `detect_missing_items` analysis module
 
 ## Design documents
 
