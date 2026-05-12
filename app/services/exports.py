@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 import hashlib
+import html
 import json
 
 from sqlalchemy import select
@@ -111,13 +112,12 @@ def review_export(
 
 
 def create_review_report_export(db: Session, case_id: UUID, payload: ExportCreate) -> ExportModel:
-    if payload.export_type != "json" or payload.export_scope != "review_report":
-        raise ExportValidationError("Only review_report JSON export is supported")
+    if payload.export_type not in {"json", "html"} or payload.export_scope != "review_report":
+        raise ExportValidationError("Only review_report JSON and HTML export are supported")
 
     report = build_case_review_report(db, case_id)
     filtered_items = _filter_report_items(report.items, payload.review_filter, payload.require_source_valid)
-    export_payload = _build_export_payload(report, filtered_items, payload)
-    content = json.dumps(export_payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
+    content = _build_export_content(report, filtered_items, payload)
     sha256_hash = hashlib.sha256(content).hexdigest()
 
     user = get_or_create_dev_user(db)
@@ -134,7 +134,7 @@ def create_review_report_export(db: Session, case_id: UUID, payload: ExportCreat
     db.add(export)
     db.flush()
 
-    export_path = _write_export_file(case_id, export.id, content)
+    export_path = _write_export_file(case_id, export.id, payload.export_type, content)
     export.file_path = str(export_path)
     db.add(export)
 
@@ -229,10 +229,93 @@ def _build_export_payload(
     }
 
 
-def _write_export_file(case_id: UUID, export_id: UUID, content: bytes) -> Path:
+def _build_export_content(
+    report: CaseReviewReport,
+    filtered_items: list[ReviewReportItem],
+    payload: ExportCreate,
+) -> bytes:
+    if payload.export_type == "json":
+        export_payload = _build_export_payload(report, filtered_items, payload)
+        return json.dumps(export_payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
+    if payload.export_type == "html":
+        return _build_html_export(report, filtered_items, payload).encode("utf-8")
+    raise ExportValidationError("Unsupported export type")
+
+
+def _build_html_export(
+    report: CaseReviewReport,
+    filtered_items: list[ReviewReportItem],
+    payload: ExportCreate,
+) -> str:
+    generated_at = datetime.now(UTC).isoformat()
+    item_blocks = "\n".join(_html_item(index, item) for index, item in enumerate(filtered_items, start=1))
+    return f"""<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <title>BoberDetective review report export</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; line-height: 1.45; margin: 2rem; color: #202124; }}
+    header, section {{ max-width: 1100px; }}
+    .meta {{ border-collapse: collapse; margin: 1rem 0 2rem; }}
+    .meta th, .meta td {{ border: 1px solid #d0d7de; padding: 0.4rem 0.6rem; text-align: left; }}
+    article {{ border-top: 2px solid #d0d7de; padding: 1rem 0; }}
+    .label {{ color: #57606a; font-size: 0.9rem; }}
+    blockquote {{ border-left: 4px solid #d0d7de; margin-left: 0; padding-left: 1rem; color: #24292f; }}
+    code {{ background: #f6f8fa; padding: 0.1rem 0.25rem; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>BoberDetective review report export</h1>
+    <table class="meta">
+      <tr><th>Case ID</th><td>{_e(str(report.case_id))}</td></tr>
+      <tr><th>Generated at</th><td>{_e(generated_at)}</td></tr>
+      <tr><th>Export type</th><td>{_e(payload.export_type)}</td></tr>
+      <tr><th>Export scope</th><td>{_e(payload.export_scope)}</td></tr>
+      <tr><th>Review filter</th><td>{_e(payload.review_filter)}</td></tr>
+      <tr><th>Require source valid</th><td>{_e(str(payload.require_source_valid))}</td></tr>
+      <tr><th>Item count</th><td>{len(filtered_items)}</td></tr>
+    </table>
+  </header>
+  <section>
+    {item_blocks}
+  </section>
+</body>
+</html>
+"""
+
+
+def _html_item(index: int, item: ReviewReportItem) -> str:
+    source_blocks = "\n".join(_html_source(source) for source in item.sources)
+    reviews = ", ".join(_e(review.action_type) for review in item.reviews) or "no reviews"
+    return f"""<article>
+  <h2>{index}. {_e(item.object_type)}: {_e(item.title)}</h2>
+  <p class="label">Object ID: <code>{_e(str(item.object_id))}</code></p>
+  <p><strong>Subtype:</strong> {_e(item.subtype)} | <strong>Review:</strong> {_e(item.review_status)} | <strong>Source validation:</strong> {_e(item.source_validation_status)}</p>
+  <p><strong>Analysis run:</strong> <code>{_e(str(item.created_by_analysis_run_id))}</code></p>
+  <p>{_e(item.body_text or "")}</p>
+  <h3>Sources</h3>
+  {source_blocks}
+  <p class="label">Review history: {_e(reviews)}</p>
+</article>"""
+
+
+def _html_source(source) -> str:
+    return f"""<div>
+  <p class="label">Source reference: <code>{_e(str(source.source_reference_id))}</code> | Citation: {_e(source.citation_label or "")}</p>
+  <blockquote>{_e(source.quote_text)}</blockquote>
+</div>"""
+
+
+def _e(value: str) -> str:
+    return html.escape(value, quote=True)
+
+
+def _write_export_file(case_id: UUID, export_id: UUID, export_type: str, content: bytes) -> Path:
     export_dir = StoragePaths(get_settings().data_root).exports_dir(str(case_id))
     export_dir.mkdir(parents=True, exist_ok=True)
-    export_path = export_dir / f"{export_id}.json"
+    export_path = export_dir / f"{export_id}.{export_type}"
     export_path.write_bytes(content)
     return export_path
 

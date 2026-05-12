@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 52 passed`, `alembic: 0008_exports (head)`.
+- Current verification baseline: `pytest: 53 passed`, `alembic: 0008_exports (head)`.
 
 Initial implementation exists:
 
@@ -47,6 +47,7 @@ Initial implementation exists:
 - event persistence foundation,
 - case review report API,
 - JSON review report export foundation,
+- HTML review report export foundation,
 - export review workflow foundation,
 - pytest smoke tests.
 
@@ -186,7 +187,7 @@ Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
 2. Broaden source-cited analysis modules beyond `extract_claims` and `extract_events`.
-3. Add export format expansion.
+3. Add event review workflow or shared review service cleanup.
 
 Environment verification notes:
 
@@ -261,15 +262,18 @@ Implementation status:
 - JSON review report export works through `POST /api/v1/cases/{case_id}/exports`.
 - Export list/detail/download work through `GET /api/v1/cases/{case_id}/exports`, `GET /api/v1/cases/{case_id}/exports/{export_id}`, and `GET /api/v1/cases/{case_id}/exports/{export_id}/download`.
 - Export creation writes a JSON file under the case export directory, records SHA256, creates `export_items`, and writes DB + JSONL audit.
-- Supported first export request: `export_type=json`, `export_scope=review_report`, with `review_filter` values `all`, `verified_only`, `needs_review`, `rejected`, and `require_source_valid`.
+- Supported first export request: `export_type=json` or `html`, `export_scope=review_report`, with `review_filter` values `all`, `verified_only`, `needs_review`, `rejected`, and `require_source_valid`.
 - Live export smoke result: `export 201`, 3 export items, JSON download `200`, SHA256 recorded.
+- HTML review report export works through the same export endpoint with `export_type=html`.
+- HTML export escapes item text, body text, citation labels, and quote text before rendering.
+- Live HTML export smoke result: `export 201`, 3 export items, `.html` file, download `200`, `text/html`.
 - Export review works through `POST /api/v1/cases/{case_id}/exports/{export_id}/reviews`.
 - Supported export review actions use the shared human review request shape: `verify`, `reject`, `mark_needs_review`, `comment`.
 - Export detail responses now include append-only review history.
 - Export review writes `human_reviews` records with `object_type=export` and `export_review_recorded` audit events.
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
-- Latest test run: `52 passed`.
+- Latest test run: `53 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

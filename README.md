@@ -43,11 +43,12 @@ Completed:
 - `extract_events` analysis module foundation
 - Case review report API for claim/event/source/review overview
 - JSON export bundle foundation for review reports
+- HTML review report export foundation with escaping
 - Export review workflow foundation
 
 Next:
 
-- Export format expansion
+- Event review workflow or shared review service cleanup
 - Broaden source-cited analysis modules beyond `extract_claims` and `extract_events`
 
 ## Design documents
@@ -109,7 +110,7 @@ Initial backend scaffold exists under `app/` with:
 - event list/detail API
 - `extract_events` analysis module
 - case review report API at `GET /api/v1/cases/{case_id}/review-report`
-- JSON review report export API with export item tracking and download endpoint
+- JSON/HTML review report export API with export item tracking and download endpoint
 - export review API with append-only human review history
 - pytest smoke tests
 

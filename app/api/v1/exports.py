@@ -76,7 +76,8 @@ def download_case_export(case_id: UUID, export_id: UUID, db: Session = Depends(g
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ExportError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return FileResponse(path, media_type="application/json", filename=f"{export.id}.json")
+    media_type = "text/html" if export.export_type == "html" else "application/json"
+    return FileResponse(path, media_type=media_type, filename=f"{export.id}.{export.export_type}")
 
 
 def _export_detail(db: Session, export_id: UUID, export) -> ExportDetail:

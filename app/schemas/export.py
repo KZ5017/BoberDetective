@@ -7,7 +7,7 @@ from app.schemas.review import HumanReviewRead
 
 
 class ExportCreate(BaseModel):
-    export_type: str = Field(default="json", pattern="^json$")
+    export_type: str = Field(default="json", pattern="^(json|html)$")
     export_scope: str = Field(default="review_report", pattern="^review_report$")
     review_filter: str = Field(default="all", pattern="^(all|verified_only|needs_review|rejected)$")
     require_source_valid: bool = True

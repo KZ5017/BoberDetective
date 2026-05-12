@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from app.schemas.review_report import ReviewReportItem, ReviewReportSource
 import pytest
 
-from app.services.exports import ExportValidationError, _filter_report_items, _review_status_for_action
+from app.schemas.export import ExportCreate
+from app.schemas.review_report import CaseReviewReport, ReviewReportItem, ReviewReportSource
+from app.services.exports import ExportValidationError, _build_html_export, _filter_report_items, _review_status_for_action
 
 
 def _item(review_status: str, source_validation_status: str = "source_valid", has_source: bool = True) -> ReviewReportItem:
@@ -72,3 +73,32 @@ def test_export_review_status_mapping() -> None:
 def test_export_review_status_rejects_unknown_action() -> None:
     with pytest.raises(ExportValidationError):
         _review_status_for_action("publish", "needs_review")
+
+
+def test_html_export_escapes_item_and_source_text() -> None:
+    malicious = '<script>alert("x")</script>'
+    item = _item("needs_review")
+    item.title = malicious
+    item.body_text = malicious
+    item.sources[0].quote_text = malicious
+    report = CaseReviewReport(
+        case_id=uuid4(),
+        counts={
+            "total": 1,
+            "needs_review": 1,
+            "verified": 0,
+            "rejected": 0,
+            "corrected": 0,
+            "new": 0,
+        },
+        items=[item],
+    )
+
+    html = _build_html_export(
+        report,
+        [item],
+        ExportCreate(export_type="html", export_scope="review_report"),
+    )
+
+    assert malicious not in html
+    assert "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in html

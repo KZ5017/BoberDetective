@@ -22,7 +22,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 52 passed
+pytest: 53 passed
 alembic: 0008_exports (head)
 ```
 
@@ -40,7 +40,7 @@ alembic: 0008_exports (head)
 - Source-cited `extract_claims` and `extract_events` modules.
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint.
-- JSON review report export with SHA256 and export item tracking.
+- JSON and HTML review report export with SHA256 and export item tracking.
 - Append-only human review history for claims and exports.
 
 ## Current Tables
@@ -128,7 +128,7 @@ For a full live smoke, with LM Studio running and Qwen loaded:
 3. Run `extract_claims`.
 4. Run `extract_events`.
 5. Fetch `/review-report`.
-6. Create a JSON review report export.
+6. Create a JSON or HTML review report export.
 7. Download the export.
 8. Add an export review.
 
@@ -139,10 +139,9 @@ The latest live smoke completed this path successfully.
 Recommended order:
 
 1. Create and push the first baseline Git commit.
-2. Add HTML export format for review reports.
-3. Add event review workflow or unify review helpers across claim/export/event.
-4. Add `extract_entities`.
-5. Start a minimal frontend only after the backend review/export loop is stable.
+2. Add event review workflow or unify review helpers across claim/export/event.
+3. Add `extract_entities`.
+4. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes
 

@@ -79,6 +79,9 @@
 - Added `export_review_recorded` audit events.
 - Added export review status mapping tests.
 - Added `CURRENT_STATE.md` as the compact Session Handoff Baseline v1 for fresh Codex sessions.
+- Added HTML review report export support through the existing export API.
+- Added HTML escaping for review report export content.
+- Added an HTML export XSS regression test.
 
 ### Changed
 
@@ -111,6 +114,7 @@
 - Smoke-tested the case review report after claim/event extraction; it returned 3 `needs_review` items with source references.
 - Applied Alembic migration `0008_exports` and smoke-tested JSON review report export; it created 3 export items and a downloadable JSON file.
 - Smoke-tested export review; a JSON export was marked `verified` through append-only human review history.
+- Smoke-tested HTML review report export; it created 3 export items and downloaded as `text/html`.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10
