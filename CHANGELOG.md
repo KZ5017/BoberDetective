@@ -115,6 +115,7 @@
 - Added missing item candidate inclusion in case review reports through `object_type=missing_item_candidate`.
 - Added `detect_missing_items` analysis module with chunk retrieval, LM Studio native execution, quote validation, source-reference creation, missing-item candidate persistence, and analysis run provenance.
 - Added missing item candidate analysis response schema and validation tests.
+- Added JSON/HTML export regression coverage for `missing_item_candidate` review report items.
 
 ### Changed
 
@@ -165,6 +166,8 @@
 - Applied Alembic migration `0012_missing_item_candidates`; latest verification baseline is `92 passed`.
 - Smoke-tested `detect_missing_items` against LM Studio; a referenced attachment/photo documentation sample produced 2 source-cited `attachment` candidates and review report inclusion.
 - Latest verification baseline is `94 passed` after missing item analysis module validation tests.
+- Smoke-tested missing item candidate JSON/HTML review report exports; both created 1 tracked export item and downloads included `missing_item_candidate`.
+- Latest verification baseline is `95 passed` after missing item export coverage.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

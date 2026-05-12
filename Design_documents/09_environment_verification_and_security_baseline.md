@@ -389,6 +389,7 @@ LLM benchmark megjegyzés:
 - Missing item candidate foundation elkészült: `missing_item_candidates` és `missing_item_candidate_sources` táblák, list/create/detail/review API, append-only `missing_item_candidate` review workflow, és review report inclusion.
 - `detect_missing_items` analysis module foundation elkészült: keyword chunk retrieval -> LM Studio native -> quote validation -> source_reference -> missing_item_candidate persistence.
 - Élő `detect_missing_items` smoke eredmény: hivatkozott mellékletet/fotódokumentációt tartalmazó TXT mintából `analysis 200`, `validation_status=passed`, 2 `attachment` candidate, review report inclusion.
+- Missing item candidate export smoke eredmény: JSON és HTML review report export `object_type=missing_item_candidate`, `needs_review`, `require_source_valid=true` beállításokkal 1-1 export itemet hozott létre, és a letöltések tartalmazták a `missing_item_candidate` elemet.
 
 Adatbázis és Docker döntés:
 
@@ -408,7 +409,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 94 passed
+pytest: 95 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

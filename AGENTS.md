@@ -194,8 +194,9 @@ Current implementation caveats:
 - PostgreSQL is reachable at `127.0.0.1:5432`.
 - Qdrant is reachable at `127.0.0.1:6333`.
 - LM Studio is reachable from WSL at `http://127.0.0.1:1234/v1`.
-- Latest test run: `94 passed`.
+- Latest test run: `95 passed`.
 - Latest live analysis smoke: `detect_missing_items` produced 2 source-cited `attachment` candidates and review report inclusion.
+- Latest export smoke: missing item candidates are included in JSON/HTML review report exports with tracked export items.
 
 ## Security Baseline
 

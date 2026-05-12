@@ -64,10 +64,11 @@ Completed:
 - Missing item candidate persistence, source linkage, API, review workflow, and review report inclusion
 - `detect_missing_items` analysis module foundation over source-cited chunk quotes
 - Live `detect_missing_items` smoke passed on referenced attachment/photo documentation sample
+- Missing item candidate JSON/HTML export smoke coverage
 
 Next:
 
-- Missing item candidate export smoke coverage
+- Retrieval improvement for short/inflected Hungarian analysis queries, then minimal frontend planning
 
 ## Design documents
 

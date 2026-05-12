@@ -1,14 +1,20 @@
 from datetime import UTC, datetime
+import json
 from uuid import uuid4
 
 import pytest
 
 from app.schemas.export import ExportCreate
 from app.schemas.review_report import CaseReviewReport, ReviewReportItem, ReviewReportSource
-from app.services.exports import ExportValidationError, _build_html_export, _filter_report_items, _review_status_for_action
+from app.services.exports import ExportValidationError, _build_export_content, _build_html_export, _filter_report_items, _review_status_for_action
 
 
-def _item(review_status: str, source_validation_status: str = "source_valid", has_source: bool = True) -> ReviewReportItem:
+def _item(
+    review_status: str,
+    source_validation_status: str = "source_valid",
+    has_source: bool = True,
+    object_type: str = "claim",
+) -> ReviewReportItem:
     sources = []
     if has_source:
         sources.append(
@@ -30,11 +36,11 @@ def _item(review_status: str, source_validation_status: str = "source_valid", ha
             )
         )
     return ReviewReportItem(
-        object_type="claim",
+        object_type=object_type,
         object_id=uuid4(),
-        title="Allitas",
-        body_text="Allitas",
-        subtype="document_fact",
+        title="3. szamu melleklet" if object_type == "missing_item_candidate" else "Allitas",
+        body_text="A forras hivatkozik egy kulon ellenorizendo mellekletre." if object_type == "missing_item_candidate" else "Allitas",
+        subtype="attachment" if object_type == "missing_item_candidate" else "document_fact",
         review_status=review_status,
         source_validation_status=source_validation_status,
         created_by_analysis_run_id=uuid4(),
@@ -108,3 +114,38 @@ def test_html_export_escapes_item_and_source_text() -> None:
     assert "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in html
     assert "irat.txt" in html
     assert "Excerpt chars" in html
+
+
+def test_review_report_export_includes_missing_item_candidates_in_json_and_html() -> None:
+    item = _item("needs_review", object_type="missing_item_candidate")
+    report = CaseReviewReport(
+        case_id=uuid4(),
+        counts={
+            "total": 1,
+            "needs_review": 1,
+            "verified": 0,
+            "rejected": 0,
+            "corrected": 0,
+            "new": 0,
+        },
+        items=[item],
+    )
+    payload = ExportCreate(export_type="json", export_scope="review_report")
+
+    content = _build_export_content(report, [item], payload)
+    exported = json.loads(content.decode("utf-8"))
+
+    assert exported["export_metadata"]["item_count"] == 1
+    assert exported["items"][0]["object_type"] == "missing_item_candidate"
+    assert exported["items"][0]["subtype"] == "attachment"
+    assert exported["items"][0]["sources"][0]["quote_text"] == "forras idezet"
+
+    html = _build_export_content(
+        report,
+        [item],
+        ExportCreate(export_type="html", export_scope="review_report"),
+    ).decode("utf-8")
+
+    assert "missing_item_candidate" in html
+    assert "3. szamu melleklet" in html
+    assert "forras idezet" in html

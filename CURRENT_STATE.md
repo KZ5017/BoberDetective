@@ -22,7 +22,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 94 passed
+pytest: 95 passed
 alembic: 0012_missing_item_candidates (head)
 ```
 
@@ -49,6 +49,7 @@ alembic: 0012_missing_item_candidates (head)
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint with object type, review status, source validation filters, and expanded source details.
 - JSON and HTML review report export with SHA256, claim/entity/event item tracking, report filters, and expanded source details.
+- Missing item candidates are covered by JSON/HTML review report export smoke coverage.
 - Append-only human review history for claims, entities, events, and exports.
 - Shared review helper for claim/entity/event/export review mapping, listing, record creation, and audit writing.
 
@@ -191,11 +192,18 @@ Latest `detect_missing_items` live smoke:
 - Candidates were `needs_review`, `source_valid`, and had source references created from validated chunk quotes.
 - Review report with `object_type=missing_item_candidate` returned 2 source-cited items with expanded source details.
 
+Latest missing item export smoke:
+
+- Created a missing item candidate through `detect_missing_items`.
+- JSON review report export with `object_type=missing_item_candidate`, `needs_review`, and `require_source_valid=true` returned 1 tracked export item.
+- JSON download contained `missing_item_candidate`.
+- HTML review report export returned 1 tracked export item and downloaded as `text/html` with `missing_item_candidate` content.
+
 ## Next Logical Steps
 
 Recommended order:
 
-1. Add export smoke coverage for missing item candidates.
+1. Consider improving analysis retrieval for short/inflected Hungarian queries around `melleklet`.
 2. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes
