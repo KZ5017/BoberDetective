@@ -201,6 +201,7 @@ Current implementation caveats:
 - Minimal React/Vite frontend scaffold exists under `frontend/`.
 - Frontend review actions exist for review report items through allowlisted API paths.
 - Frontend report items show source details and review history.
+- Frontend shows long-running operation feedback with elapsed time and last action summary.
 - Latest frontend verification: `npm run build` passed.
 
 ## Security Baseline

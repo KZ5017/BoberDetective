@@ -46,6 +46,20 @@ const objectTypes = [
   "missing_item_candidate"
 ];
 
+const busyLabels: Record<string, string> = {
+  cases: "Ugylista frissitese",
+  "case-create": "Ugy letrehozasa",
+  import: "Irat importalasa",
+  analysis: "Elemzes futtatasa",
+  report: "Review report betoltese",
+  "export-json": "JSON export keszitese",
+  "export-html": "HTML export keszitese",
+  "review-verify": "Review rogzítese",
+  "review-reject": "Review rogzítese",
+  "review-mark_needs_review": "Review rogzítese",
+  "review-comment": "Komment rogzítese"
+};
+
 export function App() {
   const [cases, setCases] = useState<CaseRead[]>([]);
   const [selectedCaseId, setSelectedCaseId] = useState("");
@@ -62,17 +76,34 @@ export function App() {
   const [lastExport, setLastExport] = useState<ExportDetail | null>(null);
   const [reviewComments, setReviewComments] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
+  const [busyStartedAt, setBusyStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [lastActionSummary, setLastActionSummary] = useState("");
 
   const selectedCase = useMemo(() => cases.find((item) => item.id === selectedCaseId), [cases, selectedCaseId]);
+  const busyLabel = busy ? (busyLabels[busy] ?? busy) : "Keszenlet";
 
   useEffect(() => {
     void refreshCases();
   }, []);
 
+  useEffect(() => {
+    if (busyStartedAt === null) {
+      setElapsedSeconds(0);
+      return;
+    }
+    setElapsedSeconds(Math.max(0, Math.floor((Date.now() - busyStartedAt) / 1000)));
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - busyStartedAt) / 1000)));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [busyStartedAt]);
+
   async function perform(label: string, action: () => Promise<void>) {
     setBusy(label);
+    setBusyStartedAt(Date.now());
     setError("");
     setNotice("");
     try {
@@ -81,6 +112,7 @@ export function App() {
       setError(err instanceof Error ? err.message : "Ismeretlen hiba");
     } finally {
       setBusy("");
+      setBusyStartedAt(null);
     }
   }
 
@@ -105,6 +137,7 @@ export function App() {
       setCaseName("");
       setCaseReference("");
       setNotice("Ugy letrehozva.");
+      setLastActionSummary(`Letrehozott ugy: ${created.case_name}`);
     });
   }
 
@@ -114,6 +147,7 @@ export function App() {
       await importDocument(selectedCaseId, file, documentType);
       setFile(null);
       setNotice("Irat import kesz.");
+      setLastActionSummary(`Import kesz: ${file.name}`);
     });
   }
 
@@ -125,6 +159,9 @@ export function App() {
       const reportResponse = await getReviewReport(selectedCaseId, objectType || undefined);
       setReport(reportResponse);
       setNotice("Elemzes lefutott, report frissitve.");
+      setLastActionSummary(
+        `${response.module_key}: ${response.validation_status}, ${response.selected_chunk_ids.length} chunk, ${analysisOutputCount(response)} output`
+      );
     });
   }
 
@@ -133,6 +170,7 @@ export function App() {
     await perform("report", async () => {
       setReport(await getReviewReport(selectedCaseId, objectType || undefined));
       setNotice("Review report frissitve.");
+      setLastActionSummary(`Report betoltve${objectType ? `: ${objectType}` : ""}.`);
     });
   }
 
@@ -141,6 +179,7 @@ export function App() {
     await perform(`export-${exportType}`, async () => {
       setLastExport(await createExport(selectedCaseId, exportType, objectType || undefined));
       setNotice(`${exportType.toUpperCase()} export elkeszult.`);
+      setLastActionSummary(`${exportType.toUpperCase()} export kesz.`);
     });
   }
 
@@ -152,6 +191,7 @@ export function App() {
       setReviewComments((current) => ({ ...current, [objectId]: "" }));
       setReport(await getReviewReport(selectedCaseId, objectType || undefined));
       setNotice("Review rogzítve, report frissitve.");
+      setLastActionSummary(`${itemObjectType} review: ${actionType}`);
     });
   }
 
@@ -211,7 +251,25 @@ export function App() {
               <h2>{selectedCase?.case_name ?? "Nincs aktiv ugy"}</h2>
               <p>{selectedCase?.case_reference ?? selectedCase?.status ?? "Valassz vagy hozz letre ugyet"}</p>
             </div>
-            <span className="run-state">{busy ? <Loader2 className="spin" size={18} /> : <CheckCircle2 size={18} />} {busy || "keszenlet"}</span>
+            <div className="run-stack">
+              <span className="run-state">{busy ? <Loader2 className="spin" size={18} /> : <CheckCircle2 size={18} />} {busyLabel}</span>
+              {busy && <span className="elapsed">{formatDuration(elapsedSeconds)}</span>}
+            </div>
+          </section>
+
+          <section className={`panel operation-panel ${busy ? "is-running" : ""}`}>
+            <div className="section-heading">
+              <h2>Muvelet allapot</h2>
+              {busy ? <Loader2 className="spin" size={20} /> : <CheckCircle2 size={20} />}
+            </div>
+            <div className="operation-grid">
+              <span>Aktualis</span>
+              <strong>{busyLabel}</strong>
+              <span>Eltelt ido</span>
+              <strong>{busy ? formatDuration(elapsedSeconds) : "-"}</strong>
+              <span>Utolso muvelet</span>
+              <strong>{lastActionSummary || "Meg nincs muvelet."}</strong>
+            </div>
           </section>
 
           <section className="panel">
@@ -259,10 +317,14 @@ export function App() {
               <Play size={18} /> Futtatas
             </button>
             {analysis && (
-              <div className="metrics">
-                <span>{analysis.validation_status}</span>
-                <span>{analysis.selected_chunk_ids.length} chunk</span>
-                <span>{analysis.unsupported_items.length} unsupported</span>
+              <div className="analysis-summary">
+                <div className="metrics">
+                  <span>{analysis.validation_status}</span>
+                  <span>{analysis.selected_chunk_ids.length} chunk</span>
+                  <span>{analysis.unsupported_items.length} unsupported</span>
+                  <span>{analysisOutputCount(analysis)} output</span>
+                </div>
+                <code>{analysis.analysis_run_id}</code>
               </div>
             )}
           </section>
@@ -394,4 +456,21 @@ function formatRange(start: number | null, end: number | null) {
     return "-";
   }
   return `${start}-${end}`;
+}
+
+function formatDuration(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function analysisOutputCount(response: AnalysisResponse) {
+  return (
+    response.claims.length +
+    response.events.length +
+    response.entities.length +
+    response.summary_items.length +
+    response.contradiction_candidates.length +
+    response.missing_item_candidates.length
+  );
 }

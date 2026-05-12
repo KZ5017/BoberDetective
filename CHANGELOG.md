@@ -121,6 +121,7 @@
 - Added Vite API proxy from `/api` to local backend port `8000`.
 - Added frontend review actions for report items using allowlisted object-type review endpoints.
 - Added frontend source detail and review history display for review report items.
+- Added frontend long-running operation feedback with elapsed time, current operation label, last action summary, and analysis output count.
 
 ### Changed
 
@@ -178,6 +179,7 @@
 - Verified frontend production build with `npm run build`.
 - Verified frontend review action build and targeted backend review tests.
 - Verified frontend source-detail build and targeted review report/export tests.
+- Verified frontend operation-feedback build and full backend regression tests.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

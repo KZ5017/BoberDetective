@@ -69,10 +69,11 @@ Completed:
 - Minimal React/Vite workbench frontend scaffold
 - Frontend review actions for review report items
 - Frontend source detail and review history display for report items
+- Frontend long-running operation feedback with elapsed time and last action summary
 
 Next:
 
-- Safer long-running analysis feedback in the frontend
+- Frontend workflow polish for document lists and analysis run history
 
 ## Design documents
 
@@ -156,4 +157,4 @@ Frontend:
 - React/Vite scaffold under `frontend/`
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
-- Current UI workflows: case create/list, TXT import, analysis run, review report filtering, source detail inspection, review history, review actions, JSON/HTML export
+- Current UI workflows: case create/list, TXT import, analysis run with elapsed-time feedback, review report filtering, source detail inspection, review history, review actions, JSON/HTML export

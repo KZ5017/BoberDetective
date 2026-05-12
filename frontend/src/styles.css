@@ -180,6 +180,45 @@ label {
   padding: 0.45rem 0.7rem;
 }
 
+.run-stack {
+  align-items: flex-end;
+  display: grid;
+  gap: 0.35rem;
+  justify-items: end;
+}
+
+.elapsed {
+  color: #cdd8df;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.operation-panel {
+  border-left: 4px solid #9bb2c1;
+  grid-column: 1 / -1;
+}
+
+.operation-panel.is-running {
+  border-left-color: #2d7a78;
+}
+
+.operation-grid {
+  display: grid;
+  gap: 0.5rem 0.9rem;
+  grid-template-columns: minmax(90px, 140px) 1fr;
+}
+
+.operation-grid span {
+  color: #65737d;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.operation-grid strong {
+  color: #202124;
+  overflow-wrap: anywhere;
+}
+
 .section-heading {
   align-items: center;
   display: flex;
@@ -225,6 +264,17 @@ label {
 .review-row button {
   min-width: 2.45rem;
   padding-inline: 0.65rem;
+}
+
+.analysis-summary {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.analysis-summary code {
+  color: #52616b;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 
 .report-panel {
@@ -382,9 +432,15 @@ label {
     flex-direction: column;
   }
 
+  .run-stack {
+    align-items: start;
+    justify-items: start;
+  }
+
   .workspace,
   .main-grid,
-  .form-row {
+  .form-row,
+  .operation-grid {
     grid-template-columns: 1fr;
   }
 

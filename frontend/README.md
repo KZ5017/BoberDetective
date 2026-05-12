@@ -23,6 +23,7 @@ Current workflows:
 - case list/create,
 - TXT import,
 - analysis module run,
+- elapsed-time feedback for long operations,
 - review report filtering,
 - source detail and review history inspection,
 - review actions for report items,

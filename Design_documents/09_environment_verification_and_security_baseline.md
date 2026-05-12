@@ -395,6 +395,7 @@ LLM benchmark megjegyzés:
 - Minimal React/Vite frontend scaffold elkészült `frontend/` alatt. A dev szerver `/api` proxyval kapcsolódik a lokális backendhez, backend CORS lazítás nélkül.
 - Frontend review actions elkészültek allowlistelt objektumtípus -> review endpoint térképpel.
 - Frontend source detail megjelenítés elkészült: source reference lista, citation, page/chunk hint, quote/excerpt offsetek, source excerpt, dokumentum hash és review history.
+- Frontend long-running operation feedback elkészült: aktuális művelet, eltelt idő, utolsó művelet összegzés és analysis output count.
 - Frontend build ellenőrzés: `npm run build` sikeres.
 
 Adatbázis és Docker döntés:

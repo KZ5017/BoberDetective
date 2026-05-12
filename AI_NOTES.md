@@ -73,6 +73,7 @@ Initial implementation exists:
 - minimal React/Vite frontend workbench scaffold,
 - frontend review actions for review report items,
 - frontend source detail and review history display for report items,
+- frontend long-running operation feedback with elapsed time and last action summary,
 - pytest smoke tests.
 
 Completed design documents:
@@ -210,7 +211,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Add safer long-running analysis feedback in the frontend.
+2. Add frontend document list and analysis run history views.
 
 Environment verification notes:
 
@@ -320,6 +321,7 @@ Implementation status:
 - Frontend now supports review actions for report items: `verify`, `reject`, `mark_needs_review`, and `comment`.
 - Review action calls use a frontend allowlist that maps known object types to their review endpoints; unsupported object types are rejected client-side.
 - Frontend report items now show all source references with citation labels, page/chunk hints, quote/excerpt offsets, source excerpts, document hashes, and review history.
+- Frontend now shows current operation, elapsed time, last action summary, and analysis output count to make long LM Studio calls less ambiguous.
 - Frontend uses Vite proxy from `/api` to `http://127.0.0.1:8000`; backend CORS was not loosened.
 - Frontend verification: `npm run build` passed.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.
