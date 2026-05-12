@@ -3,6 +3,7 @@ from typing import Any
 from uuid import UUID
 import json
 import re
+import unicodedata
 
 from sqlalchemy.orm import Session
 
@@ -24,36 +25,123 @@ class RetrievedChunk:
     retrieval_score: float
 
 
+ANALYSIS_RETRIEVAL_STOPWORDS = {
+    "adj",
+    "alapjan",
+    "alatamasztott",
+    "az",
+    "egy",
+    "elemeket",
+    "emeld",
+    "es",
+    "forrashu",
+    "hogy",
+    "keszits",
+    "ki",
+    "mit",
+    "nyerd",
+    "osszefoglalo",
+    "rovid",
+    "szempontjabol",
+    "ugyosszefoglalo",
+}
+
+HUNGARIAN_SUFFIXES = (
+    "ekrol",
+    "okrol",
+    "akrol",
+    "ekre",
+    "okra",
+    "akra",
+    "rol",
+    "bol",
+    "tol",
+    "hoz",
+    "hez",
+    "nek",
+    "nak",
+    "ban",
+    "ben",
+    "val",
+    "vel",
+    "ert",
+    "rol",
+    "ra",
+    "re",
+)
+
+
 def retrieve_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunRequest) -> list[RetrievedChunk]:
-    hits = keyword_search(
-        db,
-        case_id,
-        KeywordSearchRequest(
-            query=payload.query,
-            filters=SearchFilters(),
-            limit=payload.limit,
-            include_quotes=False,
-            target="chunks",
-        ),
-    )
     retrieved_chunks: list[RetrievedChunk] = []
     seen_chunk_ids: set[UUID] = set()
-    for hit in hits:
-        if hit.chunk_id is None or hit.chunk_id in seen_chunk_ids:
-            continue
-        chunk = db.get(DocumentChunkModel, hit.chunk_id)
-        if chunk is None:
-            continue
-        seen_chunk_ids.add(chunk.id)
-        retrieved_chunks.append(
-            RetrievedChunk(
-                label=f"chunk_{len(retrieved_chunks) + 1}",
-                document_name=hit.document_name,
-                chunk=chunk,
-                retrieval_score=hit.score,
+
+    for query in analysis_retrieval_queries(payload.query):
+        hits = keyword_search(
+            db,
+            case_id,
+            KeywordSearchRequest(
+                query=query,
+                filters=SearchFilters(),
+                limit=payload.limit,
+                include_quotes=False,
+                target="chunks",
             )
         )
+        for hit in hits:
+            if hit.chunk_id is None or hit.chunk_id in seen_chunk_ids:
+                continue
+            chunk = db.get(DocumentChunkModel, hit.chunk_id)
+            if chunk is None:
+                continue
+            seen_chunk_ids.add(chunk.id)
+            retrieved_chunks.append(
+                RetrievedChunk(
+                    label=f"chunk_{len(retrieved_chunks) + 1}",
+                    document_name=hit.document_name,
+                    chunk=chunk,
+                    retrieval_score=hit.score,
+                )
+            )
+            if len(retrieved_chunks) >= payload.limit:
+                return retrieved_chunks
     return retrieved_chunks
+
+
+def analysis_retrieval_queries(query: str) -> list[str]:
+    normalized_terms = _normalized_analysis_terms(query)
+    variants = [query.strip()]
+    if normalized_terms:
+        variants.append(" ".join(normalized_terms[:4]))
+        variants.extend(normalized_terms[:8])
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for variant in variants:
+        variant = variant.strip()
+        key = variant.casefold()
+        if variant and key not in seen:
+            seen.add(key)
+            deduped.append(variant)
+    return deduped
+
+
+def _normalized_analysis_terms(query: str) -> list[str]:
+    normalized = unicodedata.normalize("NFKD", query.casefold())
+    ascii_query = "".join(char for char in normalized if not unicodedata.combining(char))
+    terms: list[str] = []
+    for raw_term in re.findall(r"\w+", ascii_query):
+        term = _strip_hungarian_suffix(raw_term)
+        if len(term) < 4 or term in ANALYSIS_RETRIEVAL_STOPWORDS:
+            continue
+        if term not in terms:
+            terms.append(term)
+    return terms
+
+
+def _strip_hungarian_suffix(term: str) -> str:
+    for suffix in HUNGARIAN_SUFFIXES:
+        if term.endswith(suffix) and len(term) - len(suffix) >= 4:
+            return term[: -len(suffix)]
+    return term
 
 
 def add_retrieved_chunk_inputs(db: Session, run_id: UUID, retrieved_chunks: list[RetrievedChunk]) -> None:

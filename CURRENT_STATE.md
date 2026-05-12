@@ -154,8 +154,9 @@ The latest live smoke completed this path successfully.
 
 Latest `summarize_case` live smoke:
 
-- First broad/accented query returned `No chunk retrieval hit for query`.
-- Retried with source-text keyword `telefonhivas`.
+- Initial broad/accented query returned `No chunk retrieval hit for query`.
+- Analysis retrieval now derives normalized fallback query variants from natural Hungarian prompts.
+- Retried with the original broad query after retrieval improvement.
 - Result: `analysis 200`, `validation_status=passed`, 3 summary items, all `needs_review` and `source_valid`.
 - Review report with `object_type=summary_item` returned 3 source-cited items.
 
@@ -163,10 +164,8 @@ Latest `summarize_case` live smoke:
 
 Recommended order:
 
-1. Smoke-test `summarize_case` end-to-end against LM Studio on a real imported TXT sample.
-2. Improve analysis module retrieval/query handling for broader natural-language Hungarian prompts.
-3. Add contradiction or missing-item candidate foundation.
-4. Start a minimal frontend only after the backend review/export loop is stable.
+1. Add contradiction or missing-item candidate foundation.
+2. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes
 

@@ -105,6 +105,7 @@
 - Added summary item list/create/detail API endpoints and append-only review workflow.
 - Added summary item inclusion in case review reports through `object_type=summary_item`.
 - Added `summarize_case` analysis module foundation with source-cited summary item persistence.
+- Added analysis module retrieval fallback query generation for broader natural-language Hungarian prompts.
 
 ### Changed
 
@@ -148,7 +149,7 @@
 - Refactored `app/services/analysis_modules.py` into a thin public façade while preserving existing API behavior and compatibility imports.
 - Applied Alembic migration `0010_summary_items`; latest verification baseline is `77 passed`.
 - Smoke-tested `summarize_case` against LM Studio; targeted `telefonhivas` retrieval produced 3 source-cited summary items and review report inclusion.
-- Recorded retrieval caveat: broad/accented natural-language query can miss current keyword chunk retrieval.
+- Re-smoke-tested `summarize_case` with the original broad/accented query after retrieval fallback; it produced 3 source-cited summary items.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 77 passed`, `alembic: 0010_summary_items (head)`.
+- Current verification baseline: `pytest: 78 passed`, `alembic: 0010_summary_items (head)`.
 
 Initial implementation exists:
 
@@ -60,7 +60,8 @@ Initial implementation exists:
 - analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity/summary services,
 - source-cited summary item persistence, source linkage, API, review workflow, and review report inclusion,
 - `summarize_case` analysis module foundation with quote validation and summary item persistence,
-- live `summarize_case` smoke passed with targeted source-text keyword retrieval,
+- analysis module retrieval fallback for broader natural-language Hungarian prompts,
+- live `summarize_case` smoke passed with the original broad query after retrieval fallback,
 - pytest smoke tests.
 
 Completed design documents:
@@ -198,8 +199,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Improve analysis module retrieval/query handling for broader natural-language Hungarian prompts.
-3. Add contradiction or missing-item candidate foundation.
+2. Add contradiction or missing-item candidate foundation.
 
 Environment verification notes:
 
@@ -266,7 +266,8 @@ Implementation status:
 - The `extract_events` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_events_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists events/event_sources, records outputs, and finishes the analysis run.
 - The `extract_entities` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_entities_v1` prompt, validates each returned mention quote against the labeled source chunk, creates source references, persists entities/entity_mentions, records outputs, and finishes the analysis run.
 - The `summarize_case` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `summarize_case_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists summary_items/summary_item_sources, records outputs, and finishes the analysis run.
-- Live `summarize_case` smoke result: broad/accented query returned `No chunk retrieval hit for query`; targeted `telefonhivas` query returned `analysis 200`, `validation_status=passed`, 3 persisted summary items, all `needs_review` and `source_valid`.
+- Analysis module retrieval now tries the original query, a normalized significant-term query, and individual normalized terms. This keeps the public search API strict while making analysis modules less brittle for natural Hungarian prompts.
+- Live `summarize_case` smoke result: the original broad/accented query now returned `analysis 200`, `validation_status=passed`, 3 persisted summary items, all `needs_review` and `source_valid`.
 - Review report smoke for `object_type=summary_item` returned 3 source-cited summary items with expanded source details.
 - Unsupported module keys are rejected before execution.
 - Event list/detail works through `GET /api/v1/cases/{case_id}/events` and `GET /api/v1/cases/{case_id}/events/{event_id}`.
@@ -311,7 +312,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `77 passed`.
+- Latest test run: `78 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

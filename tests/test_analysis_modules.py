@@ -6,6 +6,7 @@ from app.models.document import DocumentChunkModel
 from app.services.analysis_modules import (
     AnalysisModuleError,
     RetrievedChunk,
+    analysis_retrieval_queries,
     parse_llm_json_object,
     validate_extracted_claims,
     validate_extracted_entities,
@@ -47,6 +48,16 @@ def test_parse_llm_json_object_accepts_fenced_json() -> None:
 def test_parse_llm_json_object_rejects_array() -> None:
     with pytest.raises(AnalysisModuleError):
         parse_llm_json_object("[]")
+
+
+def test_analysis_retrieval_queries_extracts_source_like_keywords_from_hungarian_prompt() -> None:
+    queries = analysis_retrieval_queries(
+        "Keszits rovid forrashu ugyosszefoglalo elemeket a telefonhivasrol es a helyszinre erkezesrol."
+    )
+
+    assert queries[0].startswith("Keszits rovid")
+    assert "telefonhivas" in queries
+    assert "helyszin" in queries
 
 
 def test_validate_extracted_claims_requires_quote_in_labeled_chunk() -> None:
