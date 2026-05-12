@@ -23,6 +23,8 @@ import {
   DocumentRead,
   ExportDetail,
   ReviewReport,
+  ReviewReportFilterValues,
+  ReviewReportItem,
   createCase,
   createExport,
   getAnalysisRun,
@@ -55,6 +57,9 @@ const objectTypes = [
   "contradiction_candidate",
   "missing_item_candidate"
 ];
+
+const reviewStatuses = ["", "needs_review", "verified", "rejected", "corrected", "new"];
+const sourceValidationStatuses = ["", "source_valid", "source_invalid", "pending_source_validation"];
 
 const busyLabels: Record<string, string> = {
   cases: "Ugylista frissitese",
@@ -90,7 +95,10 @@ export function App() {
   const [query, setQuery] = useState("Keress hivatkozott mellekletet.");
   const [limit, setLimit] = useState(5);
   const [objectType, setObjectType] = useState("");
+  const [reviewStatus, setReviewStatus] = useState("needs_review");
+  const [sourceValidationStatus, setSourceValidationStatus] = useState("source_valid");
   const [report, setReport] = useState<ReviewReport | null>(null);
+  const [selectedReportItem, setSelectedReportItem] = useState<ReviewReportItem | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [lastExport, setLastExport] = useState<ExportDetail | null>(null);
   const [reviewComments, setReviewComments] = useState<Record<string, string>>({});
@@ -103,6 +111,14 @@ export function App() {
 
   const selectedCase = useMemo(() => cases.find((item) => item.id === selectedCaseId), [cases, selectedCaseId]);
   const busyLabel = busy ? (busyLabels[busy] ?? busy) : "Keszenlet";
+  const reportFilters = useMemo<ReviewReportFilterValues>(
+    () => ({
+      objectType: objectType || undefined,
+      reviewStatus: reviewStatus || undefined,
+      sourceValidationStatus: sourceValidationStatus || undefined
+    }),
+    [objectType, reviewStatus, sourceValidationStatus]
+  );
 
   useEffect(() => {
     void refreshCases();
@@ -118,6 +134,7 @@ export function App() {
       setDocumentPages([]);
       setDocumentChunks([]);
       setAnalysisRunDetail(null);
+      setSelectedReportItem(null);
       setReport(null);
     }
   }, [selectedCaseId]);
@@ -165,7 +182,7 @@ export function App() {
       const [documentsResponse, runsResponse, reportResponse] = await Promise.all([
         listDocuments(selectedCaseId),
         listAnalysisRuns(selectedCaseId),
-        getReviewReport(selectedCaseId, objectType || undefined)
+        getReviewReport(selectedCaseId, reportFilters)
       ]);
       setDocuments(documentsResponse.data);
       setAnalysisRuns(runsResponse.data);
@@ -235,7 +252,7 @@ export function App() {
       const response = await runAnalysis(selectedCaseId, moduleKey, query, limit);
       setAnalysis(response);
       const [reportResponse, runsResponse] = await Promise.all([
-        getReviewReport(selectedCaseId, objectType || undefined),
+        getReviewReport(selectedCaseId, reportFilters),
         listAnalysisRuns(selectedCaseId)
       ]);
       setReport(reportResponse);
@@ -250,16 +267,18 @@ export function App() {
   async function handleLoadReport() {
     if (!selectedCaseId) return;
     await perform("report", async () => {
-      setReport(await getReviewReport(selectedCaseId, objectType || undefined));
+      const reportResponse = await getReviewReport(selectedCaseId, reportFilters);
+      setReport(reportResponse);
+      setSelectedReportItem((current) => (current ? reportResponse.items.find((item) => item.object_id === current.object_id) ?? null : null));
       setNotice("Review report frissitve.");
-      setLastActionSummary(`Report betoltve${objectType ? `: ${objectType}` : ""}.`);
+      setLastActionSummary(`Report betoltve: ${reportResponse.items.length} item.`);
     });
   }
 
   async function handleExport(exportType: "json" | "html") {
     if (!selectedCaseId) return;
     await perform(`export-${exportType}`, async () => {
-      setLastExport(await createExport(selectedCaseId, exportType, objectType || undefined));
+      setLastExport(await createExport(selectedCaseId, exportType, reportFilters));
       setNotice(`${exportType.toUpperCase()} export elkeszult.`);
       setLastActionSummary(`${exportType.toUpperCase()} export kesz.`);
     });
@@ -271,7 +290,9 @@ export function App() {
     await perform(`review-${actionType}`, async () => {
       await reviewObject(selectedCaseId, itemObjectType, objectId, actionType, comment);
       setReviewComments((current) => ({ ...current, [objectId]: "" }));
-      setReport(await getReviewReport(selectedCaseId, objectType || undefined));
+      const reportResponse = await getReviewReport(selectedCaseId, reportFilters);
+      setReport(reportResponse);
+      setSelectedReportItem(reportResponse.items.find((item) => item.object_id === objectId) ?? null);
       setNotice("Review rogzítve, report frissitve.");
       setLastActionSummary(`${itemObjectType} review: ${actionType}`);
     });
@@ -554,6 +575,18 @@ export function App() {
                   {objectTypes.map((item) => <option key={item} value={item}>{item || "all"}</option>)}
                 </select>
               </label>
+              <label>
+                Review status
+                <select value={reviewStatus} onChange={(event) => setReviewStatus(event.target.value)}>
+                  {reviewStatuses.map((item) => <option key={item} value={item}>{item || "all"}</option>)}
+                </select>
+              </label>
+              <label>
+                Source status
+                <select value={sourceValidationStatus} onChange={(event) => setSourceValidationStatus(event.target.value)}>
+                  {sourceValidationStatuses.map((item) => <option key={item} value={item}>{item || "all"}</option>)}
+                </select>
+              </label>
               <button onClick={handleLoadReport} disabled={!selectedCaseId || Boolean(busy)}>
                 <RefreshCw size={18} /> Betoltes
               </button>
@@ -580,6 +613,9 @@ export function App() {
                         <span>{item.reviews.length} review</span>
                         <span>{item.sources.length} source</span>
                       </div>
+                      <button className="secondary-button" onClick={() => setSelectedReportItem(item)}>
+                        Detail
+                      </button>
                       <div className="source-list">
                         {item.sources.map((source, index) => (
                           <details key={source.source_reference_id} className="source-detail" open={index === 0}>
@@ -634,6 +670,59 @@ export function App() {
                   ))}
                 </div>
               </>
+            )}
+          </section>
+
+          <section className="panel detail-panel">
+            <div className="section-heading">
+              <h2>Object detail</h2>
+              <Search size={20} />
+            </div>
+            {!selectedReportItem && <p className="muted">Valassz report itemet a reszletekhez.</p>}
+            {selectedReportItem && (
+              <div className="detail-stack">
+                <strong>{selectedReportItem.title}</strong>
+                <div className="metrics">
+                  <span>{selectedReportItem.object_type}</span>
+                  <span>{selectedReportItem.subtype}</span>
+                  <span>{selectedReportItem.review_status}</span>
+                  <span>{selectedReportItem.source_validation_status}</span>
+                </div>
+                <code>{selectedReportItem.object_id}</code>
+                {selectedReportItem.body_text && <p>{selectedReportItem.body_text}</p>}
+                <div className="object-facts">
+                  {objectDetailFacts(selectedReportItem).map((fact) => (
+                    <div key={fact.label}>
+                      <span>{fact.label}</span>
+                      <strong>{fact.value}</strong>
+                    </div>
+                  ))}
+                </div>
+                <details open>
+                  <summary>Sources</summary>
+                  <div className="detail-list">
+                    {selectedReportItem.sources.map((source, index) => (
+                      <article key={source.source_reference_id} className="text-sample">
+                        <strong>{index + 1}. {source.document_filename ?? "document"}</strong>
+                        <span>{source.citation_label ?? "no citation"} | quote {formatRange(source.quote_char_start, source.quote_char_end)}</span>
+                        <pre>{source.quote_text}</pre>
+                      </article>
+                    ))}
+                  </div>
+                </details>
+                <details>
+                  <summary>Review history</summary>
+                  <div className="detail-list">
+                    {selectedReportItem.reviews.map((review) => (
+                      <article key={review.id} className="compact-item">
+                        <strong>{review.action_type}</strong>
+                        <span>{review.new_review_status ?? "comment"} | {new Date(review.performed_at).toLocaleString()}</span>
+                        {review.review_comment && <p>{review.review_comment}</p>}
+                      </article>
+                    ))}
+                  </div>
+                </details>
+              </div>
             )}
           </section>
 
@@ -696,4 +785,27 @@ function formatBytes(bytes: number) {
     return `${(bytes / 1024).toFixed(1)} KiB`;
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function objectDetailFacts(item: ReviewReportItem) {
+  const base = [
+    { label: "Sources", value: String(item.sources.length) },
+    { label: "Reviews", value: String(item.reviews.length) }
+  ];
+  if (item.object_type === "contradiction_candidate") {
+    return [...base, { label: "Candidate kind", value: item.subtype }];
+  }
+  if (item.object_type === "missing_item_candidate") {
+    return [...base, { label: "Referenced item", value: item.title }];
+  }
+  if (item.object_type === "summary_item") {
+    return [...base, { label: "Summary type", value: item.subtype }];
+  }
+  if (item.object_type === "entity") {
+    return [...base, { label: "Entity type", value: item.subtype }];
+  }
+  if (item.object_type === "event") {
+    return [...base, { label: "Event type", value: item.subtype }];
+  }
+  return [...base, { label: "Claim type", value: item.subtype }];
 }

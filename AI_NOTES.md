@@ -76,6 +76,7 @@ Initial implementation exists:
 - frontend long-running operation feedback with elapsed time and last action summary,
 - frontend document list and analysis run history views,
 - frontend document page/chunk and analysis run input/output drill-down,
+- frontend review filter controls and object detail panel,
 - pytest smoke tests.
 
 Completed design documents:
@@ -213,7 +214,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Add frontend review filter controls and object-specific detail panels.
+2. Add frontend export history and focused review queue controls.
 
 Environment verification notes:
 
@@ -326,6 +327,8 @@ Implementation status:
 - Frontend now shows current operation, elapsed time, last action summary, and analysis output count to make long LM Studio calls less ambiguous.
 - Frontend now shows selected-case documents and recent analysis runs; import and analysis execution refresh those lists.
 - Frontend document details show imported pages and chunks with source text; analysis run details show recorded inputs and outputs.
+- Frontend review report controls can filter by object type, review status, and source validation status. Exports use the same selected filters.
+- Frontend object detail panel shows object-specific facts, sources, and review history for the selected report item.
 - Frontend uses Vite proxy from `/api` to `http://127.0.0.1:8000`; backend CORS was not loosened.
 - Frontend verification: `npm run build` passed.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.

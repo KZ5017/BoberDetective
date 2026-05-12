@@ -122,6 +122,12 @@ export type ReviewReport = {
   items: ReviewReportItem[];
 };
 
+export type ReviewReportFilterValues = {
+  objectType?: string;
+  reviewStatus?: string;
+  sourceValidationStatus?: string;
+};
+
 export type ExportDetail = {
   export: {
     id: string;
@@ -230,21 +236,39 @@ export function runAnalysis(caseId: string, moduleKey: string, query: string, li
   });
 }
 
-export function getReviewReport(caseId: string, objectType?: string): Promise<ReviewReport> {
-  const params = objectType ? `?object_type=${encodeURIComponent(objectType)}` : "";
-  return request(`/cases/${caseId}/review-report${params}`);
+export function getReviewReport(caseId: string, filters: ReviewReportFilterValues = {}): Promise<ReviewReport> {
+  const params = new URLSearchParams();
+  if (filters.objectType) {
+    params.set("object_type", filters.objectType);
+  }
+  if (filters.reviewStatus) {
+    params.set("review_status", filters.reviewStatus);
+  }
+  if (filters.sourceValidationStatus) {
+    params.set("source_validation_status", filters.sourceValidationStatus);
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return request(`/cases/${caseId}/review-report${suffix}`);
 }
 
-export function createExport(caseId: string, exportType: "json" | "html", objectType?: string): Promise<ExportDetail> {
+export function createExport(
+  caseId: string,
+  exportType: "json" | "html",
+  filters: ReviewReportFilterValues = {}
+): Promise<ExportDetail> {
   return request(`/cases/${caseId}/exports`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       export_type: exportType,
       export_scope: "review_report",
-      review_filter: "needs_review",
+      review_filter: filters.reviewStatus === "verified" ? "verified_only" : filters.reviewStatus === "rejected" ? "rejected" : filters.reviewStatus === "needs_review" ? "needs_review" : "all",
       require_source_valid: true,
-      report_filters: objectType ? { object_types: [objectType] } : null
+      report_filters: {
+        object_types: filters.objectType ? [filters.objectType] : null,
+        review_statuses: filters.reviewStatus ? [filters.reviewStatus] : null,
+        source_validation_statuses: filters.sourceValidationStatus ? [filters.sourceValidationStatus] : null
+      }
     })
   });
 }

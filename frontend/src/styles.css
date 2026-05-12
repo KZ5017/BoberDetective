@@ -42,6 +42,13 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.secondary-button {
+  background: #ffffff;
+  border-color: #9bb2c1;
+  color: #1d4f73;
+  justify-self: start;
+}
+
 input,
 select,
 textarea {
@@ -335,6 +342,31 @@ label {
   font-weight: 800;
 }
 
+.object-facts {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.object-facts div {
+  background: #f8fafb;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.6rem;
+}
+
+.object-facts span {
+  color: #65737d;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.object-facts strong {
+  overflow-wrap: anywhere;
+}
+
 .text-sample {
   background: #f8fafb;
   border: 1px solid #d7dde2;
@@ -523,7 +555,8 @@ pre {
   .workspace,
   .main-grid,
   .form-row,
-  .operation-grid {
+  .operation-grid,
+  .object-facts {
     grid-template-columns: 1fr;
   }
 

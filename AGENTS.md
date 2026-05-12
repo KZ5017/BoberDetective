@@ -204,6 +204,7 @@ Current implementation caveats:
 - Frontend shows long-running operation feedback with elapsed time and last action summary.
 - Frontend shows selected-case document list and analysis run history.
 - Frontend shows document page/chunk and analysis run input/output drill-down.
+- Frontend review report supports object/review/source filters and selected object detail.
 - Latest frontend verification: `npm run build` passed.
 
 ## Security Baseline
