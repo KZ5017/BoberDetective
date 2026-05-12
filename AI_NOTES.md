@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 70 passed`, `alembic: 0009_entities (head)`.
+- Current verification baseline: `pytest: 75 passed`, `alembic: 0010_summary_items (head)`.
 
 Initial implementation exists:
 
@@ -58,6 +58,7 @@ Initial implementation exists:
 - review report export filters through `report_filters`,
 - expanded review report source details with document metadata, offsets, chunk/page metadata, and bounded source excerpts,
 - analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity services,
+- source-cited summary item persistence, source linkage, API, review workflow, and review report inclusion,
 - pytest smoke tests.
 
 Completed design documents:
@@ -195,8 +196,8 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Add first summary item foundation.
-3. Add contradiction or missing-item candidate foundation after summary items.
+2. Add the first `summarize_case` analysis module that creates source-cited summary items.
+3. Add contradiction or missing-item candidate foundation.
 
 Environment verification notes:
 
@@ -217,8 +218,8 @@ Implementation status:
 - Initial FastAPI scaffold exists under `app/`.
 - Health endpoint works.
 - SQLAlchemy/psycopg DB layer exists.
-- Alembic migrations through `0009_entities` are applied.
-- `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, and `export_items` tables exist.
+- Alembic migrations through `0010_summary_items` are applied.
+- `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, `export_items`, `summary_items`, and `summary_item_sources` tables exist.
 - Case create/list API works.
 - Case creation writes DB audit event and JSONL audit event.
 - Document/page/chunk persistence foundation exists.
@@ -276,6 +277,10 @@ Implementation status:
 - Live entity review smoke result: `review 200`, entity moved to `verified`, review history count 1.
 - Shared review helper exists in `app/services/reviews.py`.
 - Claim, entity, event, and export review workflows now use the shared helper for status mapping, review history listing, append-only review record creation, and audit writing.
+- Summary item list/create/detail/review API exists through `/api/v1/cases/{case_id}/summary-items`.
+- Summary item creation requires same-case `analysis_run_id` and `source_reference_id`; no source-free summary item creation path exists.
+- Summary item reviews use append-only `human_reviews` with `object_type=summary_item`.
+- Summary items are included in the case review report and can be selected through `object_type=summary_item`.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.
 - Live `extract_events` module smoke result: `analysis 200`, `validation_status=passed`, 1 persisted event.
 - Keyword search now uses sanitized prefix `to_tsquery` terms so simple Hungarian suffix cases like `kapu` matching `kaput` are less brittle.
@@ -301,7 +306,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `70 passed`.
+- Latest test run: `75 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

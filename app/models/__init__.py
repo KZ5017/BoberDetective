@@ -8,6 +8,7 @@ from app.models.entity import EntityMentionModel, EntityModel
 from app.models.export import ExportItemModel, ExportModel
 from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
+from app.models.summary_item import SummaryItemModel, SummaryItemSourceModel
 from app.models.user import UserModel
 
 __all__ = [
@@ -30,5 +31,7 @@ __all__ = [
     "ExportModel",
     "HumanReviewModel",
     "SourceReferenceModel",
+    "SummaryItemModel",
+    "SummaryItemSourceModel",
     "UserModel",
 ]

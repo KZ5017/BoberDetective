@@ -10,11 +10,12 @@ from app.models.entity import EntityMentionModel, EntityModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
+from app.models.summary_item import SummaryItemModel, SummaryItemSourceModel
 from app.schemas.review import HumanReviewRead
 from app.schemas.review_report import CaseReviewReport, ReviewReportCounts, ReviewReportFilters, ReviewReportItem, ReviewReportSource
 
 
-ALLOWED_OBJECT_TYPES = {"claim", "entity", "event"}
+ALLOWED_OBJECT_TYPES = {"claim", "entity", "event", "summary_item"}
 ALLOWED_REVIEW_STATUSES = {"new", "needs_review", "verified", "rejected", "corrected"}
 ALLOWED_SOURCE_VALIDATION_STATUSES = {"pending_source_validation", "source_valid", "source_invalid"}
 SOURCE_EXCERPT_CONTEXT_CHARS = 160
@@ -29,7 +30,7 @@ def build_case_review_report(
     case_id: UUID,
     filters: ReviewReportFilters | None = None,
 ) -> CaseReviewReport:
-    items = _claim_items(db, case_id) + _entity_items(db, case_id) + _event_items(db, case_id)
+    items = _claim_items(db, case_id) + _entity_items(db, case_id) + _event_items(db, case_id) + _summary_item_items(db, case_id)
     items = _filter_items(items, filters or ReviewReportFilters())
     items.sort(key=lambda item: (item.review_status != "needs_review", item.created_at), reverse=False)
     counts = _build_counts([item.review_status for item in items])
@@ -144,6 +145,33 @@ def _entity_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:
     return items
 
 
+def _summary_item_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:
+    summary_items = list(
+        db.execute(
+            select(SummaryItemModel)
+            .where(SummaryItemModel.case_id == case_id)
+            .order_by(SummaryItemModel.created_at.desc())
+        ).scalars()
+    )
+    return [
+        ReviewReportItem(
+            object_type="summary_item",
+            object_id=summary_item.id,
+            title=summary_item.title,
+            body_text=summary_item.body_text,
+            subtype=summary_item.summary_type,
+            review_status=summary_item.review_status,
+            source_validation_status=summary_item.source_validation_status,
+            created_by_analysis_run_id=summary_item.created_by_analysis_run_id,
+            created_at=summary_item.created_at,
+            updated_at=summary_item.updated_at,
+            sources=_summary_item_sources(db, summary_item.id),
+            reviews=_reviews(db, case_id, "summary_item", summary_item.id),
+        )
+        for summary_item in summary_items
+    ]
+
+
 def _claim_sources(db: Session, claim_id: UUID) -> list[ReviewReportSource]:
     rows = db.execute(
         select(ClaimSourceModel, SourceReferenceModel)
@@ -160,6 +188,16 @@ def _event_sources(db: Session, event_id: UUID) -> list[ReviewReportSource]:
         .join(SourceReferenceModel, SourceReferenceModel.id == EventSourceModel.source_reference_id)
         .where(EventSourceModel.event_id == event_id)
         .order_by(EventSourceModel.relevance_rank.asc())
+    )
+    return [_report_source(db, source_link, source_reference) for source_link, source_reference in rows]
+
+
+def _summary_item_sources(db: Session, summary_item_id: UUID) -> list[ReviewReportSource]:
+    rows = db.execute(
+        select(SummaryItemSourceModel, SourceReferenceModel)
+        .join(SourceReferenceModel, SourceReferenceModel.id == SummaryItemSourceModel.source_reference_id)
+        .where(SummaryItemSourceModel.summary_item_id == summary_item_id)
+        .order_by(SummaryItemSourceModel.relevance_rank.asc())
     )
     return [_report_source(db, source_link, source_reference) for source_link, source_reference in rows]
 
@@ -184,7 +222,7 @@ def _entity_sources(db: Session, entity_id: UUID) -> list[ReviewReportSource]:
 
 def _report_source(
     db: Session,
-    source_link: ClaimSourceModel | EventSourceModel,
+    source_link: ClaimSourceModel | EventSourceModel | SummaryItemSourceModel,
     source_reference: SourceReferenceModel,
 ) -> ReviewReportSource:
     return _report_source_from_reference(

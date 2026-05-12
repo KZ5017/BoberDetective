@@ -22,8 +22,8 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 70 passed
-alembic: 0009_entities (head)
+pytest: 75 passed
+alembic: 0010_summary_items (head)
 ```
 
 ## What Works Now
@@ -31,7 +31,7 @@ alembic: 0009_entities (head)
 - FastAPI backend scaffold.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0009_entities`.
+- Alembic migrations through `0010_summary_items`.
 - Immutable TXT import with page/chunk persistence.
 - Keyword search over current page/chunk text.
 - Source references with quote validation.
@@ -40,6 +40,7 @@ alembic: 0009_entities (head)
 - Source-cited `extract_claims` and `extract_events` modules.
 - Source-cited `extract_entities` module.
 - Analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity services.
+- Source-cited summary item persistence, API, review workflow, and review report inclusion.
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint with object type, review status, source validation filters, and expanded source details.
 - JSON and HTML review report export with SHA256, claim/entity/event item tracking, report filters, and expanded source details.
@@ -60,6 +61,7 @@ entities, entity_mentions,
 events, event_sources,
 human_reviews,
 exports, export_items,
+summary_items, summary_item_sources,
 alembic_version
 ```
 
@@ -107,6 +109,10 @@ Reviewable objects:
 - `GET /api/v1/cases/{case_id}/entities`
 - `GET /api/v1/cases/{case_id}/entities/{entity_id}`
 - `POST /api/v1/cases/{case_id}/entities/{entity_id}/reviews`
+- `GET /api/v1/cases/{case_id}/summary-items`
+- `POST /api/v1/cases/{case_id}/summary-items`
+- `GET /api/v1/cases/{case_id}/summary-items/{summary_item_id}`
+- `POST /api/v1/cases/{case_id}/summary-items/{summary_item_id}/reviews`
 - `GET /api/v1/cases/{case_id}/review-report`
   - Optional filters: `object_type`, `review_status`, `source_validation_status`
 
@@ -148,8 +154,8 @@ The latest live smoke completed this path successfully.
 
 Recommended order:
 
-1. Add first summary item foundation.
-2. Add contradiction or missing-item candidate foundation after summary items.
+1. Add the first `summarize_case` analysis module that creates source-cited summary items.
+2. Add contradiction or missing-item candidate foundation.
 3. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes

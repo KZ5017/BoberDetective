@@ -379,10 +379,11 @@ LLM benchmark megjegyzés:
 - Source/reference detail expansion elkészült a review report source objektumokban: dokumentum fájlnév/SHA256, quote offsetek, chunk/page metaadatok és kontrollált hosszúságú forrásszöveg excerpt.
 - JSON/HTML exportok ugyanezeket a source detail mezőket viszik tovább; a HTML export továbbra is escape-el minden document/LLM/user eredetű szöveget.
 - Analysis module service cleanup elkészült: a közös retrieval/JSON segédek külön fájlba kerültek, a claim/event/entity modulok pedig saját service fájlokat kaptak. Az `analysis_modules.py` vékony public façade maradt.
+- Summary item foundation elkészült: `summary_items` és `summary_item_sources` táblák, list/create/detail/review API, append-only `summary_item` review workflow, és review report inclusion.
 
 Adatbázis és Docker döntés:
 
-Docker telepítve van és a `bober` user hozzáfér. PostgreSQL és Qdrant Docker Compose-on keresztül fut. Az alkalmazott migrációs állapot: `0009_entities`.
+Docker telepítve van és a `bober` user hozzáfér. PostgreSQL és Qdrant Docker Compose-on keresztül fut. Az alkalmazott migrációs állapot: `0010_summary_items`.
 
 ## 12. WSL stabilitási megjegyzés
 
@@ -398,7 +399,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 70 passed
+pytest: 75 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK
