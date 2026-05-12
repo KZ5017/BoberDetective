@@ -147,6 +147,8 @@
 - Expanded JSON/HTML report exports now carry the same source detail fields, with HTML escaping retained.
 - Refactored `app/services/analysis_modules.py` into a thin public façade while preserving existing API behavior and compatibility imports.
 - Applied Alembic migration `0010_summary_items`; latest verification baseline is `77 passed`.
+- Smoke-tested `summarize_case` against LM Studio; targeted `telefonhivas` retrieval produced 3 source-cited summary items and review report inclusion.
+- Recorded retrieval caveat: broad/accented natural-language query can miss current keyword chunk retrieval.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

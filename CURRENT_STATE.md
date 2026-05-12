@@ -152,13 +152,21 @@ For a full live smoke, with LM Studio running and Qwen loaded:
 
 The latest live smoke completed this path successfully.
 
+Latest `summarize_case` live smoke:
+
+- First broad/accented query returned `No chunk retrieval hit for query`.
+- Retried with source-text keyword `telefonhivas`.
+- Result: `analysis 200`, `validation_status=passed`, 3 summary items, all `needs_review` and `source_valid`.
+- Review report with `object_type=summary_item` returned 3 source-cited items.
+
 ## Next Logical Steps
 
 Recommended order:
 
 1. Smoke-test `summarize_case` end-to-end against LM Studio on a real imported TXT sample.
-2. Add contradiction or missing-item candidate foundation.
-3. Start a minimal frontend only after the backend review/export loop is stable.
+2. Improve analysis module retrieval/query handling for broader natural-language Hungarian prompts.
+3. Add contradiction or missing-item candidate foundation.
+4. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes
 

@@ -60,6 +60,7 @@ Initial implementation exists:
 - analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity/summary services,
 - source-cited summary item persistence, source linkage, API, review workflow, and review report inclusion,
 - `summarize_case` analysis module foundation with quote validation and summary item persistence,
+- live `summarize_case` smoke passed with targeted source-text keyword retrieval,
 - pytest smoke tests.
 
 Completed design documents:
@@ -197,7 +198,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Smoke-test `summarize_case` end-to-end against LM Studio on a real imported TXT sample.
+2. Improve analysis module retrieval/query handling for broader natural-language Hungarian prompts.
 3. Add contradiction or missing-item candidate foundation.
 
 Environment verification notes:
@@ -265,6 +266,8 @@ Implementation status:
 - The `extract_events` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_events_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists events/event_sources, records outputs, and finishes the analysis run.
 - The `extract_entities` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_entities_v1` prompt, validates each returned mention quote against the labeled source chunk, creates source references, persists entities/entity_mentions, records outputs, and finishes the analysis run.
 - The `summarize_case` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `summarize_case_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists summary_items/summary_item_sources, records outputs, and finishes the analysis run.
+- Live `summarize_case` smoke result: broad/accented query returned `No chunk retrieval hit for query`; targeted `telefonhivas` query returned `analysis 200`, `validation_status=passed`, 3 persisted summary items, all `needs_review` and `source_valid`.
+- Review report smoke for `object_type=summary_item` returned 3 source-cited summary items with expanded source details.
 - Unsupported module keys are rejected before execution.
 - Event list/detail works through `GET /api/v1/cases/{case_id}/events` and `GET /api/v1/cases/{case_id}/events/{event_id}`.
 - Event review works through `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`.

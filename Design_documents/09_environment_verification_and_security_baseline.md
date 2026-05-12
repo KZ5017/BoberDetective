@@ -381,6 +381,7 @@ LLM benchmark megjegyzés:
 - Analysis module service cleanup elkészült: a közös retrieval/JSON segédek külön fájlba kerültek, a claim/event/entity/summary modulok pedig saját service fájlokat kaptak. Az `analysis_modules.py` vékony public façade maradt.
 - Summary item foundation elkészült: `summary_items` és `summary_item_sources` táblák, list/create/detail/review API, append-only `summary_item` review workflow, és review report inclusion.
 - `summarize_case` analysis module foundation elkészült: keyword chunk retrieval -> LM Studio native -> quote validation -> source_reference -> summary_item persistence.
+- Élő `summarize_case` smoke eredmény: bő/ékezetes query nem talált chunkot, célzott `telefonhivas` query `analysis 200`, `validation_status=passed`, 3 summary item, mind `needs_review` és `source_valid`; review report `object_type=summary_item` 3 elemet adott vissza.
 
 Adatbázis és Docker döntés:
 

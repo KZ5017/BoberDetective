@@ -56,10 +56,11 @@ Completed:
 - Analysis module service split into common helpers and claim/event/entity/summary module-specific services
 - Summary item persistence, source linkage, API, review workflow, and review report inclusion
 - `summarize_case` analysis module foundation for source-cited summary item creation
+- Live `summarize_case` smoke passed with a targeted source-text keyword
 
 Next:
 
-- Live `summarize_case` smoke test with LM Studio
+- Improve analysis module retrieval/query handling for broader natural-language Hungarian prompts
 - Contradiction or missing-item candidate foundation
 
 ## Design documents
