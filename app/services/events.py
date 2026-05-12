@@ -11,8 +11,8 @@ from app.models.event import EventModel, EventSourceModel
 from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
+from app.services.reviews import list_object_reviews, record_object_review, review_status_for_action
 from app.services.storage import StoragePaths
-from app.services.users import get_or_create_dev_user
 
 
 class EventError(ValueError):
@@ -51,13 +51,7 @@ def list_event_sources(db: Session, event_id: UUID) -> list[EventSourceModel]:
 
 
 def list_event_reviews(db: Session, event_id: UUID) -> list[HumanReviewModel]:
-    return list(
-        db.execute(
-            select(HumanReviewModel)
-            .where(HumanReviewModel.object_type == "event", HumanReviewModel.object_id == event_id)
-            .order_by(HumanReviewModel.performed_at.desc())
-        ).scalars()
-    )
+    return list_object_reviews(db, "event", event_id)
 
 
 def review_event(
@@ -71,38 +65,23 @@ def review_event(
     event = get_event(db, case_id, event_id)
     previous_status = event.review_status
     new_status = _review_status_for_action(action_type, previous_status)
-    user = get_or_create_dev_user(db)
 
     if new_status is not None:
         event.review_status = new_status
         event.updated_at = datetime.now(UTC)
         db.add(event)
 
-    review = HumanReviewModel(
+    record_object_review(
+        db,
         case_id=case_id,
         object_type="event",
         object_id=event.id,
         action_type=action_type,
-        previous_review_status=previous_status,
-        new_review_status=new_status,
+        previous_status=previous_status,
+        new_status=new_status,
         review_comment=review_comment,
-        performed_by_user_id=user.id,
+        audit_event_type="event_review_recorded",
     )
-    db.add(review)
-    db.flush()
-
-    audit_event = AuditEvent(
-        event_type="event_review_recorded",
-        success=True,
-        case_id=str(case_id),
-        user_id=str(user.id),
-        related_object_type="event",
-        related_object_id=str(event.id),
-        input_summary={"action_type": action_type, "previous_review_status": previous_status},
-        output_summary={"new_review_status": new_status, "human_review_id": str(review.id)},
-    )
-    DatabaseAuditWriter(db).write(audit_event)
-    JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(audit_event)
     db.commit()
     db.refresh(event)
     return event
@@ -181,12 +160,4 @@ def create_event_with_source(
 
 
 def _review_status_for_action(action_type: str, previous_status: str) -> str | None:
-    if action_type == "verify":
-        return "verified"
-    if action_type == "reject":
-        return "rejected"
-    if action_type == "mark_needs_review":
-        return "needs_review"
-    if action_type == "comment":
-        return None
-    raise EventValidationError("Unsupported event review action")
+    return review_status_for_action(action_type, previous_status, EventValidationError)

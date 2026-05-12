@@ -364,6 +364,7 @@ LLM benchmark megjegyzés:
 - Event review workflow foundation elkészült: `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`.
 - Event review `events.review_status` mezőt frissít, append-only `human_reviews` rekordot és `event_review_recorded` audit eseményt ír.
 - Élő event review smoke eredmény: `review 200`, event `verified`, review history count 1.
+- Shared review service helper elkészült: claim/event/export review mapping, review history listázás, append-only review rekord és audit írás közös helperből történik.
 
 Adatbázis és Docker döntés:
 
@@ -383,7 +384,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 57 passed
+pytest: 59 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

@@ -15,6 +15,7 @@ from app.schemas.export import ExportCreate
 from app.schemas.review_report import CaseReviewReport, ReviewReportItem
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.review_report import build_case_review_report
+from app.services.reviews import latest_review_status, list_object_reviews, record_object_review, review_status_for_action
 from app.services.storage import StoragePaths
 from app.services.users import get_or_create_dev_user
 
@@ -59,13 +60,7 @@ def list_export_items(db: Session, export_id: UUID) -> list[ExportItemModel]:
 
 
 def list_export_reviews(db: Session, export_id: UUID) -> list[HumanReviewModel]:
-    return list(
-        db.execute(
-            select(HumanReviewModel)
-            .where(HumanReviewModel.object_type == "export", HumanReviewModel.object_id == export_id)
-            .order_by(HumanReviewModel.performed_at.desc())
-        ).scalars()
-    )
+    return list_object_reviews(db, "export", export_id)
 
 
 def review_export(
@@ -77,35 +72,20 @@ def review_export(
     review_comment: str | None = None,
 ) -> ExportModel:
     export = get_export(db, case_id, export_id)
-    previous_status = _latest_export_review_status(db, export_id)
+    previous_status = latest_review_status(db, "export", export_id)
     new_status = _review_status_for_action(action_type, previous_status)
-    user = get_or_create_dev_user(db)
 
-    review = HumanReviewModel(
+    record_object_review(
+        db,
         case_id=case_id,
         object_type="export",
         object_id=export.id,
         action_type=action_type,
-        previous_review_status=previous_status,
-        new_review_status=new_status,
+        previous_status=previous_status,
+        new_status=new_status,
         review_comment=review_comment,
-        performed_by_user_id=user.id,
+        audit_event_type="export_review_recorded",
     )
-    db.add(review)
-    db.flush()
-
-    audit_event = AuditEvent(
-        event_type="export_review_recorded",
-        success=True,
-        case_id=str(case_id),
-        user_id=str(user.id),
-        related_object_type="export",
-        related_object_id=str(export.id),
-        input_summary={"action_type": action_type, "previous_review_status": previous_status},
-        output_summary={"new_review_status": new_status, "human_review_id": str(review.id)},
-    )
-    DatabaseAuditWriter(db).write(audit_event)
-    JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(audit_event)
     db.commit()
     db.refresh(export)
     return export
@@ -320,25 +300,5 @@ def _write_export_file(case_id: UUID, export_id: UUID, export_type: str, content
     return export_path
 
 
-def _latest_export_review_status(db: Session, export_id: UUID) -> str:
-    review = db.execute(
-        select(HumanReviewModel)
-        .where(HumanReviewModel.object_type == "export", HumanReviewModel.object_id == export_id)
-        .order_by(HumanReviewModel.performed_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if review is None or review.new_review_status is None:
-        return "needs_review"
-    return review.new_review_status
-
-
 def _review_status_for_action(action_type: str, previous_status: str) -> str | None:
-    if action_type == "verify":
-        return "verified"
-    if action_type == "reject":
-        return "rejected"
-    if action_type == "mark_needs_review":
-        return "needs_review"
-    if action_type == "comment":
-        return None
-    raise ExportValidationError("Unsupported export review action")
+    return review_status_for_action(action_type, previous_status, ExportValidationError)

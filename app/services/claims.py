@@ -11,8 +11,8 @@ from app.models.claim import ClaimModel, ClaimSourceModel
 from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
+from app.services.reviews import list_object_reviews, record_object_review, review_status_for_action
 from app.services.storage import StoragePaths
-from app.services.users import get_or_create_dev_user
 
 
 class ClaimError(ValueError):
@@ -47,13 +47,7 @@ def list_claim_sources(db: Session, claim_id: UUID) -> list[ClaimSourceModel]:
 
 
 def list_claim_reviews(db: Session, claim_id: UUID) -> list[HumanReviewModel]:
-    return list(
-        db.execute(
-            select(HumanReviewModel)
-            .where(HumanReviewModel.object_type == "claim", HumanReviewModel.object_id == claim_id)
-            .order_by(HumanReviewModel.performed_at.desc())
-        ).scalars()
-    )
+    return list_object_reviews(db, "claim", claim_id)
 
 
 def review_claim(
@@ -67,38 +61,23 @@ def review_claim(
     claim = get_claim(db, case_id, claim_id)
     previous_status = claim.review_status
     new_status = _review_status_for_action(action_type, previous_status)
-    user = get_or_create_dev_user(db)
 
     if new_status is not None:
         claim.review_status = new_status
         claim.updated_at = datetime.now(UTC)
         db.add(claim)
 
-    review = HumanReviewModel(
+    record_object_review(
+        db,
         case_id=case_id,
         object_type="claim",
         object_id=claim.id,
         action_type=action_type,
-        previous_review_status=previous_status,
-        new_review_status=new_status,
+        previous_status=previous_status,
+        new_status=new_status,
         review_comment=review_comment,
-        performed_by_user_id=user.id,
+        audit_event_type="claim_review_recorded",
     )
-    db.add(review)
-    db.flush()
-
-    event = AuditEvent(
-        event_type="claim_review_recorded",
-        success=True,
-        case_id=str(case_id),
-        user_id=str(user.id),
-        related_object_type="claim",
-        related_object_id=str(claim.id),
-        input_summary={"action_type": action_type, "previous_review_status": previous_status},
-        output_summary={"new_review_status": new_status, "human_review_id": str(review.id)},
-    )
-    DatabaseAuditWriter(db).write(event)
-    JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(event)
     db.commit()
     db.refresh(claim)
     return claim
@@ -169,12 +148,4 @@ def create_claim_with_source(
 
 
 def _review_status_for_action(action_type: str, previous_status: str) -> str | None:
-    if action_type == "verify":
-        return "verified"
-    if action_type == "reject":
-        return "rejected"
-    if action_type == "mark_needs_review":
-        return "needs_review"
-    if action_type == "comment":
-        return None
-    raise ClaimValidationError("Unsupported claim review action")
+    return review_status_for_action(action_type, previous_status, ClaimValidationError)

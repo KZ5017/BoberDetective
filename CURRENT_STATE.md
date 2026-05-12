@@ -22,7 +22,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 57 passed
+pytest: 59 passed
 alembic: 0008_exports (head)
 ```
 
@@ -42,6 +42,7 @@ alembic: 0008_exports (head)
 - Case review report endpoint.
 - JSON and HTML review report export with SHA256 and export item tracking.
 - Append-only human review history for claims, events, and exports.
+- Shared review helper for claim/event/export review mapping, listing, record creation, and audit writing.
 
 ## Current Tables
 
@@ -140,8 +141,8 @@ The latest live smoke completed this path successfully.
 Recommended order:
 
 1. Create and push the first baseline Git commit.
-2. Unify review helpers across claim/event/export.
-3. Add `extract_entities`.
+2. Add `extract_entities`.
+3. Add richer review report filtering.
 4. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes
