@@ -77,6 +77,7 @@ Initial implementation exists:
 - frontend document list and analysis run history views,
 - frontend document page/chunk and analysis run input/output drill-down,
 - frontend review filter controls and object detail panel,
+- frontend export history and focused review queue controls,
 - pytest smoke tests.
 
 Completed design documents:
@@ -214,7 +215,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Add frontend export history and focused review queue controls.
+2. Do a frontend UX pass for layout density, empty states, and end-to-end manual smoke notes.
 
 Environment verification notes:
 
@@ -329,6 +330,8 @@ Implementation status:
 - Frontend document details show imported pages and chunks with source text; analysis run details show recorded inputs and outputs.
 - Frontend review report controls can filter by object type, review status, and source validation status. Exports use the same selected filters.
 - Frontend object detail panel shows object-specific facts, sources, and review history for the selected report item.
+- Frontend now has focused queue shortcuts for general review, missing items, contradictions, and all report items.
+- Frontend export history lists prior JSON/HTML exports and download links.
 - Frontend uses Vite proxy from `/api` to `http://127.0.0.1:8000`; backend CORS was not loosened.
 - Frontend verification: `npm run build` passed.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.

@@ -254,10 +254,16 @@ label {
 .button-row,
 .metrics,
 .tags,
-.review-row {
+.review-row,
+.queue-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+}
+
+.queue-row {
+  border-bottom: 1px solid #d7dde2;
+  padding-bottom: 0.75rem;
 }
 
 .review-row {
@@ -301,6 +307,12 @@ label {
 }
 
 .compact-item button {
+  justify-self: start;
+}
+
+.compact-item a {
+  color: #1d4f73;
+  font-weight: 800;
   justify-self: start;
 }
 

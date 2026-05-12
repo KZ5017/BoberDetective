@@ -22,6 +22,7 @@ import {
   DocumentPageRead,
   DocumentRead,
   ExportDetail,
+  ExportRead,
   ReviewReport,
   ReviewReportFilterValues,
   ReviewReportItem,
@@ -35,6 +36,7 @@ import {
   listAnalysisRuns,
   listCases,
   listDocuments,
+  listExports,
   reviewObject,
   runAnalysis
 } from "./api";
@@ -67,6 +69,7 @@ const busyLabels: Record<string, string> = {
   "case-data": "Ugyadatok betoltese",
   "document-detail": "Irat reszletek betoltese",
   "run-detail": "Analysis run reszletek betoltese",
+  exports: "Export history betoltese",
   import: "Irat importalasa",
   analysis: "Elemzes futtatasa",
   report: "Review report betoltese",
@@ -82,6 +85,7 @@ export function App() {
   const [cases, setCases] = useState<CaseRead[]>([]);
   const [documents, setDocuments] = useState<DocumentRead[]>([]);
   const [analysisRuns, setAnalysisRuns] = useState<AnalysisRunRead[]>([]);
+  const [exports, setExports] = useState<ExportRead[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<DocumentRead | null>(null);
   const [documentPages, setDocumentPages] = useState<DocumentPageRead[]>([]);
   const [documentChunks, setDocumentChunks] = useState<DocumentChunkRead[]>([]);
@@ -130,6 +134,7 @@ export function App() {
     } else {
       setDocuments([]);
       setAnalysisRuns([]);
+      setExports([]);
       setSelectedDocument(null);
       setDocumentPages([]);
       setDocumentChunks([]);
@@ -179,18 +184,44 @@ export function App() {
   async function refreshCaseData(showNotice = true) {
     if (!selectedCaseId) return;
     await perform("case-data", async () => {
-      const [documentsResponse, runsResponse, reportResponse] = await Promise.all([
+      const [documentsResponse, runsResponse, exportsResponse, reportResponse] = await Promise.all([
         listDocuments(selectedCaseId),
         listAnalysisRuns(selectedCaseId),
+        listExports(selectedCaseId),
         getReviewReport(selectedCaseId, reportFilters)
       ]);
       setDocuments(documentsResponse.data);
       setAnalysisRuns(runsResponse.data);
+      setExports(exportsResponse.data);
       setReport(reportResponse);
       if (showNotice) {
         setNotice("Ugyadatok frissitve.");
       }
       setLastActionSummary(`${documentsResponse.data.length} irat, ${runsResponse.data.length} analysis run.`);
+    });
+  }
+
+  async function applyReviewQueue(filters: ReviewReportFilterValues, summary: string) {
+    if (!selectedCaseId) return;
+    setObjectType(filters.objectType ?? "");
+    setReviewStatus(filters.reviewStatus ?? "");
+    setSourceValidationStatus(filters.sourceValidationStatus ?? "");
+    await perform("report", async () => {
+      const reportResponse = await getReviewReport(selectedCaseId, filters);
+      setReport(reportResponse);
+      setSelectedReportItem(reportResponse.items[0] ?? null);
+      setNotice("Review queue betoltve.");
+      setLastActionSummary(`${summary}: ${reportResponse.items.length} item.`);
+    });
+  }
+
+  async function refreshExports() {
+    if (!selectedCaseId) return;
+    await perform("exports", async () => {
+      const response = await listExports(selectedCaseId);
+      setExports(response.data);
+      setNotice("Export history frissitve.");
+      setLastActionSummary(`${response.data.length} export.`);
     });
   }
 
@@ -278,7 +309,10 @@ export function App() {
   async function handleExport(exportType: "json" | "html") {
     if (!selectedCaseId) return;
     await perform(`export-${exportType}`, async () => {
-      setLastExport(await createExport(selectedCaseId, exportType, reportFilters));
+      const created = await createExport(selectedCaseId, exportType, reportFilters);
+      const exportsResponse = await listExports(selectedCaseId);
+      setLastExport(created);
+      setExports(exportsResponse.data);
       setNotice(`${exportType.toUpperCase()} export elkeszult.`);
       setLastActionSummary(`${exportType.toUpperCase()} export kesz.`);
     });
@@ -591,6 +625,36 @@ export function App() {
                 <RefreshCw size={18} /> Betoltes
               </button>
             </div>
+            <div className="queue-row">
+              <button
+                className="secondary-button"
+                onClick={() => applyReviewQueue({ reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Review queue")}
+                disabled={!selectedCaseId || Boolean(busy)}
+              >
+                Review queue
+              </button>
+              <button
+                className="secondary-button"
+                onClick={() => applyReviewQueue({ objectType: "missing_item_candidate", reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Missing item queue")}
+                disabled={!selectedCaseId || Boolean(busy)}
+              >
+                Missing items
+              </button>
+              <button
+                className="secondary-button"
+                onClick={() => applyReviewQueue({ objectType: "contradiction_candidate", reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Contradiction queue")}
+                disabled={!selectedCaseId || Boolean(busy)}
+              >
+                Contradictions
+              </button>
+              <button
+                className="secondary-button"
+                onClick={() => applyReviewQueue({}, "All report items")}
+                disabled={!selectedCaseId || Boolean(busy)}
+              >
+                All
+              </button>
+            </div>
             {report && (
               <>
                 <div className="metrics">
@@ -746,6 +810,26 @@ export function App() {
                 <a href={`/api/v1/cases/${selectedCaseId}/exports/${lastExport.export.id}/download`}>Download</a>
               </div>
             )}
+          </section>
+
+          <section className="panel">
+            <div className="section-heading">
+              <h2>Export history</h2>
+              <button className="icon-button" onClick={refreshExports} title="Export history frissites" disabled={!selectedCaseId || Boolean(busy)}>
+                <RefreshCw size={18} />
+              </button>
+            </div>
+            <div className="compact-list">
+              {exports.length === 0 && <p className="muted">Nincs export.</p>}
+              {exports.slice(0, 10).map((item) => (
+                <article key={item.id} className="compact-item">
+                  <strong>{item.export_type.toUpperCase()} {item.export_scope}</strong>
+                  <span>{item.review_filter ?? "all"} | {new Date(item.created_at).toLocaleString()}</span>
+                  {item.sha256_hash && <code>{item.sha256_hash}</code>}
+                  <a href={`/api/v1/cases/${selectedCaseId}/exports/${item.id}/download`}>Download</a>
+                </article>
+              ))}
+            </div>
           </section>
         </section>
       </section>

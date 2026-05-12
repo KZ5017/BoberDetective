@@ -138,6 +138,16 @@ export type ExportDetail = {
   items: Array<{ id: string; object_type: string; object_id: string }>;
 };
 
+export type ExportRead = {
+  id: string;
+  export_type: "json" | "html";
+  export_scope: string;
+  sha256_hash: string | null;
+  review_filter: string | null;
+  export_parameters: Record<string, unknown> | null;
+  created_at: string;
+};
+
 export type AnalysisResponse = {
   analysis_run_id: string;
   module_key: string;
@@ -218,6 +228,10 @@ export function listAnalysisRuns(caseId: string): Promise<{ data: AnalysisRunRea
 
 export function getAnalysisRun(caseId: string, analysisRunId: string): Promise<AnalysisRunDetail> {
   return request(`/cases/${caseId}/analysis-runs/${analysisRunId}`);
+}
+
+export function listExports(caseId: string): Promise<{ data: ExportRead[] }> {
+  return request(`/cases/${caseId}/exports`);
 }
 
 export function importDocument(caseId: string, file: File, documentType: string): Promise<unknown> {

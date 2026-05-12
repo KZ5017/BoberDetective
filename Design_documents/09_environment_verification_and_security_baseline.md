@@ -399,6 +399,7 @@ LLM benchmark megjegyzés:
 - Frontend document list és analysis run history nézet elkészült kiválasztott ügyre.
 - Frontend drill-down elkészült: document pages/chunks és analysis run inputs/outputs.
 - Frontend review filter és object detail panel elkészült: object type, review status, source validation status filterek, kiválasztott report item részletek.
+- Frontend export history és focused review queue controls elkészültek.
 - Frontend build ellenőrzés: `npm run build` sikeres.
 
 Adatbázis és Docker döntés:

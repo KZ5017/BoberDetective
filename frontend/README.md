@@ -29,10 +29,12 @@ Current workflows:
 - analysis run input/output detail,
 - elapsed-time feedback for long operations,
 - review report filtering by object type, review status, and source validation status,
+- focused review queue shortcuts,
 - object detail inspection,
 - source detail and review history inspection,
 - review actions for report items,
-- JSON/HTML export creation and download.
+- JSON/HTML export creation and download,
+- export history.
 
 ## Verification
 

@@ -126,6 +126,7 @@
 - Added frontend document page/chunk drill-down and analysis run input/output detail views.
 - Added frontend review report filters for object type, review status, and source validation status.
 - Added frontend object detail panel for selected review report items.
+- Added frontend focused review queue shortcuts and export history list.
 
 ### Changed
 
@@ -187,6 +188,7 @@
 - Verified frontend document/history build and targeted document/analysis-run backend tests.
 - Verified frontend drill-down build and full backend regression tests.
 - Verified frontend review-filter/object-detail build and targeted review report/export backend tests.
+- Verified frontend queue/export-history build and targeted export/review backend tests.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

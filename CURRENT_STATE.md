@@ -59,6 +59,7 @@ alembic: 0012_missing_item_candidates (head)
 - Frontend shows document list and analysis run history for the selected case.
 - Frontend shows document page/chunk drill-down and analysis run input/output detail.
 - Frontend review report supports object type, review status, and source validation filters plus object detail panel.
+- Frontend shows export history and focused review queue shortcuts.
 - Append-only human review history for claims, entities, events, and exports.
 - Shared review helper for claim/entity/event/export review mapping, listing, record creation, and audit writing.
 
@@ -214,7 +215,7 @@ Latest missing item retrieval/export smoke:
 
 Recommended order:
 
-1. Add frontend export history and focused review queue controls.
+1. Do a frontend UX pass for layout density, empty states, and end-to-end manual smoke notes.
 2. Keep retrieval quality improvements incremental as new real query failures appear.
 
 ## Important Local Notes

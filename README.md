@@ -73,10 +73,11 @@ Completed:
 - Frontend document list and analysis run history views
 - Frontend document page/chunk and analysis run input/output drill-down
 - Frontend review status/source validation filters and object detail panel
+- Frontend export history and focused review queue controls
 
 Next:
 
-- Frontend workflow polish for export history and review queues
+- Frontend UX pass for layout density, empty states, and end-to-end manual smoke notes
 
 ## Design documents
 
@@ -160,4 +161,4 @@ Frontend:
 - React/Vite scaffold under `frontend/`
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
-- Current UI workflows: case create/list, TXT import, document list, page/chunk drill-down, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, JSON/HTML export
+- Current UI workflows: case create/list, TXT import, document list, page/chunk drill-down, analysis run with elapsed-time feedback, analysis history/detail, focused review queues, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, JSON/HTML export, export history
