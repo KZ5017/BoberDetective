@@ -45,10 +45,11 @@ Completed:
 - JSON export bundle foundation for review reports
 - HTML review report export foundation with escaping
 - Export review workflow foundation
+- Event review workflow foundation
 
 Next:
 
-- Event review workflow or shared review service cleanup
+- Shared review service cleanup
 - Broaden source-cited analysis modules beyond `extract_claims` and `extract_events`
 
 ## Design documents
@@ -108,6 +109,7 @@ Initial backend scaffold exists under `app/` with:
 - generalized `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}` endpoint, currently supporting `extract_claims` and `extract_events`
 - `events` and `event_sources` persistence with source reference linkage
 - event list/detail API
+- event review API with append-only human review history
 - `extract_events` analysis module
 - case review report API at `GET /api/v1/cases/{case_id}/review-report`
 - JSON/HTML review report export API with export item tracking and download endpoint

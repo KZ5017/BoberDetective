@@ -1,14 +1,18 @@
 from uuid import UUID
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.analysis import AnalysisRunModel
 from app.models.event import EventModel, EventSourceModel
+from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.storage import StoragePaths
+from app.services.users import get_or_create_dev_user
 
 
 class EventError(ValueError):
@@ -44,6 +48,64 @@ def list_event_sources(db: Session, event_id: UUID) -> list[EventSourceModel]:
     return list(
         db.execute(select(EventSourceModel).where(EventSourceModel.event_id == event_id).order_by(EventSourceModel.relevance_rank.asc())).scalars()
     )
+
+
+def list_event_reviews(db: Session, event_id: UUID) -> list[HumanReviewModel]:
+    return list(
+        db.execute(
+            select(HumanReviewModel)
+            .where(HumanReviewModel.object_type == "event", HumanReviewModel.object_id == event_id)
+            .order_by(HumanReviewModel.performed_at.desc())
+        ).scalars()
+    )
+
+
+def review_event(
+    db: Session,
+    *,
+    case_id: UUID,
+    event_id: UUID,
+    action_type: str,
+    review_comment: str | None = None,
+) -> EventModel:
+    event = get_event(db, case_id, event_id)
+    previous_status = event.review_status
+    new_status = _review_status_for_action(action_type, previous_status)
+    user = get_or_create_dev_user(db)
+
+    if new_status is not None:
+        event.review_status = new_status
+        event.updated_at = datetime.now(UTC)
+        db.add(event)
+
+    review = HumanReviewModel(
+        case_id=case_id,
+        object_type="event",
+        object_id=event.id,
+        action_type=action_type,
+        previous_review_status=previous_status,
+        new_review_status=new_status,
+        review_comment=review_comment,
+        performed_by_user_id=user.id,
+    )
+    db.add(review)
+    db.flush()
+
+    audit_event = AuditEvent(
+        event_type="event_review_recorded",
+        success=True,
+        case_id=str(case_id),
+        user_id=str(user.id),
+        related_object_type="event",
+        related_object_id=str(event.id),
+        input_summary={"action_type": action_type, "previous_review_status": previous_status},
+        output_summary={"new_review_status": new_status, "human_review_id": str(review.id)},
+    )
+    DatabaseAuditWriter(db).write(audit_event)
+    JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(audit_event)
+    db.commit()
+    db.refresh(event)
+    return event
 
 
 def create_event_with_source(
@@ -116,3 +178,15 @@ def create_event_with_source(
     db.commit()
     db.refresh(event)
     return event
+
+
+def _review_status_for_action(action_type: str, previous_status: str) -> str | None:
+    if action_type == "verify":
+        return "verified"
+    if action_type == "reject":
+        return "rejected"
+    if action_type == "mark_needs_review":
+        return "needs_review"
+    if action_type == "comment":
+        return None
+    raise EventValidationError("Unsupported event review action")

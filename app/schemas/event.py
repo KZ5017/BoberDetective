@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.review import HumanReviewRead
+
 
 class EventRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -44,3 +46,4 @@ class EventSourceRead(BaseModel):
 class EventDetail(BaseModel):
     event: EventRead
     sources: list[EventSourceRead]
+    reviews: list[HumanReviewRead]

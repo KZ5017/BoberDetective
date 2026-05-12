@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 53 passed`, `alembic: 0008_exports (head)`.
+- Current verification baseline: `pytest: 57 passed`, `alembic: 0008_exports (head)`.
 
 Initial implementation exists:
 
@@ -49,6 +49,7 @@ Initial implementation exists:
 - JSON review report export foundation,
 - HTML review report export foundation,
 - export review workflow foundation,
+- event review workflow foundation,
 - pytest smoke tests.
 
 Completed design documents:
@@ -187,7 +188,7 @@ Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
 2. Broaden source-cited analysis modules beyond `extract_claims` and `extract_events`.
-3. Add event review workflow or shared review service cleanup.
+3. Add shared review service cleanup.
 
 Environment verification notes:
 
@@ -253,6 +254,10 @@ Implementation status:
 - The `extract_events` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_events_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists events/event_sources, records outputs, and finishes the analysis run.
 - Unsupported module keys are rejected before execution.
 - Event list/detail works through `GET /api/v1/cases/{case_id}/events` and `GET /api/v1/cases/{case_id}/events/{event_id}`.
+- Event review works through `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`.
+- Supported event review actions: `verify`, `reject`, `mark_needs_review`, `comment`.
+- Event review updates `events.review_status`, writes append-only `human_reviews` records, and writes `event_review_recorded` audit events.
+- Live event review smoke result: `review 200`, event moved to `verified`, review history count 1.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.
 - Live `extract_events` module smoke result: `analysis 200`, `validation_status=passed`, 1 persisted event.
 - Keyword search now uses sanitized prefix `to_tsquery` terms so simple Hungarian suffix cases like `kapu` matching `kaput` are less brittle.
@@ -273,7 +278,7 @@ Implementation status:
 - Export review writes `human_reviews` records with `object_type=export` and `export_review_recorded` audit events.
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
-- Latest test run: `53 passed`.
+- Latest test run: `57 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

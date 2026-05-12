@@ -361,6 +361,9 @@ LLM benchmark megjegyzés:
 - HTML review report export foundation elkészült ugyanazon export API-n keresztül, `export_type=html` paraméterrel.
 - HTML export minden item/source/review szöveget escape-el, XSS regressziós teszttel.
 - Élő HTML export smoke eredmény: `export 201`, 3 export item, `.html` fájl, download `200`, `text/html`.
+- Event review workflow foundation elkészült: `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`.
+- Event review `events.review_status` mezőt frissít, append-only `human_reviews` rekordot és `event_review_recorded` audit eseményt ír.
+- Élő event review smoke eredmény: `review 200`, event `verified`, review history count 1.
 
 Adatbázis és Docker döntés:
 
@@ -380,7 +383,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 53 passed
+pytest: 57 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

@@ -82,6 +82,10 @@
 - Added HTML review report export support through the existing export API.
 - Added HTML escaping for review report export content.
 - Added an HTML export XSS regression test.
+- Added event review API at `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`.
+- Added append-only event review history to event detail responses.
+- Added `event_review_recorded` audit events.
+- Added event review status mapping and validation tests.
 
 ### Changed
 
@@ -115,6 +119,7 @@
 - Applied Alembic migration `0008_exports` and smoke-tested JSON review report export; it created 3 export items and a downloadable JSON file.
 - Smoke-tested export review; a JSON export was marked `verified` through append-only human review history.
 - Smoke-tested HTML review report export; it created 3 export items and downloaded as `text/html`.
+- Smoke-tested event review; an extracted event was marked `verified` through append-only human review history.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10
