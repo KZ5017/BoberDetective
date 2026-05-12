@@ -226,8 +226,27 @@ Latest missing item retrieval/export smoke:
 
 Recommended order:
 
-1. Do a frontend UX pass for layout density and empty states.
-2. Keep retrieval quality improvements incremental as new real query failures appear.
+1. Return to the backend document-processing foundation rather than deep frontend polishing.
+2. Add an explicit document processing run flow for imported documents:
+   - processing/parse/chunk run lifecycle,
+   - run status and audit visibility,
+   - same source/provenance discipline already used by analysis modules.
+3. Extend import/parsing beyond TXT toward the MVP source layer:
+   - native-text PDF parsing first,
+   - OCR/Tesseract path after the parse run foundation is stable,
+   - keep all file operations constrained to the configured data root.
+4. Keep frontend work limited to supporting these backend capabilities:
+   - show processing status,
+   - show parse/OCR errors and review-required states,
+   - keep visible UI text Hungarian.
+5. Keep retrieval quality improvements incremental as new real query failures appear.
+
+Rationale:
+
+- The frontend is usable enough for the current MVP workflow and has Hungarian visible labels.
+- The analysis/review/export path already works for TXT-backed source chunks.
+- The main gap against the original MVP big picture is broader, auditable document ingestion: PDF/native text parsing, later OCR, and explicit document-processing runs.
+- Better backend source coverage increases the value and reliability of every later AI module.
 
 ## Important Local Notes
 

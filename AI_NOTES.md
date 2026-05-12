@@ -215,7 +215,17 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Do a frontend UX pass for layout density, empty states, and end-to-end manual smoke notes.
+2. Return to the backend document-processing foundation instead of deep frontend polishing.
+3. Add explicit document-processing run flow for imported documents: processing/parse/chunk lifecycle, status visibility, audit, and provenance.
+4. Extend the source layer beyond TXT toward native-text PDF parsing first; keep OCR/Tesseract as the following backend step after the parse/chunk run lifecycle is stable.
+5. Keep frontend work limited to supporting the backend processing workflow: Hungarian labels, processing status, parse/OCR errors, and review-required states.
+
+Strategic rationale:
+
+- The frontend is currently usable enough for the MVP workflow and now has Hungarian visible labels.
+- The analysis/review/export path already works over source-cited TXT chunks.
+- The main gap against the original MVP big picture is broader, auditable document ingestion for real case files: native PDF parsing, then OCR, both tied to analysis/document-processing runs.
+- Improving the backend source layer increases the reliability and value of every downstream AI module.
 
 Environment verification notes:
 

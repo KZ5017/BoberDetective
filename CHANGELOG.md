@@ -196,6 +196,7 @@
 - Verified frontend queue/export-history build and targeted export/review backend tests.
 - Smoke-tested the frontend/API path end to end against the live backend and Vite dev server: case creation, TXT import, all MVP analysis modules, review queue filter, claim review, JSON export/list/download, frontend index, and Vite API proxy.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
+- Updated the strategic handoff direction: pause deep frontend polishing and return next to the backend document-processing foundation, starting with explicit processing runs and native-text PDF parsing.
 
 ## 2026-05-10
 

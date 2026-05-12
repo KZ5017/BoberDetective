@@ -213,6 +213,13 @@ Current implementation caveats:
 - Frontend visible labels are localized to Hungarian; keep future UI text Hungarian and map backend enum/internal values before displaying them.
 - Latest frontend verification: `npm run build` passed.
 
+Strategic next direction:
+
+- Return to the backend document-processing foundation rather than deep frontend polishing.
+- Next target should be explicit document-processing run flow for imported documents, then native-text PDF parsing, then OCR/Tesseract integration.
+- Frontend work in this phase should only support the backend workflow: processing status, parse/OCR errors, review-required states, and Hungarian labels.
+- Rationale: analysis/review/export already works on TXT chunks, but the original MVP requires robust, auditable ingestion for real case files.
+
 ## Security Baseline
 
 Implement code with secure-by-default practices:

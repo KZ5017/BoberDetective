@@ -82,7 +82,8 @@ Completed:
 
 Next:
 
-- Frontend UX pass for layout density and empty states
+- Backend document-processing foundation: explicit processing runs, native-text PDF parsing, then OCR/Tesseract path
+- Frontend changes should support that backend workflow, not become a deep standalone UX polish phase yet
 
 ## Design documents
 
