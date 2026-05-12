@@ -401,6 +401,8 @@ LLM benchmark megjegyzés:
 - Frontend review filter és object detail panel elkészült: object type, review status, source validation status filterek, kiválasztott report item részletek.
 - Frontend export history és focused review queue controls elkészültek.
 - Frontend build ellenőrzés: `npm run build` sikeres.
+- Frontend/API end-to-end smoke ellenőrzés sikeres: live backend + Vite dev szerveren case létrehozás, TXT import, összes MVP analysis modul, review queue filter, claim review, JSON export/list/download, frontend index és `/api` proxy.
+- Analysis retrieval source-bound fallback elkészült: ha a keyword retrieval nem talál chunkot, a modul az ügy első aktuális chunkjaira esik vissza, így a tág UI promptok sem futnak forrás nélküli kontextussal.
 
 Adatbázis és Docker döntés:
 
@@ -420,7 +422,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 96 passed
+pytest: 97 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

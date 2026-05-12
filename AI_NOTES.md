@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 96 passed`, `alembic: 0012_missing_item_candidates (head)`.
+- Current verification baseline: `pytest: 97 passed`, `alembic: 0012_missing_item_candidates (head)`.
 
 Initial implementation exists:
 
@@ -334,6 +334,8 @@ Implementation status:
 - Frontend export history lists prior JSON/HTML exports and download links.
 - Frontend uses Vite proxy from `/api` to `http://127.0.0.1:8000`; backend CORS was not loosened.
 - Frontend verification: `npm run build` passed.
+- End-to-end frontend/API smoke passed through live backend and Vite dev server: case creation, TXT import, document/chunk/search checks, all MVP analysis modules, review report/filter, claim review, JSON export/list/download, frontend index, and Vite `/api` proxy.
+- Analysis retrieval now falls back to first current case chunks when keyword retrieval has no hits, keeping broad UI prompts source-bound instead of failing before LLM validation.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.
 - Live `extract_events` module smoke result: `analysis 200`, `validation_status=passed`, 1 persisted event.
 - Keyword search now uses sanitized prefix `to_tsquery` terms so simple Hungarian suffix cases like `kapu` matching `kaput` are less brittle.
@@ -359,7 +361,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `96 passed`.
+- Latest test run: `97 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

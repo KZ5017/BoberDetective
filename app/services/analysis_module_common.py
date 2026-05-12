@@ -5,9 +5,10 @@ import json
 import re
 import unicodedata
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.document import DocumentChunkModel
+from app.models.document import DocumentChunkModel, DocumentModel
 from app.schemas.analysis_modules import AnalysisModuleRunRequest
 from app.schemas.search import KeywordSearchRequest, SearchFilters
 from app.services.search import keyword_search
@@ -113,6 +114,29 @@ def retrieve_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunReques
             )
             if len(retrieved_chunks) >= payload.limit:
                 return retrieved_chunks
+    if retrieved_chunks:
+        return retrieved_chunks
+    return _fallback_case_chunks(db, case_id, payload.limit)
+
+
+def _fallback_case_chunks(db: Session, case_id: UUID, limit: int) -> list[RetrievedChunk]:
+    stmt = (
+        select(DocumentChunkModel, DocumentModel.original_filename)
+        .join(DocumentModel, DocumentModel.id == DocumentChunkModel.document_id)
+        .where(DocumentChunkModel.case_id == case_id, DocumentChunkModel.is_current.is_(True))
+        .order_by(DocumentModel.imported_at.asc(), DocumentChunkModel.chunk_index.asc())
+        .limit(limit)
+    )
+    retrieved_chunks: list[RetrievedChunk] = []
+    for row in db.execute(stmt):
+        retrieved_chunks.append(
+            RetrievedChunk(
+                label=f"chunk_{len(retrieved_chunks) + 1}",
+                document_name=row.original_filename,
+                chunk=row.DocumentChunkModel,
+                retrieval_score=0.0,
+            )
+        )
     return retrieved_chunks
 
 

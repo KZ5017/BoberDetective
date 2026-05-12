@@ -22,7 +22,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 96 passed
+pytest: 97 passed
 alembic: 0012_missing_item_candidates (head)
 ```
 
@@ -43,6 +43,7 @@ alembic: 0012_missing_item_candidates (head)
 - Source-cited `summarize_case` module that persists summary items.
 - Analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity/summary services.
 - Analysis retrieval fallback strips common Hungarian suffixes, including short accusative forms such as `mellekletet` -> `melleklet`.
+- Analysis retrieval falls back to the first current case chunks when keyword search returns no hits, so broad UI prompts can still run against concrete sources.
 - Source-cited summary item persistence, API, review workflow, and review report inclusion.
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion.
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs.
@@ -179,6 +180,14 @@ For a full live smoke, with LM Studio running and Qwen loaded:
 
 The latest live smoke completed this path successfully.
 
+Latest frontend/API end-to-end smoke:
+
+- Created a case and imported a UTF-8 TXT document through the live backend.
+- Verified document list, chunk list, keyword search, frontend index, and Vite `/api` proxy.
+- Ran all MVP modules: `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`, and `detect_contradiction_candidates`.
+- Result: 15 review report items, review queue filter returned 15 items, one claim review action succeeded, JSON export/list/download succeeded.
+- Smoke case id: `9ace31b5-0729-4b49-8cb4-c989389e70c5`.
+
 Latest `summarize_case` live smoke:
 
 - Initial broad/accented query returned `No chunk retrieval hit for query`.
@@ -215,7 +224,7 @@ Latest missing item retrieval/export smoke:
 
 Recommended order:
 
-1. Do a frontend UX pass for layout density, empty states, and end-to-end manual smoke notes.
+1. Do a frontend UX pass for layout density and empty states.
 2. Keep retrieval quality improvements incremental as new real query failures appear.
 
 ## Important Local Notes

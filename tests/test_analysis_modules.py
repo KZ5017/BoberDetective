@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -5,6 +6,8 @@ import pytest
 from app.models.document import DocumentChunkModel
 from app.models.claim import ClaimModel
 from app.models.source_reference import SourceReferenceModel
+from app.schemas.analysis_modules import AnalysisModuleRunRequest
+from app.services import analysis_module_common
 from app.services.analysis_module_contradictions import RetrievedClaim
 from app.services.analysis_modules import (
     AnalysisModuleError,
@@ -96,6 +99,39 @@ def test_analysis_retrieval_queries_strips_common_hungarian_accusative_suffixes(
     assert "kamerafelvetel" in queries
     assert "keress" not in queries
     assert "hivatkozott" not in queries
+
+
+def test_retrieve_chunks_falls_back_to_case_chunks_when_keyword_search_has_no_hits(monkeypatch) -> None:
+    case_id = uuid4()
+    chunk = DocumentChunkModel(
+        id=uuid4(),
+        case_id=case_id,
+        document_id=uuid4(),
+        page_start=1,
+        page_end=1,
+        chunk_index=0,
+        chunk_text="A forras szerint Kovacs Anna nyitotta ki az ajtot.",
+        char_start=0,
+        char_end=52,
+        token_count=8,
+        chunking_strategy="char_window_v1",
+        chunker_version="1",
+        version_no=1,
+        is_current=True,
+    )
+    db = SimpleNamespace(execute=lambda stmt: [SimpleNamespace(DocumentChunkModel=chunk, original_filename="irat.txt")])
+    monkeypatch.setattr(analysis_module_common, "keyword_search", lambda *args, **kwargs: [])
+
+    retrieved = analysis_module_common.retrieve_chunks(
+        db,
+        case_id,
+        AnalysisModuleRunRequest(query="Keszits rovid ugyosszefoglalot.", limit=5),
+    )
+
+    assert len(retrieved) == 1
+    assert retrieved[0].chunk == chunk
+    assert retrieved[0].document_name == "irat.txt"
+    assert retrieved[0].retrieval_score == 0.0
 
 
 def test_validate_extracted_claims_requires_quote_in_labeled_chunk() -> None:

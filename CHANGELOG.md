@@ -127,6 +127,7 @@
 - Added frontend review report filters for object type, review status, and source validation status.
 - Added frontend object detail panel for selected review report items.
 - Added frontend focused review queue shortcuts and export history list.
+- Added source-bound analysis retrieval fallback to first current case chunks when keyword retrieval has no hits.
 
 ### Changed
 
@@ -180,7 +181,7 @@
 - Smoke-tested missing item candidate JSON/HTML review report exports; both created 1 tracked export item and downloads included `missing_item_candidate`.
 - Latest verification baseline is `95 passed` after missing item export coverage.
 - Improved analysis retrieval fallback for short/inflected Hungarian queries; the formerly failing `Keress hivatkozott mellekletet.` smoke now produces a source-cited missing item candidate.
-- Latest verification baseline is `96 passed` after retrieval fallback coverage.
+- Latest verification baseline is `97 passed` after retrieval fallback coverage.
 - Verified frontend production build with `npm run build`.
 - Verified frontend review action build and targeted backend review tests.
 - Verified frontend source-detail build and targeted review report/export tests.
@@ -189,6 +190,7 @@
 - Verified frontend drill-down build and full backend regression tests.
 - Verified frontend review-filter/object-detail build and targeted review report/export backend tests.
 - Verified frontend queue/export-history build and targeted export/review backend tests.
+- Smoke-tested the frontend/API path end to end against the live backend and Vite dev server: case creation, TXT import, all MVP analysis modules, review queue filter, claim review, JSON export/list/download, frontend index, and Vite API proxy.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10

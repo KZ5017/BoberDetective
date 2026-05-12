@@ -41,3 +41,5 @@ Current workflows:
 ```bash
 npm run build
 ```
+
+Latest live frontend/API smoke also passed against the running backend and Vite dev server: case creation, TXT import, all MVP analysis modules, review queue filter, claim review, JSON export/list/download, frontend index, and `/api` proxy.

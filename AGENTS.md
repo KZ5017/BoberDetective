@@ -194,10 +194,11 @@ Current implementation caveats:
 - PostgreSQL is reachable at `127.0.0.1:5432`.
 - Qdrant is reachable at `127.0.0.1:6333`.
 - LM Studio is reachable from WSL at `http://127.0.0.1:1234/v1`.
-- Latest test run: `96 passed`.
+- Latest test run: `97 passed`.
 - Latest live analysis smoke: `detect_missing_items` produced 2 source-cited `attachment` candidates and review report inclusion.
 - Latest export smoke: missing item candidates are included in JSON/HTML review report exports with tracked export items.
 - Latest retrieval smoke: `Keress hivatkozott mellekletet.` now succeeds after Hungarian suffix fallback tuning.
+- Latest frontend/API smoke: live backend plus Vite dev server passed case creation, TXT import, all MVP analysis modules, review queue filter, claim review, JSON export/list/download, frontend index, and `/api` proxy.
 - Minimal React/Vite frontend scaffold exists under `frontend/`.
 - Frontend review actions exist for review report items through allowlisted API paths.
 - Frontend report items show source details and review history.

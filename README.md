@@ -66,6 +66,7 @@ Completed:
 - Live `detect_missing_items` smoke passed on referenced attachment/photo documentation sample
 - Missing item candidate JSON/HTML export smoke coverage
 - Analysis retrieval fallback improved for short/inflected Hungarian queries such as `mellekletet`
+- Analysis modules now fall back to the first current case chunks when keyword retrieval has no hits, preserving source-bound execution for broad UI queries
 - Minimal React/Vite workbench frontend scaffold
 - Frontend review actions for review report items
 - Frontend source detail and review history display for report items
@@ -74,10 +75,11 @@ Completed:
 - Frontend document page/chunk and analysis run input/output drill-down
 - Frontend review status/source validation filters and object detail panel
 - Frontend export history and focused review queue controls
+- End-to-end frontend/API smoke passed through case creation, TXT import, all MVP analysis modules, review queue filter, claim review, JSON export, export history backing endpoint, download, and Vite proxy
 
 Next:
 
-- Frontend UX pass for layout density, empty states, and end-to-end manual smoke notes
+- Frontend UX pass for layout density and empty states
 
 ## Design documents
 
