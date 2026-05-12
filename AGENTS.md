@@ -177,19 +177,25 @@ As of the latest handoff:
   - secure storage path resolver,
   - SQLAlchemy/psycopg DB layer,
   - Alembic migration foundation,
+  - migrations through `0012_missing_item_candidates`,
   - users/cases/case_users/audit_events tables,
+  - documents/pages/chunks/source references,
+  - analysis runs and source-cited analysis modules,
+  - claims/events/entities/summary items/contradiction candidates/missing item candidates,
   - case create/list API,
+  - TXT import, keyword search, review report, JSON/HTML exports,
   - pytest smoke tests.
 
 Current implementation caveats:
 
-- Git repository is initialized on branch `main`; initial commit has not been created.
+- Git repository is initialized on branch `main` and tracks `origin/main`.
 - Docker is installed and `bober` can access the Docker socket.
 - PostgreSQL and Qdrant run through Docker Compose.
 - PostgreSQL is reachable at `127.0.0.1:5432`.
 - Qdrant is reachable at `127.0.0.1:6333`.
 - LM Studio is reachable from WSL at `http://127.0.0.1:1234/v1`.
-- Latest test run: `5 passed`.
+- Latest test run: `94 passed`.
+- Latest live analysis smoke: `detect_missing_items` produced 2 source-cited `attachment` candidates and review report inclusion.
 
 ## Security Baseline
 

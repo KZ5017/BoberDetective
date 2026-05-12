@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 92 passed`, `alembic: 0012_missing_item_candidates (head)`.
+- Current verification baseline: `pytest: 94 passed`, `alembic: 0012_missing_item_candidates (head)`.
 
 Initial implementation exists:
 
@@ -66,6 +66,8 @@ Initial implementation exists:
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs,
 - live `detect_contradiction_candidates` smoke passed on a two-claim time conflict sample,
 - missing item candidate persistence, source linkage, API, review workflow, and review report inclusion,
+- `detect_missing_items` analysis module foundation over source-cited chunk quotes,
+- live `detect_missing_items` smoke passed on a referenced attachment/photo documentation sample,
 - pytest smoke tests.
 
 Completed design documents:
@@ -203,7 +205,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Add `detect_missing_items` analysis module on top of the new missing-item foundation.
+2. Add export smoke coverage for missing item candidates.
 
 Environment verification notes:
 
@@ -302,6 +304,9 @@ Implementation status:
 - Missing item candidate creation requires a same-case analysis run and at least one same-case source reference.
 - Missing item candidate reviews use append-only `human_reviews` with `object_type=missing_item_candidate`.
 - Missing item candidates are included in the case review report and can be selected through `object_type=missing_item_candidate`.
+- `detect_missing_items` works through `POST /api/v1/cases/{case_id}/analysis/modules/detect_missing_items`.
+- `detect_missing_items` uses keyword chunk retrieval, LM Studio native execution, quote validation, source-reference creation, missing-item candidate persistence, and analysis run provenance.
+- Live `detect_missing_items` smoke result: `analysis 200`, `validation_status=passed`, 2 persisted `attachment` candidates, both `needs_review` and `source_valid`; review report `object_type=missing_item_candidate` returned 2 items.
 - Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.
 - Live `extract_events` module smoke result: `analysis 200`, `validation_status=passed`, 1 persisted event.
 - Keyword search now uses sanitized prefix `to_tsquery` terms so simple Hungarian suffix cases like `kapu` matching `kaput` are less brittle.
@@ -327,7 +332,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `92 passed`.
+- Latest test run: `94 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

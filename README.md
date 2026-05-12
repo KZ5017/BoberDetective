@@ -62,10 +62,12 @@ Completed:
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs
 - Live `detect_contradiction_candidates` smoke passed on a two-claim time conflict sample
 - Missing item candidate persistence, source linkage, API, review workflow, and review report inclusion
+- `detect_missing_items` analysis module foundation over source-cited chunk quotes
+- Live `detect_missing_items` smoke passed on referenced attachment/photo documentation sample
 
 Next:
 
-- `detect_missing_items` analysis module
+- Missing item candidate export smoke coverage
 
 ## Design documents
 
@@ -118,6 +120,7 @@ Initial backend scaffold exists under `app/` with:
 - `analysis_runs`, `analysis_run_inputs`, and `analysis_run_outputs` tables
 - analysis run list/detail API
 - `scripts/run_llm_benchmark.py` for local model comparison
+- `detect_missing_items` analysis module with quote validation, source-reference creation, missing-item candidate persistence, and analysis run provenance
 - source-cited analysis smoke API with Qwen native reasoning-off
 - `claims` and `claim_sources` persistence with source reference linkage
 - `human_reviews` append-only review history for claims

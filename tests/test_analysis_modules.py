@@ -15,6 +15,7 @@ from app.services.analysis_modules import (
     validate_extracted_contradiction_candidates,
     validate_extracted_entities,
     validate_extracted_events,
+    validate_extracted_missing_item_candidates,
     validate_extracted_summary_items,
 )
 
@@ -348,3 +349,53 @@ def test_validate_extracted_contradiction_candidates_rejects_self_reference_and_
 
     assert valid_candidates == []
     assert unsupported == ["nincs eleg par"]
+
+
+def test_validate_extracted_missing_item_candidates_requires_quote_in_labeled_chunk() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "Az irat szerint a 3. szamu melleklet tartalmazza a kamerafelvetelt.")]
+    payload = {
+        "missing_item_candidates": [
+            {
+                "missing_item_type": "attachment",
+                "referenced_item_text": "3. szamu melleklet",
+                "description": "A forras a 3. szamu mellekletre hivatkozik, amely kulon ellenorizendo.",
+                "expected_document_type": "melleklet",
+                "quote_text": "3. szamu melleklet tartalmazza a kamerafelvetelt",
+                "source_label": "chunk_1",
+                "confidence": "medium",
+            }
+        ],
+        "unsupported_missing_item_candidates": [],
+    }
+
+    valid_candidates, unsupported = validate_extracted_missing_item_candidates(payload, chunks)
+
+    assert len(valid_candidates) == 1
+    assert valid_candidates[0]["missing_item_type"] == "attachment"
+    assert str(valid_candidates[0]["confidence"]) == "0.6000"
+    assert unsupported == []
+
+
+def test_validate_extracted_missing_item_candidates_normalizes_unknown_values() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "A forras egy meg nem nevezett tovabbi dokumentumra hivatkozik.")]
+    payload = {
+        "missing_item_candidates": [
+            {
+                "missing_item_type": "verdict",
+                "referenced_item_text": "tovabbi dokumentum",
+                "description": "A forras tovabbi dokumentumra hivatkozik.",
+                "expected_document_type": 42,
+                "quote_text": "tovabbi dokumentumra hivatkozik",
+                "source_label": "chunk_1",
+                "confidence": 2,
+            }
+        ],
+        "unsupported_missing_item_candidates": ["nincs megallapitas hianyrol"],
+    }
+
+    valid_candidates, unsupported = validate_extracted_missing_item_candidates(payload, chunks)
+
+    assert valid_candidates[0]["missing_item_type"] == "other"
+    assert valid_candidates[0]["expected_document_type"] is None
+    assert valid_candidates[0]["confidence"] is None
+    assert unsupported == ["nincs megallapitas hianyrol"]

@@ -8,6 +8,7 @@ from app.services.analysis_module_common import AnalysisModuleError, RetrievedCh
 from app.services.analysis_module_contradictions import run_detect_contradiction_candidates, validate_extracted_contradiction_candidates
 from app.services.analysis_module_entities import run_extract_entities, validate_extracted_entities
 from app.services.analysis_module_events import run_extract_events, validate_extracted_events
+from app.services.analysis_module_missing_items import run_detect_missing_items, validate_extracted_missing_item_candidates
 from app.services.analysis_module_summaries import run_summarize_case, validate_extracted_summary_items
 
 
@@ -17,6 +18,7 @@ SUPPORTED_MODULES = {
     "extract_entities",
     "summarize_case",
     "detect_contradiction_candidates",
+    "detect_missing_items",
 }
 
 
@@ -36,4 +38,6 @@ def run_analysis_module(
         return run_summarize_case(db, case_id, payload)
     if module_key == "detect_contradiction_candidates":
         return run_detect_contradiction_candidates(db, case_id, payload)
+    if module_key == "detect_missing_items":
+        return run_detect_missing_items(db, case_id, payload)
     raise AnalysisModuleError("Unsupported analysis module")

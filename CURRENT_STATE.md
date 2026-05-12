@@ -22,7 +22,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 92 passed
+pytest: 94 passed
 alembic: 0012_missing_item_candidates (head)
 ```
 
@@ -45,6 +45,7 @@ alembic: 0012_missing_item_candidates (head)
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion.
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs.
 - Missing item candidate persistence, source linkage, API, review workflow, and review report inclusion.
+- `detect_missing_items` analysis module foundation over source-cited chunk quotes.
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint with object type, review status, source validation filters, and expanded source details.
 - JSON and HTML review report export with SHA256, claim/entity/event item tracking, report filters, and expanded source details.
@@ -105,6 +106,7 @@ Analysis:
 - `POST /api/v1/cases/{case_id}/analysis/modules/extract_entities`
 - `POST /api/v1/cases/{case_id}/analysis/modules/summarize_case`
 - `POST /api/v1/cases/{case_id}/analysis/modules/detect_contradiction_candidates`
+- `POST /api/v1/cases/{case_id}/analysis/modules/detect_missing_items`
 
 Reviewable objects:
 
@@ -182,11 +184,18 @@ Latest `detect_contradiction_candidates` live smoke:
 - Candidate was `needs_review`, `source_valid`, and had two source references.
 - Review report with `object_type=contradiction_candidate` returned the candidate with expanded source details.
 
+Latest `detect_missing_items` live smoke:
+
+- Imported a TXT sample with references to a camera recording attachment and separate photo documentation.
+- `detect_missing_items` returned `analysis 200`, `validation_status=passed`, 2 `attachment` candidates.
+- Candidates were `needs_review`, `source_valid`, and had source references created from validated chunk quotes.
+- Review report with `object_type=missing_item_candidate` returned 2 source-cited items with expanded source details.
+
 ## Next Logical Steps
 
 Recommended order:
 
-1. Add `detect_missing_items` analysis module on top of the new missing-item foundation.
+1. Add export smoke coverage for missing item candidates.
 2. Start a minimal frontend only after the backend review/export loop is stable.
 
 ## Important Local Notes

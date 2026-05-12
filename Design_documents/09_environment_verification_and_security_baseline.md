@@ -387,6 +387,8 @@ LLM benchmark megjegyzés:
 - `detect_contradiction_candidates` analysis module foundation elkészült: source-cited claim inputs -> LM Studio native -> claim label validation -> contradiction_candidate persistence.
 - Élő `detect_contradiction_candidates` smoke eredmény: két eltérő telefonhívás-időpontot tartalmazó TXT mintából `extract_claims` 2 claimet hozott létre, contradiction detection `analysis 200`, `validation_status=passed`, 1 `time_conflict` candidate, 2 source reference, review report inclusion.
 - Missing item candidate foundation elkészült: `missing_item_candidates` és `missing_item_candidate_sources` táblák, list/create/detail/review API, append-only `missing_item_candidate` review workflow, és review report inclusion.
+- `detect_missing_items` analysis module foundation elkészült: keyword chunk retrieval -> LM Studio native -> quote validation -> source_reference -> missing_item_candidate persistence.
+- Élő `detect_missing_items` smoke eredmény: hivatkozott mellékletet/fotódokumentációt tartalmazó TXT mintából `analysis 200`, `validation_status=passed`, 2 `attachment` candidate, review report inclusion.
 
 Adatbázis és Docker döntés:
 
@@ -406,7 +408,7 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 92 passed
+pytest: 94 passed
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

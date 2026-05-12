@@ -113,6 +113,8 @@
 - Added `missing_item_candidates` and `missing_item_candidate_sources` SQLAlchemy models and Alembic migration `0012_missing_item_candidates`.
 - Added missing item candidate list/create/detail API endpoints and append-only review workflow.
 - Added missing item candidate inclusion in case review reports through `object_type=missing_item_candidate`.
+- Added `detect_missing_items` analysis module with chunk retrieval, LM Studio native execution, quote validation, source-reference creation, missing-item candidate persistence, and analysis run provenance.
+- Added missing item candidate analysis response schema and validation tests.
 
 ### Changed
 
@@ -161,6 +163,8 @@
 - Latest verification baseline is `86 passed` after contradiction detection module validation tests.
 - Smoke-tested `detect_contradiction_candidates` against LM Studio; a two-claim phone-call time conflict sample produced 1 source-cited `time_conflict` candidate and review report inclusion.
 - Applied Alembic migration `0012_missing_item_candidates`; latest verification baseline is `92 passed`.
+- Smoke-tested `detect_missing_items` against LM Studio; a referenced attachment/photo documentation sample produced 2 source-cited `attachment` candidates and review report inclusion.
+- Latest verification baseline is `94 passed` after missing item analysis module validation tests.
 - Updated handoff guidance so fresh sessions read `CURRENT_STATE.md` alongside the existing project notes.
 
 ## 2026-05-10
