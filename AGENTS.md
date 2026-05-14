@@ -142,6 +142,12 @@ Read these before making plans or edits:
 - `Design_documents/03_database_schema_v1.md`
 - `Design_documents/03a_database_schema_pre_implementation_review.md`
 - `Design_documents/04_runtime_and_deployment_v1.md`
+- `Design_documents/05_api_design_v1.md`
+- `Design_documents/06_document_processing_pipeline_v1.md`
+- `Design_documents/07_prompt_and_json_schema_collection_v1.md`
+- `Design_documents/08_mvp_backlog_and_implementation_sequence.md`
+- `Design_documents/09_environment_verification_and_security_baseline.md`
+- `Design_documents/10_analysis_batch_processing_plan.md`
 
 ## Editing Guidance
 
@@ -178,13 +184,13 @@ As of the latest handoff:
   - secure storage path resolver,
   - SQLAlchemy/psycopg DB layer,
   - Alembic migration foundation,
-  - migrations through `0012_missing_item_candidates`,
+  - migrations through `0013_processing_runs`,
   - users/cases/case_users/audit_events tables,
   - documents/pages/chunks/source references,
   - analysis runs and source-cited analysis modules,
   - claims/events/entities/summary items/contradiction candidates/missing item candidates,
   - case create/list API,
-  - TXT import, keyword search, review report, JSON/HTML exports,
+  - TXT import, native-text PDF import, explicit OCR for PDF documents, keyword search, review report, JSON/HTML exports,
   - pytest smoke tests.
 
 Current implementation caveats:
@@ -197,7 +203,22 @@ Current implementation caveats:
 - LM Studio is reachable from WSL at `http://127.0.0.1:1234/v1`.
 - Configured Qwen load profile is `context_length=4096`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; latest model-load smoke accepted it through `POST /api/v1/system/llm/load-chat-model`.
 - LM Studio native chat calls auto-ensure the configured chat model is loaded; they reuse a matching loaded instance id or load the model with the configured profile when missing.
-- Latest test run: `100 passed`.
+- Latest test run: `142 passed`.
+- Latest Alembic state: `0013_processing_runs (head)`.
+- Native-text PDF import uses configurable `BOBERDETECTIVE_PDF_PARSER`; the default `docling_then_pypdf` profile prefers Docling and falls back to local `pypdf`.
+- Docling is installed in `.venv`; explicit `BOBERDETECTIVE_PDF_PARSER=docling` import smoke passed with parser `docling` and `parse_document` validation `passed`.
+- Tesseract OCR foundation exists for PDF documents through `POST /api/v1/cases/{case_id}/documents/{document_id}/ocr`.
+- Image-only/scanned PDFs without native text remain importable as audit-tracked `review_required` documents so the explicit OCR path can process them.
+- OCR test coverage includes a generated scanned-style/image-only PDF fixture; native parsing reports no source text, then Tesseract extracts OCR text.
+- Synthetic PDF samples are generated under `samples/pdf/` by `scripts/generate_pdf_samples.py`; `scripts/evaluate_pdf_samples.py` evaluates native parse, OCR text length, confidence, and quality issues.
+- OCR now stores average Tesseract confidence when available and flags low-confidence OCR pages as `low_ocr_confidence`.
+- Document page API returns OCR confidence as a numeric value and handles Decimal-backed DB values.
+- Default upload limit is 50 MiB through `BOBERDETECTIVE_MAX_UPLOAD_BYTES`.
+- Analysis batch processing is planned in `Design_documents/10_analysis_batch_processing_plan.md`; raw-chunk analysis modules are batch-capable while preserving focused query mode.
+- `detect_contradiction_candidates` is intentionally claim-pair based rather than raw chunk batch-based; it records claim-selection and selected-pair metadata, returns a warning without LLM execution when fewer than two source-valid claims or no selected pairs exist, and rejects model output that references unselected claim pairs.
+- Contradiction candidate output is normalized before persistence: same pair/type duplicates are skipped, most model-proposed `high` severities are capped to `medium`, and titles/descriptions are deterministic conservative text based on the selected source-cited claim pair.
+- Contradiction detection supports `claim_review_scope`; default `reviewable` excludes rejected claims and includes source-valid `new`, `needs_review`, `verified`, and `corrected` claims.
+- Contradiction detection requires explicit qualification before persistence: `is_contradiction_candidate=true` and a concrete `conflict_basis`; contextual/non-conflicting pairs should become unsupported items, not saved candidates.
 - Latest live analysis smoke: `detect_missing_items` produced 2 source-cited `attachment` candidates and review report inclusion.
 - Latest export smoke: missing item candidates are included in JSON/HTML review report exports with tracked export items.
 - Latest retrieval smoke: `Keress hivatkozott mellekletet.` now succeeds after Hungarian suffix fallback tuning.
@@ -208,6 +229,7 @@ Current implementation caveats:
 - Frontend shows long-running operation feedback with elapsed time and last action summary.
 - Frontend shows selected-case document list and analysis run history.
 - Frontend shows document page/chunk and analysis run input/output drill-down.
+- Frontend shows contradiction claim-selection metadata as Hungarian claim-pair summaries in analysis run details, exposes claim review scope in the contradiction analysis panel, and marks contradiction report items as review-only candidates rather than proven facts.
 - Frontend review report supports object/review/source filters and selected object detail.
 - Frontend shows export history and focused review queue shortcuts.
 - Frontend visible labels are localized to Hungarian; keep future UI text Hungarian and map backend enum/internal values before displaying them.
@@ -215,10 +237,10 @@ Current implementation caveats:
 
 Strategic next direction:
 
-- Return to the backend document-processing foundation rather than deep frontend polishing.
-- Next target should be explicit document-processing run flow for imported documents, then native-text PDF parsing, then OCR/Tesseract integration.
-- Frontend work in this phase should only support the backend workflow: processing status, parse/OCR errors, review-required states, and Hungarian labels.
-- Rationale: analysis/review/export already works on TXT chunks, but the original MVP requires robust, auditable ingestion for real case files.
+- Continue hardening the backend analysis foundation rather than deep frontend polishing.
+- Next target should be live smoke of contradiction detection after document/case-scope `extract_claims` on real imported documents, including frontend review report inspection.
+- Frontend work in this phase should only support the backend workflow: source scope, optional focus, batch limits, Hungarian labels, and clear status/error feedback.
+- Rationale: raw-chunk modules can now process document/case scopes, while contradiction detection should operate downstream from source-cited claims and keep `no source -> no claim` intact.
 
 ## Security Baseline
 

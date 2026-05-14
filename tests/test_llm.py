@@ -23,6 +23,9 @@ def _settings(*, auto_load: bool = True) -> Settings:
         llm_flash_attention=True,
         llm_offload_kv_cache_to_gpu=True,
         llm_auto_load_chat_model=auto_load,
+        pdf_parser="docling_then_pypdf",
+        tesseract_cmd="tesseract",
+        tesseract_languages="hun+eng",
         max_upload_bytes=1024,
     )
 

@@ -4,25 +4,36 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.document import DocumentModel
+from app.schemas.analysis import AnalysisRunRead
 from app.schemas.document import (
     DocumentChunkList,
     DocumentChunkRead,
     DocumentImportMetadata,
     DocumentList,
+    DocumentOcrRequest,
     DocumentPageList,
     DocumentPageRead,
+    DocumentProcessRequest,
+    DocumentProcessResponse,
     DocumentRead,
 )
 from app.services.documents import (
     CaseNotFoundError,
     DocumentImportError,
+    DocumentNotFoundError,
+    DocumentProcessingError,
     DuplicateDocumentError,
+    PdfParserUnavailableError,
+    PdfParsingError,
     UnsupportedDocumentTypeError,
     UploadTooLargeError,
-    import_txt_document,
+    import_document,
     list_document_chunks,
     list_document_pages,
     list_documents,
+    ocr_document,
+    process_document,
 )
 
 router = APIRouter()
@@ -44,7 +55,7 @@ async def post_document(
 ) -> DocumentRead:
     metadata = DocumentImportMetadata(document_type=document_type, language_code=language_code, notes=notes)
     try:
-        document = await import_txt_document(db, case_id, file, metadata)
+        document = await import_document(db, case_id, file, metadata)
     except CaseNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except DuplicateDocumentError as exc:
@@ -53,9 +64,61 @@ async def post_document(
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)) from exc
     except UnsupportedDocumentTypeError as exc:
         raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(exc)) from exc
+    except PdfParserUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except PdfParsingError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except DocumentImportError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return DocumentRead.model_validate(document)
+
+
+@router.post("/cases/{case_id}/documents/{document_id}/process", response_model=DocumentProcessResponse)
+def post_document_process(
+    case_id: UUID,
+    document_id: UUID,
+    payload: DocumentProcessRequest | None = None,
+    db: Session = Depends(get_db),
+) -> DocumentProcessResponse:
+    try:
+        run = process_document(db, case_id, document_id, reason=payload.reason if payload else None)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DocumentProcessingError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    document = db.get(DocumentModel, document_id)
+    return DocumentProcessResponse(
+        document=DocumentRead.model_validate(document),
+        analysis_run=AnalysisRunRead.model_validate(run),
+    )
+
+
+@router.post("/cases/{case_id}/documents/{document_id}/ocr", response_model=DocumentProcessResponse)
+def post_document_ocr(
+    case_id: UUID,
+    document_id: UUID,
+    payload: DocumentOcrRequest | None = None,
+    db: Session = Depends(get_db),
+) -> DocumentProcessResponse:
+    try:
+        run = ocr_document(
+            db,
+            case_id,
+            document_id,
+            reason=payload.reason if payload else None,
+            language=payload.language if payload else None,
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DocumentProcessingError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    document = db.get(DocumentModel, document_id)
+    return DocumentProcessResponse(
+        document=DocumentRead.model_validate(document),
+        analysis_run=AnalysisRunRead.model_validate(run),
+    )
 
 
 @router.get("/cases/{case_id}/documents/{document_id}/pages", response_model=DocumentPageList)

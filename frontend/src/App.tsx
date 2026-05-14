@@ -17,7 +17,9 @@ import {
   AnalysisResponse,
   AnalysisRunDetail,
   AnalysisRunRead,
+  AnalysisSourceMode,
   CaseRead,
+  ClaimReviewScope,
   DocumentChunkRead,
   DocumentPageRead,
   DocumentRead,
@@ -38,7 +40,8 @@ import {
   listDocuments,
   listExports,
   reviewObject,
-  runAnalysis
+  runAnalysis,
+  runDocumentOcr
 } from "./api";
 
 const modules = [
@@ -62,12 +65,15 @@ const objectTypes = [
 
 const reviewStatuses = ["", "needs_review", "verified", "rejected", "corrected", "new"];
 const sourceValidationStatuses = ["", "source_valid", "source_invalid", "pending_source_validation"];
+const analysisSourceModes: AnalysisSourceMode[] = ["focused_query", "document", "case"];
+const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
 
 const busyLabels: Record<string, string> = {
   cases: "Ugylista frissitese",
   "case-create": "Ugy letrehozasa",
   "case-data": "Ugyadatok betoltese",
   "document-detail": "Iratreszletek betoltese",
+  "document-ocr": "OCR futtatasa",
   "run-detail": "Elemzesi futas reszleteinek betoltese",
   exports: "Export elozmenyek betoltese",
   import: "Irat importalasa",
@@ -88,6 +94,19 @@ const moduleLabels: Record<string, string> = {
   summarize_case: "Ugyosszefoglalo keszitese",
   detect_contradiction_candidates: "Ellentmondasjeloltek keresese",
   detect_missing_items: "Hianyzo iratok keresese"
+};
+
+const analysisSourceModeLabels: Record<AnalysisSourceMode, string> = {
+  focused_query: "Fokuszalt kereses",
+  document: "Kivalasztott irat",
+  case: "Teljes ugy"
+};
+
+const claimReviewScopeLabels: Record<ClaimReviewScope, string> = {
+  reviewable: "Ellenorizheto allitasok",
+  verified: "Csak ellenorzott",
+  needs_review: "Ellenorzesre varok",
+  all_source_valid: "Minden forraservenyes"
 };
 
 const objectTypeLabels: Record<string, string> = {
@@ -149,8 +168,13 @@ export function App() {
   const [file, setFile] = useState<File | null>(null);
   const [documentType, setDocumentType] = useState("jegyzokonyv");
   const [moduleKey, setModuleKey] = useState("detect_missing_items");
-  const [query, setQuery] = useState("Keress hivatkozott mellekletet.");
+  const [query, setQuery] = useState("");
   const [limit, setLimit] = useState(5);
+  const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("focused_query");
+  const [analysisDocumentId, setAnalysisDocumentId] = useState("");
+  const [maxChunks, setMaxChunks] = useState(50);
+  const [batchSize, setBatchSize] = useState(5);
+  const [claimReviewScope, setClaimReviewScope] = useState<ClaimReviewScope>("reviewable");
   const [objectType, setObjectType] = useState("");
   const [reviewStatus, setReviewStatus] = useState("needs_review");
   const [sourceValidationStatus, setSourceValidationStatus] = useState("source_valid");
@@ -167,7 +191,25 @@ export function App() {
   const [lastActionSummary, setLastActionSummary] = useState("");
 
   const selectedCase = useMemo(() => cases.find((item) => item.id === selectedCaseId), [cases, selectedCaseId]);
+  const selectedAnalysisDocument = useMemo(
+    () => documents.find((item) => item.id === analysisDocumentId) ?? null,
+    [analysisDocumentId, documents]
+  );
+  const canUseBatchScope =
+    moduleKey === "extract_claims" ||
+    moduleKey === "extract_events" ||
+    moduleKey === "extract_entities" ||
+    moduleKey === "summarize_case" ||
+    moduleKey === "detect_missing_items";
+  const isContradictionModule = moduleKey === "detect_contradiction_candidates";
+  const effectiveAnalysisSourceMode: AnalysisSourceMode = canUseBatchScope ? analysisSourceMode : "focused_query";
+  const requiresFocusText = effectiveAnalysisSourceMode === "focused_query" && !isContradictionModule;
   const busyLabel = busy ? (busyLabels[busy] ?? busy) : "Keszenlet";
+  const canRunAnalysis =
+    Boolean(selectedCaseId) &&
+    !busy &&
+    (!requiresFocusText || query.trim().length > 0) &&
+    (effectiveAnalysisSourceMode !== "document" || Boolean(analysisDocumentId));
   const reportFilters = useMemo<ReviewReportFilterValues>(
     () => ({
       objectType: objectType || undefined,
@@ -196,6 +238,18 @@ export function App() {
       setReport(null);
     }
   }, [selectedCaseId]);
+
+  useEffect(() => {
+    if (analysisDocumentId && !documents.some((item) => item.id === analysisDocumentId)) {
+      setAnalysisDocumentId("");
+    }
+  }, [analysisDocumentId, documents]);
+
+  useEffect(() => {
+    if (!canUseBatchScope && analysisSourceMode !== "focused_query") {
+      setAnalysisSourceMode("focused_query");
+    }
+  }, [analysisSourceMode, canUseBatchScope]);
 
   useEffect(() => {
     if (busyStartedAt === null) {
@@ -293,6 +347,29 @@ export function App() {
     });
   }
 
+  async function handleDocumentOcr(document: DocumentRead) {
+    if (!selectedCaseId) return;
+    await perform("document-ocr", async () => {
+      const response = await runDocumentOcr(selectedCaseId, document.id, "Felhasznaloi OCR inditas a feluletrol");
+      const [documentsResponse, runsResponse, pagesResponse, chunksResponse] = await Promise.all([
+        listDocuments(selectedCaseId),
+        listAnalysisRuns(selectedCaseId),
+        listDocumentPages(selectedCaseId, document.id),
+        listDocumentChunks(selectedCaseId, document.id)
+      ]);
+      const refreshedDocument = documentsResponse.data.find((item) => item.id === document.id) ?? response.document;
+      setDocuments(documentsResponse.data);
+      setAnalysisRuns(runsResponse.data);
+      setSelectedDocument(refreshedDocument);
+      setDocumentPages(pagesResponse.data);
+      setDocumentChunks(chunksResponse.data);
+      setNotice("OCR lefutott, az irat reszletei frissitve.");
+      setLastActionSummary(
+        `${document.original_filename}: ${labelRunStatus(response.analysis_run.status)}, ${response.analysis_run.validation_status ? labelValidationStatus(response.analysis_run.validation_status) : "nincs validacio"}`
+      );
+    });
+  }
+
   async function handleAnalysisRunDetail(run: AnalysisRunRead) {
     if (!selectedCaseId) return;
     await perform("run-detail", async () => {
@@ -333,7 +410,16 @@ export function App() {
   async function handleRunAnalysis() {
     if (!selectedCaseId) return;
     await perform("analysis", async () => {
-      const response = await runAnalysis(selectedCaseId, moduleKey, query, limit);
+      const payload = {
+        query: query.trim() ? query.trim() : null,
+        limit,
+        source_mode: effectiveAnalysisSourceMode,
+        document_id: effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null,
+        max_chunks: maxChunks,
+        batch_size: batchSize,
+        claim_review_scope: claimReviewScope
+      };
+      const response = await runAnalysis(selectedCaseId, moduleKey, payload);
       setAnalysis(response);
       const [reportResponse, runsResponse] = await Promise.all([
         getReviewReport(selectedCaseId, reportFilters),
@@ -343,7 +429,7 @@ export function App() {
       setAnalysisRuns(runsResponse.data);
       setNotice("Elemzes lefutott, jelentés frissitve.");
       setLastActionSummary(
-        `${labelModule(response.module_key)}: ${labelValidationStatus(response.validation_status)}, ${response.selected_chunk_ids.length} szovegresz, ${analysisOutputCount(response)} kimenet`
+        `${labelModule(response.module_key)}: ${labelAnalysisSourceMode(effectiveAnalysisSourceMode)}, ${labelValidationStatus(response.validation_status)}, ${analysisSourceMetric(response)}, ${analysisOutputCount(response)} kimenet`
       );
     });
   }
@@ -477,9 +563,16 @@ export function App() {
                   <strong>{document.original_filename}</strong>
                   <span>{document.document_type ?? "ismeretlen"} | {labelProcessingStatus(document.processing_status)} | {formatBytes(document.file_size_bytes)}</span>
                   <code>{document.sha256_hash}</code>
-                  <button onClick={() => handleDocumentDetail(document)} disabled={Boolean(busy)}>
-                    Reszletek
-                  </button>
+                  <div className="button-row">
+                    <button onClick={() => handleDocumentDetail(document)} disabled={Boolean(busy)}>
+                      Reszletek
+                    </button>
+                    {canRunOcr(document) && (
+                      <button onClick={() => handleDocumentOcr(document)} disabled={Boolean(busy)}>
+                        <Play size={18} /> OCR inditasa
+                      </button>
+                    )}
+                  </div>
                 </article>
               ))}
             </div>
@@ -499,13 +592,18 @@ export function App() {
                   <span>{documentChunks.length} szovegresz</span>
                   <span>{labelProcessingStatus(selectedDocument.processing_status)}</span>
                 </div>
+                {canRunOcr(selectedDocument) && (
+                  <button onClick={() => handleDocumentOcr(selectedDocument)} disabled={Boolean(busy)}>
+                    <Play size={18} /> OCR inditasa
+                  </button>
+                )}
                 <details open>
                   <summary>Oldalak</summary>
                   <div className="detail-list">
                     {documentPages.map((page) => (
                       <article key={page.id} className="text-sample">
                         <strong>{page.page_number}. oldal</strong>
-                        <span>{labelTextSource(page.text_source)} | OCR {page.ocr_used ? "igen" : "nem"} | {page.text_char_count} karakter</span>
+                        <span>{labelTextSource(page.text_source)} | OCR {page.ocr_used ? "igen" : "nem"} | biztossag {formatConfidence(page.ocr_confidence)} | {page.text_char_count} karakter</span>
                         <pre>{page.extracted_text}</pre>
                       </article>
                     ))}
@@ -538,8 +636,8 @@ export function App() {
                 <input value={documentType} onChange={(event) => setDocumentType(event.target.value)} />
               </label>
               <label>
-                TXT fajl
-                <input type="file" accept=".txt,text/plain" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+                Irat fajl
+                <input type="file" accept=".txt,.pdf,text/plain,application/pdf" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
               </label>
             </div>
             <button onClick={handleImport} disabled={!selectedCaseId || !file || Boolean(busy)}>
@@ -564,18 +662,89 @@ export function App() {
                 <input type="number" min={1} max={20} value={limit} onChange={(event) => setLimit(Number(event.target.value))} />
               </label>
             </div>
+            <div className="form-row">
+              <label>
+                Forraskor
+                <select
+                  value={effectiveAnalysisSourceMode}
+                  onChange={(event) => setAnalysisSourceMode(event.target.value as AnalysisSourceMode)}
+                  disabled={!canUseBatchScope}
+                >
+                  {analysisSourceModes.map((item) => <option key={item} value={item}>{labelAnalysisSourceMode(item)}</option>)}
+                </select>
+              </label>
+              <label>
+                Irat
+                <select
+                  value={analysisDocumentId}
+                  onChange={(event) => setAnalysisDocumentId(event.target.value)}
+                  disabled={!canUseBatchScope || effectiveAnalysisSourceMode !== "document"}
+                >
+                  <option value="">Valassz iratot</option>
+                  {documents.map((document) => (
+                    <option key={document.id} value={document.id}>{document.original_filename}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {canUseBatchScope && effectiveAnalysisSourceMode !== "focused_query" && (
+              <div className="form-row">
+                <label>
+                  Szovegresz plafon
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={maxChunks}
+                    onChange={(event) => setMaxChunks(clampNumberInput(event.target.value, 1, 200, 50))}
+                  />
+                </label>
+                <label>
+                  Batch meret
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={batchSize}
+                    onChange={(event) => setBatchSize(clampNumberInput(event.target.value, 1, 10, 5))}
+                  />
+                </label>
+              </div>
+            )}
+            {isContradictionModule && (
+              <>
+                <div className="form-row">
+                  <label>
+                    Allitaskor
+                    <select value={claimReviewScope} onChange={(event) => setClaimReviewScope(event.target.value as ClaimReviewScope)}>
+                      {claimReviewScopes.map((item) => <option key={item} value={item}>{labelClaimReviewScope(item)}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <div className="module-note">
+                  Claim-par alapu modul: a rendszer a mar kinyert, forrasolt allitasok kozott valaszt ellenorizendo parokat. Az alapertelmezett allitaskor nem veszi figyelembe az elutasitott allitasokat. A fokusz opcionális.
+                </div>
+              </>
+            )}
             <label>
-              Keresdes
-              <textarea value={query} onChange={(event) => setQuery(event.target.value)} rows={3} />
+              {isContradictionModule ? "Fokusz (opcionalis)" : "Fokusz"}
+              <textarea
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                rows={3}
+                placeholder={analysisFocusPlaceholder(moduleKey, isContradictionModule)}
+              />
             </label>
-            <button onClick={handleRunAnalysis} disabled={!selectedCaseId || !query || Boolean(busy)}>
+            <button onClick={handleRunAnalysis} disabled={!canRunAnalysis}>
               <Play size={18} /> Futtatas
             </button>
             {analysis && (
               <div className="analysis-summary">
                 <div className="metrics">
+                  <span>{labelAnalysisSourceMode(effectiveAnalysisSourceMode)}</span>
+                  {selectedAnalysisDocument && <span>{selectedAnalysisDocument.original_filename}</span>}
                   <span>{labelValidationStatus(analysis.validation_status)}</span>
-                  <span>{analysis.selected_chunk_ids.length} szovegresz</span>
+                  <span>{analysisSourceMetric(analysis)}</span>
                   <span>{analysis.unsupported_items.length} nem tamogatott</span>
                   <span>{analysisOutputCount(analysis)} kimenet</span>
                 </div>
@@ -630,7 +799,7 @@ export function App() {
                       <article key={input.id} className="compact-item">
                         <strong>{input.sequence_no}. {labelAnalysisInputType(input.input_type)}</strong>
                         <span>{input.related_object_type ? labelObjectType(input.related_object_type) : "Forras"} {input.related_object_id ?? input.chunk_id ?? input.document_id ?? ""}</span>
-                        {input.payload_json && <pre>{JSON.stringify(input.payload_json, null, 2)}</pre>}
+                        {input.payload_json && renderAnalysisInputPayload(input.payload_json)}
                       </article>
                     ))}
                   </div>
@@ -722,9 +891,13 @@ export function App() {
                       <div>
                         <h3>{item.title}</h3>
                         <p>{item.body_text}</p>
+                        {item.object_type === "contradiction_candidate" && (
+                          <p className="review-note">Ellenorizendo jelolt: a rendszer nem tekinti bizonyitott ellentmondasnak.</p>
+                        )}
                       </div>
                       <div className="tags">
                         <span>{labelObjectType(item.object_type)}</span>
+                        <span>{labelSubtype(item.object_type, item.subtype)}</span>
                         <span>{labelReviewStatus(item.review_status)}</span>
                         <span>{labelSourceValidationStatus(item.source_validation_status)}</span>
                         <span>{item.reviews.length} felulvizsgalat</span>
@@ -802,12 +975,15 @@ export function App() {
                 <strong>{selectedReportItem.title}</strong>
                 <div className="metrics">
                   <span>{labelObjectType(selectedReportItem.object_type)}</span>
-                  <span>{selectedReportItem.subtype}</span>
+                  <span>{labelSubtype(selectedReportItem.object_type, selectedReportItem.subtype)}</span>
                   <span>{labelReviewStatus(selectedReportItem.review_status)}</span>
                   <span>{labelSourceValidationStatus(selectedReportItem.source_validation_status)}</span>
                 </div>
                 <code>{selectedReportItem.object_id}</code>
                 {selectedReportItem.body_text && <p>{selectedReportItem.body_text}</p>}
+                {selectedReportItem.object_type === "contradiction_candidate" && (
+                  <p className="review-note">A jelolt ket forrasolt allitas parjat emeli ki emberi ellenorzesre. Onmagaban nem bizonyitott tenymegallapitas.</p>
+                )}
                 <div className="object-facts">
                   {objectDetailFacts(selectedReportItem).map((fact) => (
                     <div key={fact.label}>
@@ -915,6 +1091,27 @@ function analysisOutputCount(response: AnalysisResponse) {
   );
 }
 
+function analysisSourceMetric(response: AnalysisResponse) {
+  if (response.module_key === "detect_contradiction_candidates") {
+    return "claim-par alapu";
+  }
+  return `${response.selected_chunk_ids.length} szovegresz`;
+}
+
+function analysisFocusPlaceholder(moduleKey: string, isContradictionModule: boolean) {
+  if (isContradictionModule) {
+    return "Opcionális: nev, tema vagy idoszak. Uresen hagyva az ugy forrasolt allitasai kozott keres parokat.";
+  }
+  const placeholders: Record<string, string> = {
+    extract_claims: "Add meg, milyen allitasokat keressen a forrasokban.",
+    extract_events: "Add meg, milyen esemenyekre vagy idoszakra fokuszaljon.",
+    extract_entities: "Add meg, milyen szemelyre, szervezetre, helyre vagy azonosítora fokuszaljon.",
+    summarize_case: "Add meg, milyen temarol keszuljon forrashu osszefoglalo.",
+    detect_missing_items: "Add meg, milyen hivatkozott iratot, mellekletet vagy bizonyitekfajtat keressen."
+  };
+  return placeholders[moduleKey] ?? "Add meg a fokuszt a forrasalapu elemzeshez.";
+}
+
 function formatBytes(bytes: number) {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -925,8 +1122,31 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
+function formatConfidence(value: number | null) {
+  if (value === null) {
+    return "-";
+  }
+  return `${Math.round(value * 100)}%`;
+}
+
 function labelModule(value: string) {
   return moduleLabels[value] ?? value;
+}
+
+function labelAnalysisSourceMode(value: AnalysisSourceMode) {
+  return analysisSourceModeLabels[value] ?? value;
+}
+
+function labelClaimReviewScope(value: ClaimReviewScope) {
+  return claimReviewScopeLabels[value] ?? value;
+}
+
+function clampNumberInput(value: string, min: number, max: number, fallback: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
 }
 
 function labelObjectType(value: string) {
@@ -959,6 +1179,7 @@ function labelProcessingStatus(value: string) {
     pending: "Varakozik",
     processing: "Feldolgozas alatt",
     processed: "Feldolgozva",
+    review_required: "Ellenorzest igenyel",
     failed: "Sikertelen"
   };
   return labels[value] ?? value;
@@ -966,12 +1187,21 @@ function labelProcessingStatus(value: string) {
 
 function labelTextSource(value: string) {
   const labels: Record<string, string> = {
+    native: "Nativ szoveg",
     txt_import: "TXT import",
     ocr: "OCR",
     docling: "Docling",
     manual: "Kezi"
   };
   return labels[value] ?? value;
+}
+
+function canRunOcr(document: DocumentRead) {
+  const needsOcrAction =
+    document.processing_status === "review_required" ||
+    document.processing_status === "failed" ||
+    document.page_count === 0;
+  return document.original_filename.toLowerCase().endsWith(".pdf") && document.processing_status !== "processing" && needsOcrAction;
 }
 
 function labelSupportType(value: string) {
@@ -986,12 +1216,84 @@ function labelSupportType(value: string) {
 function labelAnalysisInputType(value: string) {
   const labels: Record<string, string> = {
     query_text: "Keresdes",
+    filter: "Kivalasztasi szuro",
     chunk: "Szovegresz",
     claim: "Allitas",
     event: "Esemeny",
     source_reference: "Forrashivatkozas"
   };
   return labels[value] ?? value;
+}
+
+function renderAnalysisInputPayload(payload: Record<string, unknown>) {
+  if (payload.input_kind === "claim_selection") {
+    const selectedPairs = Array.isArray(payload.selected_pairs) ? payload.selected_pairs : [];
+    return (
+      <div className="payload-summary">
+        <div className="metrics">
+          <span>{formatUnknownNumber(payload.retrieved_claim_count)} lekert allitas</span>
+          <span>{formatUnknownNumber(payload.selected_claim_count)} kivalasztott allitas</span>
+          <span>{formatUnknownNumber(payload.selected_pair_count)} claim-par</span>
+          <span>par limit {formatUnknownNumber(payload.pair_limit)}</span>
+          <span>{labelPayloadClaimReviewScope(payload.claim_review_scope)}</span>
+          <span>{payload.focus_filter_applied ? "fokuszszures aktiv" : "nincs fokuszszures"}</span>
+        </div>
+        {Array.isArray(payload.focus_terms) && payload.focus_terms.length > 0 && (
+          <p className="muted">Fokusz: {payload.focus_terms.map(String).join(", ")}</p>
+        )}
+        {selectedPairs.length > 0 && (
+          <div className="pair-list">
+            {selectedPairs.slice(0, 10).map((pair, index) => renderSelectedPair(pair, index))}
+            {selectedPairs.length > 10 && <span className="muted">Tovabbi {selectedPairs.length - 10} par nincs megjelenitve.</span>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (Array.isArray(payload.claim_pair_labels) && payload.claim_pair_labels.length > 0) {
+    return (
+      <div className="payload-summary">
+        <div className="metrics">
+          <span>{String(payload.claim_label ?? "allitas")}</span>
+          <span>{payload.claim_pair_labels.length} kivalasztott parban szerepel</span>
+          <span>{String(payload.source_validation_status ?? "forras allapot ismeretlen")}</span>
+        </div>
+        <p className="muted">Parok: {payload.claim_pair_labels.map(String).join(", ")}</p>
+      </div>
+    );
+  }
+
+  return <pre>{JSON.stringify(payload, null, 2)}</pre>;
+}
+
+function labelPayloadClaimReviewScope(value: unknown) {
+  if (value === "reviewable" || value === "verified" || value === "needs_review" || value === "all_source_valid") {
+    return labelClaimReviewScope(value);
+  }
+  return "Ellenorizheto allitasok";
+}
+
+function renderSelectedPair(pair: unknown, index: number) {
+  if (!isRecord(pair)) {
+    return <span key={index} className="muted">Ismeretlen claim-par</span>;
+  }
+  return (
+    <div key={`${String(pair.pair_label ?? index)}-${index}`} className="pair-item">
+      <strong>{String(pair.pair_label ?? `pair_${index + 1}`)}</strong>
+      <span>{String(pair.claim_label_a ?? "claim_a")} {"->"} {String(pair.claim_label_b ?? "claim_b")}</span>
+      <code>{String(pair.claim_id_a ?? "")}</code>
+      <code>{String(pair.claim_id_b ?? "")}</code>
+    </div>
+  );
+}
+
+function formatUnknownNumber(value: unknown) {
+  return typeof value === "number" ? String(value) : "0";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function labelAnalysisOutputType(value: string) {
@@ -1031,7 +1333,7 @@ function objectDetailFacts(item: ReviewReportItem) {
     { label: "Felulvizsgalatok", value: String(item.reviews.length) }
   ];
   if (item.object_type === "contradiction_candidate") {
-    return [...base, { label: "Jelolt tipusa", value: item.subtype }];
+    return [...base, { label: "Jelolt tipusa", value: labelSubtype(item.object_type, item.subtype) }];
   }
   if (item.object_type === "missing_item_candidate") {
     return [...base, { label: "Hivatkozott irat", value: item.title }];
@@ -1046,4 +1348,19 @@ function objectDetailFacts(item: ReviewReportItem) {
     return [...base, { label: "Esemeny tipusa", value: item.subtype }];
   }
   return [...base, { label: "Allitas tipusa", value: item.subtype }];
+}
+
+function labelSubtype(objectType: string, subtype: string) {
+  if (objectType === "contradiction_candidate") {
+    const labels: Record<string, string> = {
+      time_conflict: "Idobeli elteres",
+      location_conflict: "Helyszini elteres",
+      identity_conflict: "Szemelyi vagy azonossagi elteres",
+      document_mismatch: "Iratosszeferhetetlenseg",
+      amount_conflict: "Osszegbeli elteres",
+      other: "Egyeb elteres"
+    };
+    return labels[subtype] ?? subtype;
+  }
+  return subtype;
 }

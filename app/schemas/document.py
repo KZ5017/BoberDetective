@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.analysis import AnalysisRunRead
+
 
 class DocumentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -35,6 +37,20 @@ class DocumentImportMetadata(BaseModel):
     notes: str | None = None
 
 
+class DocumentProcessRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class DocumentProcessResponse(BaseModel):
+    document: DocumentRead
+    analysis_run: AnalysisRunRead
+
+
+class DocumentOcrRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+    language: str | None = Field(default=None, max_length=64)
+
+
 class DocumentPageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -45,7 +61,7 @@ class DocumentPageRead(BaseModel):
     extracted_text: str
     text_source: str
     ocr_used: bool
-    ocr_confidence: str | None
+    ocr_confidence: float | None
     parser_name: str | None
     parser_version: str | None
     version_no: int

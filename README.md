@@ -21,12 +21,23 @@ Completed:
 - Prompt and JSON schema collection v1
 - MVP backlog and implementation sequence
 - Environment verification and security baseline
+- Analysis batch processing plan
 - Initial Python/FastAPI scaffold
 - Docker Compose PostgreSQL/Qdrant dev runtime
 - Database migration foundation
 - Case and audit persistence foundation
 - Document/page/chunk persistence foundation
 - Immutable TXT import API
+- Explicit document processing validation run API
+- Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile
+- Explicit Docling parser smoke passed; Docling is installed in the local `.venv`
+- Explicit Tesseract OCR foundation for PDF documents
+- Image-only/scanned PDFs without native text remain importable as `review_required` documents for explicit OCR processing
+- OCR captures average Tesseract confidence on a 0..1 scale and flags low-confidence pages
+- Document page API returns OCR confidence as a numeric value
+- Generated local PDF samples and parser/OCR evaluation scripts under `samples/` and `scripts/`
+- Default upload limit is 50 MiB and can be changed with `BOBERDETECTIVE_MAX_UPLOAD_BYTES`
+- Batch-capable raw-chunk analysis modules with focused query, document, and case source modes
 - TXT chunk creation
 - Keyword search
 - Source-reference foundation
@@ -63,6 +74,11 @@ Completed:
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs
 - Live `detect_contradiction_candidates` smoke passed on a two-claim time conflict sample
+- `detect_contradiction_candidates` now treats fewer than two source-valid claims as a clean warning precondition and records claim-selection metadata in the analysis run
+- `detect_contradiction_candidates` now uses deterministic backend-selected claim pairs with pair limits, meaningful focus filtering, selected-pair audit metadata, and validation against unselected pair references
+- Contradiction candidate output is normalized before persistence: same pair/type duplicates are skipped, most model-proposed `high` severities are capped to `medium`, and titles/descriptions are conservative pair-bound text from selected source-cited claims
+- `detect_contradiction_candidates` supports claim review scope; the default excludes rejected claims
+- `detect_contradiction_candidates` requires explicit contradiction qualification before persistence; contextual but non-conflicting pairs are not saved as contradiction candidates
 - Missing item candidate persistence, source linkage, API, review workflow, and review report inclusion
 - `detect_missing_items` analysis module foundation over source-cited chunk quotes
 - Live `detect_missing_items` smoke passed on referenced attachment/photo documentation sample
@@ -75,15 +91,31 @@ Completed:
 - Frontend long-running operation feedback with elapsed time and last action summary
 - Frontend document list and analysis run history views
 - Frontend document page/chunk and analysis run input/output drill-down
+- Frontend TXT/PDF import selection and OCR action for review-required/no-page PDF documents
+- Frontend source scope controls for batch-capable raw-chunk analysis modules
+- Frontend optional-focus and claim-review-scope claim-pair display for contradiction analysis, contradiction analysis run details, and conservative contradiction review notes
+- Frontend analysis focus input starts empty; examples are placeholders only and are not processed unless the user types text
 - Frontend review status/source validation filters and object detail panel
 - Frontend export history and focused review queue controls
 - Frontend visible text localized to Hungarian with labels for backend enum/internal values
 - End-to-end frontend/API smoke passed through case creation, TXT import, all MVP analysis modules, review queue filter, claim review, JSON export, export history backing endpoint, download, and Vite proxy
 
+PDF/OCR sample checks:
+
+- Generate samples: `.venv/bin/python scripts/generate_pdf_samples.py`
+- Evaluate samples: `.venv/bin/python scripts/evaluate_pdf_samples.py`
+
 Next:
 
-- Backend document-processing foundation: explicit processing runs, native-text PDF parsing, then OCR/Tesseract path
-- Frontend changes should support that backend workflow, not become a deep standalone UX polish phase yet
+- Live-smoke contradiction detection after document/case-scope `extract_claims` on real imported documents, including frontend review report inspection
+- Refine batch-capable raw-chunk module guardrails and status/error wording from live smoke
+- Decide whether selected claim-pair details need a dedicated contradiction detail view beyond analysis run metadata
+
+Frontend dev URL:
+
+- Start backend from the repo root: `.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000`
+- Start frontend from `frontend/`: `npm run dev`
+- When running, open `http://localhost:5173`; Vite proxies `/api` to `http://127.0.0.1:8000`.
 
 ## Design documents
 
@@ -100,6 +132,7 @@ See:
 - `Design_documents/07_prompt_and_json_schema_collection_v1.md`
 - `Design_documents/08_mvp_backlog_and_implementation_sequence.md`
 - `Design_documents/09_environment_verification_and_security_baseline.md`
+- `Design_documents/10_analysis_batch_processing_plan.md`
 
 ## Handoff notes
 
@@ -141,6 +174,7 @@ Initial backend scaffold exists under `app/` with:
 - `claims` and `claim_sources` persistence with source reference linkage
 - `human_reviews` append-only review history for claims
 - generalized `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}` endpoint, currently supporting `extract_claims`, `extract_events`, `extract_entities`, and `summarize_case`
+- batch-capable raw-chunk analysis modules with `focused_query`, `document`, and `case` source modes plus chunk batch metadata
 - module-specific analysis services under `app/services/analysis_module_*.py`
 - entity list/detail API
 - entity review API with append-only human review history
@@ -168,3 +202,4 @@ Frontend:
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
 - Current UI workflows: case create/list, TXT import, document list, page/chunk drill-down, analysis run with elapsed-time feedback, analysis history/detail, focused review queues, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, JSON/HTML export, export history
+- Raw-chunk analysis module UI supports focused query, selected-document, and whole-case source scopes with optional focus text and batch controls

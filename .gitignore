@@ -16,6 +16,7 @@ htmlcov/
 *.Zone.Identifier
 *:Zone.Identifier
 .tmp/
+.run_logs/
 tmp/
 dist/
 build/

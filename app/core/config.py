@@ -35,6 +35,9 @@ class Settings:
     llm_flash_attention: bool
     llm_offload_kv_cache_to_gpu: bool
     llm_auto_load_chat_model: bool
+    pdf_parser: str
+    tesseract_cmd: str
+    tesseract_languages: str
     max_upload_bytes: int
 
 
@@ -60,5 +63,8 @@ def get_settings() -> Settings:
         llm_flash_attention=_getenv_bool("BOBERDETECTIVE_LLM_FLASH_ATTENTION", True),
         llm_offload_kv_cache_to_gpu=_getenv_bool("BOBERDETECTIVE_LLM_OFFLOAD_KV_CACHE_TO_GPU", True),
         llm_auto_load_chat_model=_getenv_bool("BOBERDETECTIVE_LLM_AUTO_LOAD_CHAT_MODEL", True),
-        max_upload_bytes=int(_getenv("BOBERDETECTIVE_MAX_UPLOAD_BYTES", "5242880")),
+        pdf_parser=_getenv("BOBERDETECTIVE_PDF_PARSER", "docling_then_pypdf"),
+        tesseract_cmd=_getenv("BOBERDETECTIVE_TESSERACT_CMD", "tesseract"),
+        tesseract_languages=_getenv("BOBERDETECTIVE_TESSERACT_LANGUAGES", "hun+eng"),
+        max_upload_bytes=int(_getenv("BOBERDETECTIVE_MAX_UPLOAD_BYTES", "52428800")),
     )

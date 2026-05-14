@@ -13,7 +13,9 @@ class AnalysisRunModel(Base):
     __table_args__ = (
         CheckConstraint(
             "run_type in ("
-            "'parse_document', 'ocr_document', 'chunk_document', 'extract_entities', 'extract_events', "
+            "'import_document', 'inspect_document', 'parse_document', 'ocr_document', 'extract_pages', "
+            "'chunk_document', 'embed_chunks', 'index_chunks', 'validate_document_processing', "
+            "'extract_entities', 'extract_events', "
             "'extract_claims', 'detect_contradictions', 'detect_missing_items', 'summarize_case', "
             "'answer_with_citations', 'export_bundle', 'llm_smoke'"
             ")",
@@ -89,7 +91,7 @@ class AnalysisRunOutputModel(Base):
     __tablename__ = "analysis_run_outputs"
     __table_args__ = (
         CheckConstraint(
-            "output_type in ('entity', 'mention', 'event', 'claim', 'contradiction_candidate', "
+            "output_type in ('document', 'page', 'chunk', 'entity', 'mention', 'event', 'claim', 'contradiction_candidate', "
             "'missing_item_candidate', 'export', 'summary_item', 'source_reference')",
             name="ck_analysis_run_outputs_output_type",
         ),

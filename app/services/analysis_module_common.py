@@ -82,6 +82,9 @@ HUNGARIAN_SUFFIXES = (
 
 
 def retrieve_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunRequest) -> list[RetrievedChunk]:
+    if payload.query is None or payload.query.strip() == "":
+        raise AnalysisModuleError("Query is required for focused query analysis")
+
     retrieved_chunks: list[RetrievedChunk] = []
     seen_chunk_ids: set[UUID] = set()
 
@@ -117,6 +120,64 @@ def retrieve_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunReques
     if retrieved_chunks:
         return retrieved_chunks
     return _fallback_case_chunks(db, case_id, payload.limit)
+
+
+def select_source_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunRequest) -> list[RetrievedChunk]:
+    if payload.source_mode == "focused_query":
+        return retrieve_chunks(db, case_id, payload)
+    if payload.source_mode == "document":
+        if payload.document_id is None:
+            raise AnalysisModuleError("document_id is required for document source mode")
+        return _document_chunks(db, case_id, payload.document_id, payload.max_chunks)
+    if payload.source_mode == "case":
+        return _fallback_case_chunks(db, case_id, payload.max_chunks)
+    raise AnalysisModuleError("Unsupported source_mode")
+
+
+def split_retrieved_chunks(retrieved_chunks: list[RetrievedChunk], batch_size: int) -> list[list[RetrievedChunk]]:
+    if batch_size < 1:
+        raise AnalysisModuleError("batch_size must be at least 1")
+    return [retrieved_chunks[index : index + batch_size] for index in range(0, len(retrieved_chunks), batch_size)]
+
+
+def chunk_batch_lookup(batches: list[list[RetrievedChunk]]) -> dict[UUID, dict[str, Any]]:
+    lookup: dict[UUID, dict[str, Any]] = {}
+    batch_count = len(batches)
+    for batch_index, batch in enumerate(batches, start=1):
+        chunk_labels = [retrieved.label for retrieved in batch]
+        for retrieved in batch:
+            lookup[retrieved.chunk.id] = {
+                "batch_index": batch_index,
+                "batch_count": batch_count,
+                "chunk_labels": chunk_labels,
+            }
+    return lookup
+
+
+def _document_chunks(db: Session, case_id: UUID, document_id: UUID, limit: int) -> list[RetrievedChunk]:
+    stmt = (
+        select(DocumentChunkModel, DocumentModel.original_filename)
+        .join(DocumentModel, DocumentModel.id == DocumentChunkModel.document_id)
+        .where(
+            DocumentChunkModel.case_id == case_id,
+            DocumentChunkModel.document_id == document_id,
+            DocumentModel.case_id == case_id,
+            DocumentChunkModel.is_current.is_(True),
+        )
+        .order_by(DocumentChunkModel.chunk_index.asc())
+        .limit(limit)
+    )
+    retrieved_chunks: list[RetrievedChunk] = []
+    for row in db.execute(stmt):
+        retrieved_chunks.append(
+            RetrievedChunk(
+                label=f"chunk_{len(retrieved_chunks) + 1}",
+                document_name=row.original_filename,
+                chunk=row.DocumentChunkModel,
+                retrieval_score=0.0,
+            )
+        )
+    return retrieved_chunks
 
 
 def _fallback_case_chunks(db: Session, case_id: UUID, limit: int) -> list[RetrievedChunk]:
@@ -179,10 +240,18 @@ def _strip_hungarian_suffix(term: str) -> str:
     return term
 
 
-def add_retrieved_chunk_inputs(db: Session, run_id: UUID, retrieved_chunks: list[RetrievedChunk]) -> None:
+def add_retrieved_chunk_inputs(
+    db: Session,
+    run_id: UUID,
+    retrieved_chunks: list[RetrievedChunk],
+    batch_metadata_by_chunk_id: dict[UUID, dict[str, Any]] | None = None,
+) -> None:
     from app.services.analysis_runs import add_analysis_run_input
 
     for index, retrieved in enumerate(retrieved_chunks, start=1):
+        payload_json = {"source_label": retrieved.label, "retrieval_score": retrieved.retrieval_score}
+        if batch_metadata_by_chunk_id is not None:
+            payload_json.update(batch_metadata_by_chunk_id.get(retrieved.chunk.id, {}))
         add_analysis_run_input(
             db,
             run_id,
@@ -190,7 +259,7 @@ def add_retrieved_chunk_inputs(db: Session, run_id: UUID, retrieved_chunks: list
             index,
             document_id=retrieved.chunk.document_id,
             chunk_id=retrieved.chunk.id,
-            payload_json={"source_label": retrieved.label, "retrieval_score": retrieved.retrieval_score},
+            payload_json=payload_json,
         )
 
 
@@ -216,7 +285,14 @@ def parse_llm_json_object(raw_content: str) -> dict[str, Any]:
     try:
         payload = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        raise AnalysisModuleError("LLM returned invalid JSON") from exc
+        object_start = cleaned.find("{")
+        object_end = cleaned.rfind("}")
+        if object_start == -1 or object_end <= object_start:
+            raise AnalysisModuleError("LLM returned invalid JSON") from exc
+        try:
+            payload = json.loads(cleaned[object_start : object_end + 1])
+        except json.JSONDecodeError:
+            raise AnalysisModuleError("LLM returned invalid JSON") from exc
     if not isinstance(payload, dict):
         raise AnalysisModuleError("LLM returned a non-object JSON value")
     return payload

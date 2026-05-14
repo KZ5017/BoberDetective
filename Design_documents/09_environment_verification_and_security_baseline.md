@@ -411,7 +411,15 @@ LLM benchmark megjegyzés:
 
 Adatbázis és Docker döntés:
 
-Docker telepítve van és a `bober` user hozzáfér. PostgreSQL és Qdrant Docker Compose-on keresztül fut. Az alkalmazott migrációs állapot: `0012_missing_item_candidates`.
+Docker telepítve van és a `bober` user hozzáfér. PostgreSQL és Qdrant Docker Compose-on keresztül fut. Az alkalmazott migrációs állapot: `0013_processing_runs`.
+
+Friss implementációs állapot a handoff dokumentumok alapján:
+
+- `pytest`: `120 passed`
+- `alembic current`: `0013_processing_runs (head)`
+- Docling telepítve van a projekt `.venv` környezetében, és az explicit Docling PDF import smoke sikeres volt.
+- Tesseract OCR alap működik PDF dokumentumokra, beleértve a generált image-only/szkennelt PDF tesztmintát.
+- Image-only/szkennelt PDF natív szöveg nélkül auditált `review_required` dokumentumként marad meg, majd explicit OCR-rel dolgozható fel.
 
 ## 12. WSL stabilitási megjegyzés
 
@@ -427,7 +435,8 @@ Megoldás:
 Ellenőrzött állapot:
 
 ```text
-pytest: 100 passed
+pytest: 120 passed
+alembic: 0013_processing_runs (head)
 postgres: healthy, select 1 OK
 qdrant: HTTP endpoint OK
 lm_studio: model-list smoke OK

@@ -25,6 +25,7 @@ export type DocumentPageRead = {
   extracted_text: string;
   text_source: string;
   ocr_used: boolean;
+  ocr_confidence: number | null;
   text_char_count: number;
 };
 
@@ -51,6 +52,11 @@ export type AnalysisRunRead = {
   error_message: string | null;
   input_parameters: Record<string, unknown> | null;
   output_schema_name: string | null;
+};
+
+export type DocumentProcessResponse = {
+  document: DocumentRead;
+  analysis_run: AnalysisRunRead;
 };
 
 export type AnalysisRunDetail = {
@@ -162,6 +168,19 @@ export type AnalysisResponse = {
   missing_item_candidates: unknown[];
 };
 
+export type AnalysisSourceMode = "focused_query" | "document" | "case";
+export type ClaimReviewScope = "reviewable" | "verified" | "needs_review" | "all_source_valid";
+
+export type AnalysisRunPayload = {
+  query?: string | null;
+  limit: number;
+  source_mode?: AnalysisSourceMode;
+  document_id?: string | null;
+  max_chunks?: number;
+  batch_size?: number;
+  claim_review_scope?: ClaimReviewScope;
+};
+
 const reviewPathByType: Record<string, (caseId: string, objectId: string) => string> = {
   claim: (caseId, objectId) => `/cases/${caseId}/claims/${objectId}/reviews`,
   event: (caseId, objectId) => `/cases/${caseId}/events/${objectId}/reviews`,
@@ -242,11 +261,19 @@ export function importDocument(caseId: string, file: File, documentType: string)
   return request(`/cases/${caseId}/documents`, { method: "POST", body });
 }
 
-export function runAnalysis(caseId: string, moduleKey: string, query: string, limit: number): Promise<AnalysisResponse> {
+export function runDocumentOcr(caseId: string, documentId: string, reason?: string): Promise<DocumentProcessResponse> {
+  return request(`/cases/${caseId}/documents/${documentId}/ocr`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: reason || null })
+  });
+}
+
+export function runAnalysis(caseId: string, moduleKey: string, payload: AnalysisRunPayload): Promise<AnalysisResponse> {
   return request(`/cases/${caseId}/analysis/modules/${moduleKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, limit })
+    body: JSON.stringify(payload)
   });
 }
 

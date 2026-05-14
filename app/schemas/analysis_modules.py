@@ -1,11 +1,17 @@
 from uuid import UUID
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 
 class AnalysisModuleRunRequest(BaseModel):
-    query: str = Field(min_length=1, max_length=500)
+    query: str | None = Field(default=None, max_length=500)
     limit: int = Field(default=5, ge=1, le=20)
+    source_mode: Literal["focused_query", "document", "case"] = "focused_query"
+    document_id: UUID | None = None
+    max_chunks: int = Field(default=50, ge=1, le=200)
+    batch_size: int = Field(default=5, ge=1, le=10)
+    claim_review_scope: Literal["reviewable", "verified", "needs_review", "all_source_valid"] = "reviewable"
 
 
 class AnalysisModuleClaim(BaseModel):

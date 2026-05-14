@@ -16,15 +16,27 @@ Start the frontend from this directory:
 npm run dev
 ```
 
-The Vite dev server proxies `/api` to `http://127.0.0.1:8000`.
+Open the frontend at:
+
+```text
+http://localhost:5173
+```
+
+The Vite dev server listens on port `5173` and proxies `/api` to `http://127.0.0.1:8000`.
 
 Current workflows:
 
 - case list/create,
 - TXT import,
+- native-text PDF import through the shared document import endpoint,
+- OCR action for review-required/no-page PDF documents, with document status, pages, chunks, and analysis run history refreshed after completion,
 - document list,
 - document page/chunk drill-down,
 - analysis module run,
+- source scope controls for batch-capable raw-chunk analysis modules,
+- contradiction claim-pair analysis panel with optional focus, claim review scope, and selected pair metadata,
+- empty-by-default analysis focus input with informational placeholders only,
+- conservative contradiction candidate review notes,
 - analysis run history,
 - analysis run input/output detail,
 - elapsed-time feedback for long operations,
@@ -39,6 +51,7 @@ Current workflows:
 UI language rule:
 
 - Keep visible frontend text Hungarian.
+- Keep contradiction candidates framed as human-review candidates, not proven contradictions.
 - Backend enum/internal values can remain English in API payloads, but map them to Hungarian labels before rendering.
 
 ## Verification

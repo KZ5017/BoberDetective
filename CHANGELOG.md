@@ -1,5 +1,74 @@
 # CHANGELOG.md
 
+## 2026-05-14
+
+### Added
+
+- Added `Design_documents/10_analysis_batch_processing_plan.md` for the next analysis architecture step: shared source selection, chunk batching, batch metadata, exact deduplication, and batch-capable `extract_claims` as the first target.
+- Added backward-compatible analysis module request fields for `source_mode`, `document_id`, `max_chunks`, and `batch_size`.
+- Added shared source chunk selection for focused query, document, and case source modes.
+- Added deterministic chunk batching and batch metadata for analysis run inputs.
+- Added batch-capable `extract_claims` execution with exact in-run deduplication and parent analysis run summary counts.
+- Added batch-capable `extract_events` execution with exact in-run deduplication and parent analysis run summary counts.
+- Added batch-capable `extract_entities` execution with exact in-run deduplication and parent analysis run summary counts.
+- Added batch-capable `summarize_case` execution with conservative per-batch summary item limits, exact in-run deduplication, and parent analysis run summary counts.
+- Added batch-capable `detect_missing_items` execution with exact in-run deduplication and parent analysis run summary counts.
+- Added regression coverage for document-mode source selection, focused-query validation, deterministic batching, and batch prompt metadata.
+- Added regression coverage for `detect_contradiction_candidates` when fewer than two source-valid claims are available.
+- Added deterministic backend claim-pair selection for `detect_contradiction_candidates`, including pair limits, focus filtering over claim/source text, selected-pair audit metadata, and validation that rejects unselected claim pairs.
+- Added contradiction candidate quality safeguards: same pair/type deduplication, conservative severity normalization, and deterministic pair-bound titles/descriptions generated from selected source-cited claims.
+- Added `claim_review_scope` for `detect_contradiction_candidates`; the default `reviewable` scope excludes rejected claims while allowing `new`, `needs_review`, `verified`, and `corrected` source-valid claims.
+- Added explicit contradiction qualification for `detect_contradiction_candidates`; persisted candidates now require `is_contradiction_candidate=true` and a concrete `conflict_basis`, while related/non-conflicting pairs are rejected or reported as unsupported.
+- Hardened LLM JSON handling for analysis modules by extracting a JSON object from otherwise valid responses with extra surrounding text, while still rejecting malformed JSON.
+- Added frontend source scope controls for batch-capable raw-chunk analysis modules, including focused query, selected document, whole case, optional focus text, max source chunks, and batch size.
+- Added frontend support for the contradiction claim-pair workflow: optional focus and claim review scope in the analysis panel, claim-selection metrics, selected pair display, claim pair membership display, claim-pair based analysis summary text, and conservative review notes for contradiction candidates.
+- Changed frontend analysis focus input to start empty for every module; module-specific examples are placeholders only and are not submitted unless the user types text.
+
+### Changed
+
+- Updated handoff/session documentation to make the analysis batch foundation the next logical development direction while preserving the current focused query workflow.
+- Updated the verification baseline to `142 passed` and Alembic head `0013_processing_runs`.
+- Recorded live batch analysis smoke results for `extract_claims` in document and case source modes; both completed with `validation_status=passed`.
+- Recorded live batch analysis smoke results for `extract_events` in document and case source modes; both completed with `validation_status=passed`.
+- Recorded live batch analysis smoke results for `extract_entities` in document and case source modes; both completed with `validation_status=passed`.
+- Recorded live batch analysis smoke results for `summarize_case` in document and case source modes; both completed with `validation_status=passed`.
+- Recorded live batch analysis smoke results for `detect_missing_items` in document and case source modes; both completed with `validation_status=passed`.
+- Verified the frontend build after adding source scope controls.
+- Verified the frontend build after adding contradiction claim-pair UI support.
+- Hardened the `extract_events` prompt against invalid JSON from long quotes and unescaped double quotes; focused query `narrátor Dupin` now returns `validation_status=passed`.
+- Made all-failed `extract_events` batch errors include the first batch failure reason instead of only a generic message.
+- Clarified `detect_contradiction_candidates` as a claim-pair module rather than a raw chunk batch module.
+- Made `detect_contradiction_candidates` return a clean `validation_status=warning` precondition result when fewer than two source-valid claims exist, with claim-selection metadata recorded as analysis run input and no LLM call.
+- Recorded live pair-selection smoke for `detect_contradiction_candidates`: focused query selected 6 claims and 8 backend pairs from a claim-rich case, then returned 2 source-cited `time_conflict` candidates.
+- Recorded live contradiction quality smoke: time-conflict candidates now persist as conservative `medium` severity with deterministic titles and pair-bound descriptions, instead of preserving overstated model wording.
+
+## 2026-05-13
+
+### Added
+
+- Added Alembic migration `0013_processing_runs` to allow document-processing pipeline run types and document/page/chunk analysis run outputs.
+- Added explicit document processing validation endpoint at `POST /api/v1/cases/{case_id}/documents/{document_id}/process`.
+- Added native-text PDF import foundation using a configurable `docling_then_pypdf` parser profile through the existing document import endpoint.
+- Added a PDF parser adapter layer so Docling can be the primary parser profile while `pypdf` remains a local fallback for native-text PDF extraction.
+- Installed and smoke-tested Docling in the project `.venv`; explicit `BOBERDETECTIVE_PDF_PARSER=docling` PDF import now returns parser `docling` and a passed `parse_document` run.
+- Updated the Docling adapter to disable OCR, table structure extraction, and remote services for the native-text parser profile.
+- Hardened native PDF parsing with multi-page, corrupt-PDF, and partially-empty-page coverage.
+- Partially empty native-text PDF imports now complete as `review_required` with `parse_document` validation `warning`.
+- Image-only/scanned PDFs with no native text now remain importable as audit-tracked `review_required` documents, so the explicit OCR endpoint can process them.
+- Added explicit Tesseract OCR foundation for PDF documents at `POST /api/v1/cases/{case_id}/documents/{document_id}/ocr`.
+- OCR runs render PDF pages to data-root derived storage, run Tesseract without shell invocation, persist OCR page/chunk versions, and record `ocr_document` analysis run provenance.
+- Added PDF parsing tests with generated minimal native-text and scanned-style/image-only PDF fixtures.
+- Added synthetic local PDF sample generation under `samples/pdf/` for native-text, good scanned, weak scanned, and mixed empty-page cases.
+- Added parser/OCR sample evaluation script that reports native parse result, OCR text length, Tesseract confidence, and quality issues.
+- Added average Tesseract confidence capture from TSV output on a 0..1 scale and `low_ocr_confidence` OCR quality warnings.
+- Fixed OCR persistence for real documents by normalizing Tesseract's 0-100 confidence values to the database's 0..1 scale.
+- Fixed document page API serialization for OCR pages by returning Decimal-backed OCR confidence as a numeric value instead of validating it as a string.
+- Raised the default upload limit to 50 MiB through `BOBERDETECTIVE_MAX_UPLOAD_BYTES` and made upload-too-large errors include the configured size.
+
+### Changed
+
+- Updated the verification baseline to `120 passed` and Alembic head `0013_processing_runs`.
+
 ## 2026-05-11
 
 ### Added

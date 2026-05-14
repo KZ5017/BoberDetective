@@ -7,10 +7,26 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.analysis import AnalysisRunModel
 from app.models.case import CaseModel
 from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
 from app.schemas.document import DocumentImportMetadata
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
+from app.services.analysis_runs import (
+    add_analysis_run_input,
+    add_analysis_run_output,
+    finish_analysis_run,
+    start_analysis_run,
+)
+from app.services.pdf_parsers import (
+    NoExtractedTextError,
+    PdfParseResult,
+    ParsedPdfPage,
+    PdfParserUnavailableError,
+    PdfParsingError,
+    parse_pdf,
+)
+from app.services.ocr import OcrDocumentResult, OcrError, ocr_pdf_document
 from app.services.storage import StoragePaths
 from app.services.users import get_or_create_dev_user
 
@@ -39,10 +55,23 @@ class InvalidTextEncodingError(DocumentImportError):
     pass
 
 
+class DocumentProcessingError(ValueError):
+    pass
+
+
+class DocumentNotFoundError(DocumentProcessingError):
+    pass
+
+
+class UnsupportedOcrDocumentError(DocumentProcessingError):
+    pass
+
+
 CHUNKING_STRATEGY = "char_window_v1"
 CHUNKER_VERSION = "1"
 DEFAULT_CHUNK_MAX_CHARS = 2000
 MIN_SOFT_BREAK_CHARS = 200
+OCR_MIN_AVG_CONFIDENCE = 0.5
 
 
 def list_documents(db: Session, case_id: UUID) -> list[DocumentModel]:
@@ -73,6 +102,152 @@ def list_document_chunks(db: Session, case_id: UUID, document_id: UUID) -> list[
             .order_by(DocumentChunkModel.chunk_index.asc(), DocumentChunkModel.version_no.desc())
         ).scalars()
     )
+
+
+def process_document(db: Session, case_id: UUID, document_id: UUID, *, reason: str | None = None) -> AnalysisRunModel:
+    document = db.get(DocumentModel, document_id)
+    if document is None or document.case_id != case_id:
+        raise DocumentNotFoundError("Document not found")
+
+    run = start_analysis_run(
+        db,
+        case_id,
+        "validate_document_processing",
+        provider_type="local_pipeline",
+        model_name="document_processing_v1",
+        input_parameters={
+            "document_id": str(document.id),
+            "reason": reason,
+            "parser_name": document.parser_name,
+            "parser_version": document.parser_version,
+            "chunking_strategy": CHUNKING_STRATEGY,
+            "chunker_version": CHUNKER_VERSION,
+        },
+    )
+
+    document.processing_status = "processing"
+    db.add(document)
+    db.flush()
+
+    add_analysis_run_input(db, run.id, "document", 0, document_id=document.id)
+    current_pages = _list_current_pages(db, case_id, document_id)
+    current_chunks = _list_current_chunks(db, case_id, document_id)
+    for position, page in enumerate(current_pages):
+        add_analysis_run_output(db, run.id, "page", page.id, position)
+    for position, chunk in enumerate(current_chunks, start=len(current_pages)):
+        add_analysis_run_output(db, run.id, "chunk", chunk.id, position)
+
+    validation = _validate_current_document_processing(document, current_pages, current_chunks)
+    document.processing_status = validation["document_status"]
+    db.add(document)
+    db.flush()
+
+    _write_document_processing_audit(db, run, document, validation)
+    return finish_analysis_run(
+        db,
+        run,
+        status=validation["run_status"],
+        validation_status=validation["validation_status"],
+        error_message=validation["error_message"],
+        output_summary={
+            "document_id": str(document.id),
+            "document_status": document.processing_status,
+            "page_count": len(current_pages),
+            "chunk_count": len(current_chunks),
+            "issues": validation["issues"],
+        },
+    )
+
+
+def ocr_document(
+    db: Session,
+    case_id: UUID,
+    document_id: UUID,
+    *,
+    reason: str | None = None,
+    language: str | None = None,
+) -> AnalysisRunModel:
+    settings = get_settings()
+    storage = StoragePaths(settings.data_root)
+    document = db.get(DocumentModel, document_id)
+    if document is None or document.case_id != case_id:
+        raise DocumentNotFoundError("Document not found")
+    if document.file_extension != "pdf" or document.mime_type != "application/pdf":
+        raise UnsupportedOcrDocumentError("OCR is currently supported for PDF documents only")
+
+    pdf_path = _stored_document_path_under_data_root(document, storage)
+    ocr_language = language or settings.tesseract_languages
+    user = get_or_create_dev_user(db)
+    run = start_analysis_run(
+        db,
+        case_id,
+        "ocr_document",
+        provider_type="local_ocr",
+        model_name="tesseract",
+        input_parameters={
+            "document_id": str(document.id),
+            "reason": reason,
+            "language": ocr_language,
+            "source_path": "stored_original",
+            "chunking_strategy": CHUNKING_STRATEGY,
+            "chunker_version": CHUNKER_VERSION,
+        },
+    )
+    add_analysis_run_input(db, run.id, "document", 0, document_id=document.id)
+
+    try:
+        result = ocr_pdf_document(
+            pdf_path,
+            storage.derived_dir(str(case_id), str(document.id)) / "ocr" / str(run.id),
+            tesseract_cmd=settings.tesseract_cmd,
+            languages=ocr_language,
+            run_id=run.id,
+        )
+        run.model_version = result.tool_version
+        if run.input_parameters is not None:
+            run.input_parameters = {**run.input_parameters, "tool_version": result.tool_version}
+        db.add(run)
+        _persist_ocr_pages_and_chunks(db, case_id, document, result, run.id)
+        quality_issues = _ocr_quality_issues(result)
+        document.page_count = len(result.pages)
+        document.parser_name = result.tool_name
+        document.parser_version = result.tool_version
+        document.processing_status = "review_required" if quality_issues else "processed"
+        db.add(document)
+        db.flush()
+        _write_ocr_audit(db, user.id, document, run, result, True, quality_issues=quality_issues)
+        finish_analysis_run(
+            db,
+            run,
+            status="succeeded",
+            validation_status="warning" if quality_issues else "passed",
+            output_summary={
+                "document_id": str(document.id),
+                "document_status": document.processing_status,
+                "page_count": len(result.pages),
+                "chunk_count": len(_list_current_chunks(db, case_id, document.id)),
+                "tool_name": result.tool_name,
+                "tool_version": result.tool_version,
+                "language": result.language,
+                "quality_issues": quality_issues,
+            },
+        )
+    except OcrError as exc:
+        document.processing_status = "failed"
+        db.add(document)
+        db.flush()
+        _write_ocr_audit(db, user.id, document, run, None, False, error_message=str(exc))
+        finish_analysis_run(
+            db,
+            run,
+            status="failed",
+            validation_status="failed",
+            error_message=str(exc),
+            output_summary={"document_id": str(document.id)},
+        )
+        raise DocumentProcessingError(str(exc)) from exc
+
+    return run
 
 
 async def import_txt_document(
@@ -199,6 +374,522 @@ async def import_txt_document(
     return document
 
 
+async def import_document(
+    db: Session,
+    case_id: UUID,
+    upload: UploadFile,
+    metadata: DocumentImportMetadata,
+) -> DocumentModel:
+    if _is_pdf_upload(upload.filename, upload.content_type):
+        return await import_pdf_document(db, case_id, upload, metadata)
+    return await import_txt_document(db, case_id, upload, metadata)
+
+
+async def import_pdf_document(
+    db: Session,
+    case_id: UUID,
+    upload: UploadFile,
+    metadata: DocumentImportMetadata,
+) -> DocumentModel:
+    settings = get_settings()
+    storage = StoragePaths(settings.data_root)
+    user = get_or_create_dev_user(db)
+
+    case = db.get(CaseModel, case_id)
+    if case is None:
+        raise CaseNotFoundError("Case not found")
+
+    original_filename = _clean_original_filename(upload.filename)
+    _validate_pdf_upload(original_filename, upload.content_type)
+    content = await _read_limited_upload(upload, settings.max_upload_bytes)
+    sha256_hash = hashlib.sha256(content).hexdigest()
+
+    existing_document = db.execute(
+        select(DocumentModel).where(
+            DocumentModel.case_id == case_id,
+            DocumentModel.sha256_hash == sha256_hash,
+        )
+    ).scalar_one_or_none()
+    if existing_document is not None:
+        raise DuplicateDocumentError("Document already exists in this case")
+
+    document_id = uuid4()
+    original_dir = storage.originals_dir(str(case_id), str(document_id))
+    original_dir.mkdir(parents=True, exist_ok=True)
+    stored_path = original_dir / "original.pdf"
+    _write_immutable_file(stored_path, content)
+
+    parser_profile = settings.pdf_parser
+    document = DocumentModel(
+        id=document_id,
+        case_id=case_id,
+        original_filename=original_filename,
+        stored_path=str(stored_path),
+        mime_type="application/pdf",
+        file_extension="pdf",
+        file_size_bytes=len(content),
+        sha256_hash=sha256_hash,
+        document_type=metadata.document_type,
+        language_code=metadata.language_code,
+        is_encrypted=False,
+        imported_by_user_id=user.id,
+        processing_status="processing",
+        parser_name=None,
+        parser_version=None,
+        notes=metadata.notes,
+    )
+    db.add(document)
+    db.flush()
+
+    run = start_analysis_run(
+        db,
+        case_id,
+        "parse_document",
+        provider_type="local_parser",
+        model_name=parser_profile,
+        model_version=None,
+        input_parameters={
+            "document_id": str(document.id),
+            "original_filename": original_filename,
+            "mime_type": "application/pdf",
+            "parser_profile": parser_profile,
+            "chunking_strategy": CHUNKING_STRATEGY,
+            "chunker_version": CHUNKER_VERSION,
+        },
+    )
+    add_analysis_run_input(db, run.id, "document", 0, document_id=document.id)
+
+    try:
+        parse_result = parse_pdf(content, parser_profile)
+        document.parser_name = parse_result.parser_name
+        document.parser_version = parse_result.parser_version
+        run.model_name = parse_result.parser_name
+        run.model_version = parse_result.parser_version
+        if run.input_parameters is not None:
+            run.input_parameters = {
+                **run.input_parameters,
+                "parser_name": parse_result.parser_name,
+                "parser_version": parse_result.parser_version,
+                "parser_profile_used": parse_result.parser_profile,
+            }
+        db.add(run)
+        _persist_parsed_pages_and_chunks(db, case_id, document, parse_result.pages, run.id, parse_result)
+        quality_issues = _pdf_parse_quality_issues(parse_result.pages)
+        document.page_count = len(parse_result.pages)
+        document.processing_status = "review_required" if quality_issues else "processed"
+        db.add(document)
+        db.flush()
+        _write_pdf_import_audit(
+            db,
+            user.id,
+            document,
+            run.id,
+            success=True,
+            page_count=len(parse_result.pages),
+            quality_issues=quality_issues,
+        )
+        finish_analysis_run(
+            db,
+            run,
+            status="succeeded",
+            validation_status="warning" if quality_issues else "passed",
+            output_summary={
+                "document_id": str(document.id),
+                "document_status": document.processing_status,
+                "page_count": len(parse_result.pages),
+                "chunk_count": len(_list_current_chunks(db, case_id, document.id)),
+                "parser_name": parse_result.parser_name,
+                "parser_version": parse_result.parser_version,
+                "parser_profile": parse_result.parser_profile,
+                "quality_issues": quality_issues,
+            },
+        )
+    except NoExtractedTextError as exc:
+        quality_issues = [{"code": "no_native_text", "severity": "warning", "message": str(exc)}]
+        document.parser_name = parser_profile
+        document.parser_version = None
+        document.page_count = 0
+        document.processing_status = "review_required"
+        db.add(document)
+        db.flush()
+        _write_pdf_import_audit(
+            db,
+            user.id,
+            document,
+            run.id,
+            success=True,
+            page_count=0,
+            quality_issues=quality_issues,
+        )
+        finish_analysis_run(
+            db,
+            run,
+            status="succeeded",
+            validation_status="warning",
+            output_summary={
+                "document_id": str(document.id),
+                "document_status": document.processing_status,
+                "page_count": 0,
+                "chunk_count": 0,
+                "parser_profile": parser_profile,
+                "quality_issues": quality_issues,
+                "next_action": "run_ocr",
+            },
+        )
+    except PdfParsingError as exc:
+        document.processing_status = "failed"
+        db.add(document)
+        db.flush()
+        _write_pdf_import_audit(db, user.id, document, run.id, success=False, error_message=str(exc))
+        finish_analysis_run(
+            db,
+            run,
+            status="failed",
+            validation_status="failed",
+            error_message=str(exc),
+            output_summary={"document_id": str(document.id)},
+        )
+        raise
+
+    db.refresh(document)
+    return document
+
+
+def parse_native_pdf_pages(content: bytes) -> list[ParsedPdfPage]:
+    return parse_pdf(content, "pypdf").pages
+
+
+def _persist_parsed_pages_and_chunks(
+    db: Session,
+    case_id: UUID,
+    document: DocumentModel,
+    pages: list[ParsedPdfPage],
+    run_id: UUID,
+    parse_result: PdfParseResult,
+) -> None:
+    output_position = 0
+    next_chunk_index = 0
+    for page in pages:
+        page_record = DocumentPageModel(
+            case_id=case_id,
+            document_id=document.id,
+            page_number=page.page_number,
+            extracted_text=page.text,
+            text_source="native",
+            ocr_used=False,
+            parser_name=parse_result.parser_name,
+            parser_version=parse_result.parser_version,
+            extraction_run_id=run_id,
+            version_no=1,
+            is_current=True,
+            text_char_count=len(page.text),
+        )
+        db.add(page_record)
+        db.flush()
+        add_analysis_run_output(db, run_id, "page", page_record.id, output_position)
+        output_position += 1
+
+        for chunk in _build_text_chunks(page.text):
+            chunk_record = DocumentChunkModel(
+                case_id=case_id,
+                document_id=document.id,
+                page_start=page.page_number,
+                page_end=page.page_number,
+                chunk_index=next_chunk_index,
+                chunk_text=chunk.text,
+                char_start=chunk.char_start,
+                char_end=chunk.char_end,
+                token_count=None,
+                chunking_strategy=CHUNKING_STRATEGY,
+                chunker_version=CHUNKER_VERSION,
+                chunk_run_id=run_id,
+                version_no=1,
+                is_current=True,
+            )
+            db.add(chunk_record)
+            db.flush()
+            add_analysis_run_output(db, run_id, "chunk", chunk_record.id, output_position)
+            output_position += 1
+            next_chunk_index += 1
+
+
+def _persist_ocr_pages_and_chunks(
+    db: Session,
+    case_id: UUID,
+    document: DocumentModel,
+    result: OcrDocumentResult,
+    run_id: UUID,
+) -> None:
+    previous_pages = _list_current_pages(db, case_id, document.id)
+    previous_chunks = _list_current_chunks(db, case_id, document.id)
+    previous_page_by_number = {page.page_number: page for page in previous_pages}
+    previous_chunk_by_index = {chunk.chunk_index: chunk for chunk in previous_chunks}
+    next_page_version = _next_page_version(db, document.id)
+    next_chunk_version = _next_chunk_version(db, document.id)
+
+    for page in previous_pages:
+        page.is_current = False
+        db.add(page)
+    for chunk in previous_chunks:
+        chunk.is_current = False
+        db.add(chunk)
+    db.flush()
+
+    output_position = 0
+    next_chunk_index = 0
+    new_page_by_number: dict[int, DocumentPageModel] = {}
+    new_chunk_by_index: dict[int, DocumentChunkModel] = {}
+    for ocr_page in result.pages:
+        page_record = DocumentPageModel(
+            case_id=case_id,
+            document_id=document.id,
+            page_number=ocr_page.page_number,
+            extracted_text=ocr_page.text,
+            text_source="ocr",
+            ocr_used=True,
+            ocr_confidence=ocr_page.confidence,
+            parser_name=result.tool_name,
+            parser_version=result.tool_version,
+            extraction_run_id=run_id,
+            version_no=next_page_version,
+            is_current=True,
+            text_char_count=len(ocr_page.text),
+        )
+        db.add(page_record)
+        db.flush()
+        new_page_by_number[ocr_page.page_number] = page_record
+        add_analysis_run_output(db, run_id, "page", page_record.id, output_position)
+        output_position += 1
+
+        for chunk in _build_text_chunks(ocr_page.text):
+            chunk_record = DocumentChunkModel(
+                case_id=case_id,
+                document_id=document.id,
+                page_start=ocr_page.page_number,
+                page_end=ocr_page.page_number,
+                chunk_index=next_chunk_index,
+                chunk_text=chunk.text,
+                char_start=chunk.char_start,
+                char_end=chunk.char_end,
+                token_count=None,
+                chunking_strategy=CHUNKING_STRATEGY,
+                chunker_version=CHUNKER_VERSION,
+                chunk_run_id=run_id,
+                version_no=next_chunk_version,
+                is_current=True,
+            )
+            db.add(chunk_record)
+            db.flush()
+            new_chunk_by_index[next_chunk_index] = chunk_record
+            add_analysis_run_output(db, run_id, "chunk", chunk_record.id, output_position)
+            output_position += 1
+            next_chunk_index += 1
+
+    for page_number, previous_page in previous_page_by_number.items():
+        if page_number in new_page_by_number:
+            previous_page.superseded_by_id = new_page_by_number[page_number].id
+            db.add(previous_page)
+    for chunk_index, previous_chunk in previous_chunk_by_index.items():
+        if chunk_index in new_chunk_by_index:
+            previous_chunk.superseded_by_id = new_chunk_by_index[chunk_index].id
+            db.add(previous_chunk)
+    db.flush()
+
+
+def _pdf_parse_quality_issues(pages: list[ParsedPdfPage]) -> list[dict]:
+    issues: list[dict] = []
+    empty_page_numbers = [page.page_number for page in pages if page.text.strip() == ""]
+    if empty_page_numbers:
+        issues.append(
+            {
+                "code": "empty_pages",
+                "severity": "warning",
+                "page_numbers": empty_page_numbers,
+            }
+        )
+    return issues
+
+
+def _ocr_quality_issues(result: OcrDocumentResult) -> list[dict]:
+    issues: list[dict] = []
+    empty_page_numbers = [page.page_number for page in result.pages if page.text.strip() == ""]
+    if empty_page_numbers:
+        issues.append({"code": "empty_ocr_pages", "severity": "warning", "page_numbers": empty_page_numbers})
+    low_confidence_pages = [
+        {"page_number": page.page_number, "confidence": getattr(page, "confidence", None)}
+        for page in result.pages
+        if getattr(page, "confidence", None) is not None and getattr(page, "confidence") < OCR_MIN_AVG_CONFIDENCE
+    ]
+    if low_confidence_pages:
+        issues.append(
+            {
+                "code": "low_ocr_confidence",
+                "severity": "warning",
+                "threshold": OCR_MIN_AVG_CONFIDENCE,
+                "pages": low_confidence_pages,
+            }
+        )
+    return issues
+
+
+def _next_page_version(db: Session, document_id: UUID) -> int:
+    versions = db.execute(
+        select(DocumentPageModel.version_no).where(DocumentPageModel.document_id == document_id)
+    ).scalars()
+    return max(versions, default=0) + 1
+
+
+def _next_chunk_version(db: Session, document_id: UUID) -> int:
+    versions = db.execute(
+        select(DocumentChunkModel.version_no).where(DocumentChunkModel.document_id == document_id)
+    ).scalars()
+    return max(versions, default=0) + 1
+
+
+def _stored_document_path_under_data_root(document: DocumentModel, storage: StoragePaths) -> Path:
+    path = Path(document.stored_path).expanduser().resolve()
+    try:
+        path.relative_to(storage.data_root)
+    except ValueError as exc:
+        raise DocumentProcessingError("Stored document path escapes configured data root") from exc
+    return path
+
+
+def _list_current_pages(db: Session, case_id: UUID, document_id: UUID) -> list[DocumentPageModel]:
+    return list(
+        db.execute(
+            select(DocumentPageModel)
+            .where(
+                DocumentPageModel.case_id == case_id,
+                DocumentPageModel.document_id == document_id,
+                DocumentPageModel.is_current.is_(True),
+            )
+            .order_by(DocumentPageModel.page_number.asc())
+        ).scalars()
+    )
+
+
+def _list_current_chunks(db: Session, case_id: UUID, document_id: UUID) -> list[DocumentChunkModel]:
+    return list(
+        db.execute(
+            select(DocumentChunkModel)
+            .where(
+                DocumentChunkModel.case_id == case_id,
+                DocumentChunkModel.document_id == document_id,
+                DocumentChunkModel.is_current.is_(True),
+            )
+            .order_by(DocumentChunkModel.chunk_index.asc())
+        ).scalars()
+    )
+
+
+def _validate_current_document_processing(
+    document: DocumentModel,
+    pages: list[DocumentPageModel],
+    chunks: list[DocumentChunkModel],
+) -> dict:
+    issues: list[dict] = []
+    if not pages:
+        issues.append({"code": "no_current_pages", "severity": "error"})
+
+    page_numbers = [page.page_number for page in pages]
+    if page_numbers and page_numbers != list(range(1, len(page_numbers) + 1)):
+        issues.append({"code": "non_contiguous_pages", "severity": "error", "page_numbers": page_numbers})
+
+    total_text_chars = sum(page.text_char_count for page in pages)
+    if pages and total_text_chars == 0:
+        issues.append({"code": "no_extracted_text", "severity": "warning"})
+
+    empty_page_numbers = [page.page_number for page in pages if page.text_char_count == 0]
+    if empty_page_numbers and total_text_chars > 0:
+        issues.append({"code": "empty_pages", "severity": "warning", "page_numbers": empty_page_numbers})
+
+    if total_text_chars > 0 and not chunks:
+        issues.append({"code": "no_current_chunks", "severity": "error"})
+
+    invalid_chunk_ids = [
+        str(chunk.id)
+        for chunk in chunks
+        if chunk.page_start < 1 or chunk.page_end < chunk.page_start or chunk.page_end > max(page_numbers, default=0)
+    ]
+    if invalid_chunk_ids:
+        issues.append({"code": "invalid_chunk_page_range", "severity": "error", "chunk_ids": invalid_chunk_ids})
+
+    expected_page_count = len(pages) if pages else None
+    if document.page_count is not None and expected_page_count is not None and document.page_count != expected_page_count:
+        issues.append(
+            {
+                "code": "document_page_count_mismatch",
+                "severity": "warning",
+                "document_page_count": document.page_count,
+                "current_page_count": expected_page_count,
+            }
+        )
+
+    has_errors = any(issue["severity"] == "error" for issue in issues)
+    has_warnings = any(issue["severity"] == "warning" for issue in issues)
+    if has_errors:
+        return {
+            "run_status": "failed",
+            "validation_status": "failed",
+            "document_status": "failed",
+            "error_message": "Document processing validation failed",
+            "issues": issues,
+        }
+    if has_warnings:
+        return {
+            "run_status": "succeeded",
+            "validation_status": "warning",
+            "document_status": "review_required",
+            "error_message": None,
+            "issues": issues,
+        }
+    return {
+        "run_status": "succeeded",
+        "validation_status": "passed",
+        "document_status": "processed",
+        "error_message": None,
+        "issues": issues,
+    }
+
+
+def _write_document_processing_audit(
+    db: Session,
+    run: AnalysisRunModel,
+    document: DocumentModel,
+    validation: dict,
+) -> None:
+    if validation["document_status"] == "review_required":
+        event_type = "document_processing_review_required"
+        success = True
+    elif validation["document_status"] == "failed":
+        event_type = "document_processing_failed"
+        success = False
+    else:
+        event_type = "document_processing_completed"
+        success = True
+
+    event = AuditEvent(
+        event_type=event_type,
+        success=success,
+        case_id=str(document.case_id),
+        user_id=str(run.started_by_user_id),
+        analysis_run_id=str(run.id),
+        related_object_type="document",
+        related_object_id=str(document.id),
+        related_document_id=str(document.id),
+        input_summary={"run_type": run.run_type, "document_id": str(document.id)},
+        output_summary={
+            "document_status": validation["document_status"],
+            "validation_status": validation["validation_status"],
+            "issues": validation["issues"],
+        },
+        error_message=validation["error_message"],
+    )
+    DatabaseAuditWriter(db).write(event)
+    JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(event)
+
+
 def _clean_original_filename(filename: str | None) -> str:
     if filename is None or filename.strip() == "":
         raise UnsupportedDocumentTypeError("Filename is required")
@@ -218,17 +909,121 @@ def _validate_txt_upload(filename: str, content_type: str | None) -> None:
         raise UnsupportedDocumentTypeError("Only text/plain TXT import is supported")
 
 
+def _validate_pdf_upload(filename: str, content_type: str | None) -> None:
+    if Path(filename).suffix.lower() != ".pdf":
+        raise UnsupportedDocumentTypeError("Only .pdf import is supported for native PDF parsing")
+    allowed_content_types = {None, "", "application/pdf", "application/octet-stream"}
+    if content_type not in allowed_content_types:
+        raise UnsupportedDocumentTypeError("Only application/pdf PDF import is supported")
+
+
+def _is_pdf_upload(filename: str | None, content_type: str | None) -> bool:
+    if filename is not None and Path(PurePath(filename).name).suffix.lower() == ".pdf":
+        return True
+    return content_type == "application/pdf"
+
+
+def _write_pdf_import_audit(
+    db: Session,
+    user_id: UUID,
+    document: DocumentModel,
+    run_id: UUID,
+    *,
+    success: bool,
+    page_count: int | None = None,
+    quality_issues: list[dict] | None = None,
+    error_message: str | None = None,
+) -> None:
+    if success and document.processing_status == "review_required":
+        event_type = "document_processing_review_required"
+    elif success:
+        event_type = "document_parsing_completed"
+    else:
+        event_type = "document_processing_failed"
+
+    event = AuditEvent(
+        event_type=event_type,
+        success=success,
+        case_id=str(document.case_id),
+        user_id=str(user_id),
+        analysis_run_id=str(run_id),
+        related_object_type="document",
+        related_object_id=str(document.id),
+        related_document_id=str(document.id),
+        input_summary={
+            "original_filename": document.original_filename,
+            "mime_type": document.mime_type,
+            "file_size_bytes": document.file_size_bytes,
+        },
+        output_summary={
+            "document_id": str(document.id),
+            "page_count": page_count,
+            "parser_name": document.parser_name,
+            "parser_version": document.parser_version,
+            "document_status": document.processing_status,
+            "quality_issues": quality_issues or [],
+        },
+        error_message=error_message,
+    )
+    DatabaseAuditWriter(db).write(event)
+    JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(event)
+
+
+def _write_ocr_audit(
+    db: Session,
+    user_id: UUID,
+    document: DocumentModel,
+    run: AnalysisRunModel,
+    result: OcrDocumentResult | None,
+    success: bool,
+    *,
+    quality_issues: list[dict] | None = None,
+    error_message: str | None = None,
+) -> None:
+    event = AuditEvent(
+        event_type="document_ocr_completed" if success else "document_processing_failed",
+        success=success,
+        case_id=str(document.case_id),
+        user_id=str(user_id),
+        analysis_run_id=str(run.id),
+        related_object_type="document",
+        related_object_id=str(document.id),
+        related_document_id=str(document.id),
+        input_summary={
+            "run_type": run.run_type,
+            "document_id": str(document.id),
+            "language": result.language if result is not None else None,
+        },
+        output_summary={
+            "document_status": document.processing_status,
+            "page_count": len(result.pages) if result is not None else None,
+            "tool_name": result.tool_name if result is not None else "tesseract",
+            "tool_version": result.tool_version if result is not None else None,
+            "quality_issues": quality_issues or [],
+        },
+        error_message=error_message,
+    )
+    DatabaseAuditWriter(db).write(event)
+    JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(event)
+
+
 async def _read_limited_upload(upload: UploadFile, max_upload_bytes: int) -> bytes:
     chunks: list[bytes] = []
     total_size = 0
     while chunk := await upload.read(1024 * 1024):
         total_size += len(chunk)
         if total_size > max_upload_bytes:
-            raise UploadTooLargeError("Upload exceeds configured size limit")
+            raise UploadTooLargeError(f"Upload exceeds configured size limit ({_format_size_limit(max_upload_bytes)})")
         chunks.append(chunk)
     if total_size == 0:
         raise UnsupportedDocumentTypeError("Empty files are not importable")
     return b"".join(chunks)
+
+
+def _format_size_limit(byte_count: int) -> str:
+    if byte_count < 1024 * 1024:
+        return f"{byte_count} B"
+    return f"{byte_count / (1024 * 1024):.1f}".rstrip("0").rstrip(".") + " MiB"
 
 
 def _decode_txt(content: bytes) -> str:
