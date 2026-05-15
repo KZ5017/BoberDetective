@@ -16,7 +16,7 @@ from app.services.analysis_module_contradictions import (
     claim_review_statuses_for_scope,
     select_claim_pairs_for_contradiction_detection,
 )
-from app.services.analysis_module_claims import build_extract_claims_user_prompt
+from app.services.analysis_module_claims import build_extract_claims_user_prompt, parse_claims_json_lenient, parse_claims_json_with_repair
 from app.services.analysis_modules import (
     AnalysisModuleError,
     RetrievedChunk,
@@ -29,10 +29,11 @@ from app.services.analysis_modules import (
     validate_extracted_missing_item_candidates,
     validate_extracted_summary_items,
 )
-from app.services.analysis_module_events import build_extract_events_user_prompt
+from app.services.analysis_module_events import _effective_event_batch_size, build_extract_events_user_prompt
 from app.services.analysis_module_entities import build_extract_entities_user_prompt
 from app.services.analysis_module_summaries import build_summarize_case_user_prompt
 from app.services.analysis_module_missing_items import build_detect_missing_items_user_prompt
+from app.services.llm import LLMChatCompletion
 
 
 def _retrieved_chunk(label: str, text: str) -> RetrievedChunk:
@@ -98,6 +99,53 @@ def test_parse_llm_json_object_accepts_extra_text_around_json_object() -> None:
 def test_parse_llm_json_object_rejects_array() -> None:
     with pytest.raises(AnalysisModuleError):
         parse_llm_json_object("[]")
+
+
+def test_parse_claims_json_with_repair_recovers_unescaped_quote_text() -> None:
+    class FakeRepairProvider:
+        def chat_completion(self, model, messages, *, temperature=0.1, max_tokens=800):
+            assert model == "chat-model"
+            assert temperature == 0.0
+            assert "HIBAS JSON-SZERU VALASZ" in messages[-1].content
+            return LLMChatCompletion(
+                model=model,
+                content=(
+                    '{"claims":[{"claim_type":"document_fact","claim_text":"Anyagi lenyek voltak.",'
+                    '"quote_text":"\\"anyagi lenyek\\" voltak","source_label":"chunk_1"}],'
+                    '"unsupported_claims":[]}'
+                ),
+            )
+
+    payload = parse_claims_json_with_repair(
+        '{"claims":[{"claim_type":"document_fact","claim_text":"Anyagi lenyek voltak.",'
+        '"quote_text":""anyagi lenyek" voltak","source_label":"chunk_1"}],"unsupported_claims":[]}',
+        FakeRepairProvider(),
+        "chat-model",
+    )
+
+    assert payload["claims"][0]["quote_text"] == '"anyagi lenyek" voltak'
+
+
+def test_parse_claims_json_lenient_recovers_quote_text_with_internal_comma_quote() -> None:
+    raw_content = """
+{
+"claims": [
+{
+"claim_type": "document_fact",
+"claim_text": "Dupin szerint a gyilkossag elkovetoje kulonos hangon beszelt.",
+"quote_text": "a , kulonos, rikacsolo ( vagy erdes) hanggal", azzal az egyenetlenul hangzo beszedel,",
+"source_label": "chunk_2"
+}
+],
+"unsupported_claims": []
+}
+"""
+
+    payload = parse_claims_json_lenient(raw_content)
+
+    assert payload is not None
+    assert payload["claims"][0]["quote_text"] == 'a , kulonos, rikacsolo ( vagy erdes) hanggal", azzal az egyenetlenul hangzo beszedel,'
+    assert payload["claims"][0]["source_label"] == "chunk_2"
 
 
 def test_analysis_retrieval_queries_extracts_source_like_keywords_from_hungarian_prompt() -> None:
@@ -240,6 +288,12 @@ def test_build_extract_events_user_prompt_handles_empty_focus_and_batch_metadata
     assert "chunk_1:" in prompt
     assert "Az idezetek legyenek rovidek" in prompt
     assert "Keruld a dupla idezojelet" in prompt
+
+
+def test_extract_events_caps_effective_batch_size_for_local_llm_stability() -> None:
+    assert _effective_event_batch_size(10) == 2
+    assert _effective_event_batch_size(5) == 2
+    assert _effective_event_batch_size(1) == 1
 
 
 def test_build_extract_entities_user_prompt_handles_empty_focus_and_batch_metadata() -> None:

@@ -96,6 +96,13 @@ Completed:
 - Missing item candidate JSON/HTML export smoke coverage
 - Analysis retrieval fallback improved for short/inflected Hungarian queries such as `mellekletet`
 - Analysis modules now fall back to the first current case chunks when keyword retrieval has no hits, preserving source-bound execution for broad UI queries
+- Local chunk indexing through LM Studio/OpenAI-compatible embeddings and Qdrant, with `embed_chunks` analysis run provenance
+- Explicit LM Studio embedding model load workflow; the default local embedding model is `text-embedding-qwen3-embedding-4b@q6_k`
+- Model-specific Qdrant chunk collections, so switching embedding models does not mix vector dimensions
+- Batched embedding index creation through `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` to avoid oversized LM Studio embedding requests
+- Background chunk indexing with frontend progress polling, so larger LM Studio/Qdrant indexing work does not depend on one long HTTP request
+- Chunk index readiness and latest-run progress status for the configured embedding model, surfaced in the frontend before semantic/hybrid analysis runs
+- Hybrid focused-query retrieval for batch-capable raw-chunk analysis modules using `keyword`, `semantic`, or `hybrid` strategies
 - Minimal React/Vite workbench frontend scaffold
 - Frontend review actions for review report items
 - Frontend source detail and review history display for report items
@@ -120,7 +127,8 @@ PDF/OCR sample checks:
 Next:
 
 - Commit and push the batch/contradiction/deduplication/source-correction/manual-entry checkpoint
-- Move to retrieval/indexing hardening, likely Qdrant/embedding-backed or hybrid source selection for larger cases
+- Commit and push the retrieval/indexing foundation checkpoint after review
+- Continue retrieval/indexing hardening with hybrid ranking calibration, document/case source-mode semantic/hybrid selection, and clearer visibility into selected source chunks
 
 Frontend dev URL:
 
@@ -214,3 +222,4 @@ Frontend:
 - API proxy: `/api` -> `http://127.0.0.1:8000`
 - Current UI workflows: case create/list, TXT/PDF import, document list, page/chunk drill-down, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
 - Raw-chunk analysis module UI supports focused query, selected-document, and whole-case source scopes with optional focus text and batch controls
+- Focused-query raw-chunk analysis can choose keyword, semantic, or hybrid source retrieval after chunk indexing

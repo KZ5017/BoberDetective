@@ -23,7 +23,7 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 161 passed
+pytest: 171 passed
 alembic: 0016_manual_entry (head)
 ```
 
@@ -54,6 +54,20 @@ alembic: 0016_manual_entry (head)
 - Analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity/summary services.
 - Analysis retrieval fallback strips common Hungarian suffixes, including short accusative forms such as `mellekletet` -> `melleklet`.
 - Analysis retrieval falls back to the first current case chunks when keyword search returns no hits, so broad UI prompts can still run against concrete sources.
+- Local chunk indexing foundation exists: `POST /api/v1/cases/{case_id}/indexes/chunks` creates LM Studio/OpenAI-compatible embeddings for current chunks, upserts them into model-specific Qdrant collections, stores `embedding_provider`, `embedding_model`, `embedding_vector_id`, and `chunk_run_id` on `document_chunks`, and records an `embed_chunks` analysis run. Already indexed chunks are skipped only when the stored embedding model matches the configured embedding model; switching embedding model makes those chunks eligible for reindexing.
+- Background chunk indexing exists at `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; it returns immediately with the `embed_chunks` analysis run id, then processes embeddings through FastAPI `BackgroundTasks`. The frontend now starts this background job and polls index status instead of waiting for the full LM Studio/Qdrant operation in one HTTP request.
+- Embedding index creation is hardware-guarded with `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` defaulting to `8`; chunks are embedded and upserted to Qdrant batch-by-batch instead of one large request, reducing LM Studio timeout/RAM spikes on 32 GB systems.
+- Chunk index status endpoint exists at `GET /api/v1/cases/{case_id}/indexes/chunks/status`; it reports current/indexed/missing chunk counts for the configured embedding model, readiness, collection name, latest `embed_chunks` run metadata, and latest run input/output progress. Frontend shows this in a semantic index status panel, disables semantic/hybrid analysis runs when the current source scope is not fully indexed, and displays background indexing progress such as `8/16`.
+- Hybrid retrieval foundation exists: `POST /api/v1/cases/{case_id}/search/hybrid` supports `keyword`, `semantic`, and `hybrid` strategies. Batch-capable focused-query analysis modules can receive `retrieval_strategy`, and analysis run chunk inputs record `retrieval_match_type`.
+- Configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`. Embedding calls auto-ensure the configured embedding model is loaded through LM Studio native `/api/v1/models/load` before calling OpenAI-compatible `/v1/embeddings`. Embedding model loading uses `context_length=12288`; LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load. Chat model loading uses `context_length=12288`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
+- Latest Qwen3 8B embedding smoke loaded the embedding model, reindexed 49 chunks from the Morgue PDF into `boberdetective_chunks_text_embedding_qwen3_embedding_8b`, and returned semantic hits through hybrid search. The current configured embedding default is now the smaller `text-embedding-qwen3-embedding-4b@q6_k`; reindexing will use a separate model-specific Qdrant collection.
+- Latest local model-load smoke with empty LM Studio state succeeded: `text-embedding-qwen3-embedding-4b` loaded in 3.461s with `context_length=12288`, and `qwen/qwen3.5-9b` loaded in 16.942s with `context_length=12288`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
+- Latest 4B embedding reindex smoke succeeded with `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE=8`: 49 Morgue PDF chunks were indexed into `boberdetective_chunks_text_embedding_qwen3_embedding_4b` in about 120s.
+- Latest background indexing smoke succeeded against the Morgue PDF: a 16-chunk forced reindex returned immediately with run `603f6b0b-1337-4048-a1c4-139a8f9a049d`, status polling showed `0/16 -> 8/16 -> 16/16`, and the run finished `succeeded` / `passed`.
+- Latest focused analysis smoke with `extract_claims` and `retrieval_strategy=hybrid` succeeded on the Qwen3-indexed Morgue case; the analysis run input recorded `retrieval_strategy=hybrid`, `retrieval_match_type=semantic`, and a semantic retrieval score.
+- Regression smoke for the query `elkövető személye` now passes with both `hybrid` and `semantic` retrieval after adding strict JSON repair for claim extraction responses with unescaped quote characters.
+- Claim extraction also has deterministic lenient field recovery for malformed `quote_text` values with internal quotes when both the original model response and JSON-repair response are invalid JSON; recovered candidates still require exact quote text in the selected source chunk.
+- User-side semantic/hybrid retrieval smoke after switching to the lighter local model profile found the selected sources broadly consistent with the current retrieval design, with no obvious quality regression observed yet. Remaining gaps are expected to be addressed by ranking calibration, broader source-mode integration, and clearer source-selection visibility.
 - Analysis batch processing is planned in `Design_documents/10_analysis_batch_processing_plan.md`; the first backend slices now support batch-capable `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` with shared source selection and chunk batching, while preserving focused query mode.
 - Latest live batch analysis smoke passed:
   - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
@@ -62,6 +76,7 @@ alembic: 0016_manual_entry (head)
 - Latest live batch `extract_events` smoke passed:
   - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
   - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, and returned `validation_status=passed`.
+- Focused semantic `extract_events` now caps its effective batch size at 2 chunks for local LLM stability. A live regression with query `gyilkossággal esettel kapcsolatos események`, `limit=10`, `retrieval_strategy=semantic`, and requested `batch_size=5` completed without timeout in about 262s; the run selected 10 chunks, processed smaller event batches, returned source-cited events, and finished with `validation_status=warning` because unsupported notes were also returned.
 - Latest live batch `extract_entities` smoke passed:
   - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
   - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, and returned `validation_status=passed`.
@@ -300,8 +315,11 @@ Latest document-processing/PDF smoke:
 
 Recommended order:
 
-1. Commit and push the batch/contradiction/deduplication/source-correction/manual-entry checkpoint after documentation synchronization.
-2. Move to the next larger architecture step: retrieval/indexing hardening, likely Qdrant/embedding-backed or hybrid source selection for larger cases.
+1. Commit and push the retrieval/indexing foundation checkpoint if the current working tree is accepted.
+2. Continue retrieval hardening with hybrid ranking calibration: combine keyword score, semantic score, exact phrase evidence, document/chunk order, and overlap between keyword and semantic hits in a predictable way.
+3. Extend semantic/hybrid retrieval beyond focused-query mode into document/case source selection, so larger analysis scopes can use retrieval-aware source ordering instead of only document-order chunk batching.
+4. Add clearer frontend visibility for selected source chunks, including document, chunk index, match type, score, and why a source was selected.
+5. Consider persistent/background job supervision beyond FastAPI `BackgroundTasks` before very long multi-hundred-page indexing workloads.
 
 Rationale:
 
@@ -319,7 +337,7 @@ Rationale:
 - Send `reasoning: "off"` only for Qwen-style reasoning models.
 - `POST /api/v1/system/llm/load-chat-model` loads the configured chat model through LM Studio native `/api/v1/models/load`.
 - LM Studio native chat calls auto-ensure the configured chat model is loaded before `/api/v1/chat`; if no matching loaded instance is found, the backend loads it once with the configured load profile and then sends the chat request to the loaded instance id.
-- Current preferred LM Studio load profile: `context_length=4096`, `eval_batch_size=4096`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`, `echo_load_config=true`.
-- Latest model-load smoke returned `qwen/qwen3.5-9b:2`, `status=loaded`, `load_time_seconds=10.784`, with LM Studio echoing `context_length=4096`, `eval_batch_size=4096`, `parallel=4`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
+- Current preferred chat-model LM Studio load profile: `context_length=12288`, `eval_batch_size=6144`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`, `echo_load_config=true`.
+- Current preferred embedding model: `text-embedding-qwen3-embedding-4b@q6_k`; reindex chunks after switching because model-specific Qdrant collections isolate embeddings by configured model name.
 - Keep generated data under the configured data root, not inside the Git repository.
 - Frontend dev server proxies `/api` to backend port `8000`.

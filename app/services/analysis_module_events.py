@@ -35,6 +35,7 @@ SUPPORTED_EVENT_TYPES = {
     "other",
 }
 SUPPORTED_TIME_PRECISIONS = {"exact", "minute", "hour", "day", "month", "unknown"}
+MAX_EVENT_EXTRACTION_BATCH_SIZE = 2
 
 EXTRACT_EVENTS_SYSTEM_PROMPT = """Te egy forrashu iratelemzo komponens vagy.
 Csak a megadott SOURCE chunkokbol dolgozhatsz.
@@ -57,13 +58,17 @@ Elvart JSON alak:
 
 def run_extract_events(db: Session, case_id: UUID, payload: AnalysisModuleRunRequest) -> AnalysisModuleRunResponse:
     settings = get_settings()
+    effective_batch_size = _effective_event_batch_size(payload.batch_size)
     input_parameters = {
         "query": payload.query,
         "limit": payload.limit,
         "source_mode": payload.source_mode,
         "document_id": str(payload.document_id) if payload.document_id is not None else None,
         "max_chunks": payload.max_chunks,
-        "batch_size": payload.batch_size,
+        "batch_size": effective_batch_size,
+        "requested_batch_size": payload.batch_size,
+        "module_batch_size_cap": MAX_EVENT_EXTRACTION_BATCH_SIZE,
+        "retrieval_strategy": payload.retrieval_strategy,
     }
     run = start_analysis_run(
         db,
@@ -86,7 +91,7 @@ def run_extract_events(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
             finish_analysis_run(db, run, status="failed", validation_status="failed", error_message=message)
             raise AnalysisModuleError(message)
 
-        batches = split_retrieved_chunks(retrieved_chunks, payload.batch_size)
+        batches = split_retrieved_chunks(retrieved_chunks, effective_batch_size)
         add_retrieved_chunk_inputs(db, run.id, retrieved_chunks, chunk_batch_lookup(batches))
         response_events: list[AnalysisModuleEvent] = []
         unsupported_items: list[str] = []
@@ -235,6 +240,12 @@ def _event_dedup_key(event: dict[str, Any]) -> tuple[str, str, str, str]:
         _normalize_for_dedup(event["event_time_raw"] or ""),
         _normalize_for_dedup(event["location_text"] or ""),
     )
+
+
+def _effective_event_batch_size(requested_batch_size: int) -> int:
+    if requested_batch_size < 1:
+        return 1
+    return min(requested_batch_size, MAX_EVENT_EXTRACTION_BATCH_SIZE)
 
 
 def _normalize_for_dedup(value: str) -> str:

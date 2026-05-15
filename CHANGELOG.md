@@ -4,6 +4,23 @@
 
 ### Added
 
+- Added local chunk indexing foundation: `POST /api/v1/cases/{case_id}/indexes/chunks` embeds current chunks with the configured local embedding model, upserts vectors into Qdrant, stores chunk embedding metadata, and records `embed_chunks` analysis run provenance.
+- Added hybrid chunk search foundation: `POST /api/v1/cases/{case_id}/search/hybrid` supports `keyword`, `semantic`, and `hybrid` strategies over source chunks.
+- Added `retrieval_strategy` to batch-capable focused-query analysis requests, with analysis run chunk inputs recording `retrieval_match_type`.
+- Added frontend controls to index chunks and choose keyword/semantic/hybrid source retrieval for focused-query raw-chunk analysis.
+- Added explicit LM Studio embedding model load workflow and auto-load before embedding calls.
+- Added model-specific Qdrant chunk collections and model-aware reindex eligibility so vectors created with a previous embedding model do not block indexing with the current model.
+- Added `retrieval_strategy` to persisted raw-chunk analysis input parameters so hybrid/semantic focused runs remain auditable at the run level as well as the chunk-input level.
+- Added a strict JSON-repair retry for claim extraction when the model returns JSON-invalid quote text, preserving the same source/quote validation after repair.
+- Added deterministic lenient claim JSON field recovery for malformed `quote_text` values with internal quotes when the model and JSON-repair pass both return invalid JSON; recovered items still pass the normal source quote validation before persistence.
+- Reduced the default local load profile for the current workstation: chat `eval_batch_size` is now `6144`, and the default embedding model is `text-embedding-qwen3-embedding-4b`.
+- Switched the default embedding model to `text-embedding-qwen3-embedding-4b@q6_k` for a lighter local LM Studio profile; chat model id remains `qwen/qwen3.5-9b`, with LM Studio expected to load the desired quantized variant behind that id.
+- Recorded the next retrieval hardening direction: hybrid ranking calibration, semantic/hybrid document/case source selection, and frontend visibility into selected source chunks.
+- Expanded frontend model status controls into a dedicated local model panel with separate chat and embedding load actions plus loaded-instance visibility.
+- Added configurable embedding index batching through `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE`; chunk embeddings are now requested and upserted in smaller batches to reduce LM Studio timeout and RAM spikes.
+- Added chunk index status API and frontend semantic index status panel; semantic/hybrid focused analysis is now blocked until the active source scope is indexed with the configured embedding model.
+- Added background chunk indexing through `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; the frontend starts the job, polls index status, and shows latest-run progress instead of waiting for one long indexing request.
+- Capped the effective `extract_events` batch size at 2 chunks to avoid local LM Studio chat timeouts on larger semantic result sets while preserving the requested batch size in analysis run input metadata.
 - Added `Design_documents/10_analysis_batch_processing_plan.md` for the next analysis architecture step: shared source selection, chunk batching, batch metadata, exact deduplication, and batch-capable `extract_claims` as the first target.
 - Added backward-compatible analysis module request fields for `source_mode`, `document_id`, `max_chunks`, and `batch_size`.
 - Added shared source chunk selection for focused query, document, and case source modes.
@@ -42,7 +59,7 @@
 ### Changed
 
 - Updated handoff/session documentation to make the analysis batch foundation the next logical development direction while preserving the current focused query workflow.
-- Updated the verification baseline to `161 passed` and Alembic head `0016_manual_entry`.
+- Updated the verification baseline to `165 passed` and Alembic head `0016_manual_entry`.
 - Recorded live batch analysis smoke results for `extract_claims` in document and case source modes; both completed with `validation_status=passed`.
 - Recorded live batch analysis smoke results for `extract_events` in document and case source modes; both completed with `validation_status=passed`.
 - Recorded live batch analysis smoke results for `extract_entities` in document and case source modes; both completed with `validation_status=passed`.

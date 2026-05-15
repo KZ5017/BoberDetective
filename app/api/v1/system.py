@@ -1,7 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
 from app.core.config import get_settings
-from app.services.llm import LMStudioNativeProvider, get_llm_provider
+from app.services.llm import LLMProviderError, LMStudioNativeProvider, get_llm_provider
 from app.services.storage import StoragePaths
 
 router = APIRouter()
@@ -34,15 +34,36 @@ def llm_smoke() -> dict:
         "model_ids": result.model_ids,
         "configured_chat_model": result.configured_chat_model,
         "configured_chat_model_available": result.configured_chat_model_available,
+        "configured_chat_model_loaded": result.configured_chat_model_loaded,
         "configured_embedding_model": result.configured_embedding_model,
         "configured_embedding_model_available": result.configured_embedding_model_available,
+        "configured_embedding_model_loaded": result.configured_embedding_model_loaded,
+        "loaded_model_ids": result.loaded_model_ids,
         "error_message": result.error_message,
     }
 
 
 @router.post("/llm/load-chat-model")
 def load_llm_chat_model() -> dict:
-    result = LMStudioNativeProvider(get_settings()).load_configured_chat_model()
+    try:
+        result = LMStudioNativeProvider(get_settings()).load_configured_chat_model()
+    except LLMProviderError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {
+        "type": result.type,
+        "instance_id": result.instance_id,
+        "load_time_seconds": result.load_time_seconds,
+        "status": result.status,
+        "load_config": result.load_config,
+    }
+
+
+@router.post("/llm/load-embedding-model")
+def load_llm_embedding_model() -> dict:
+    try:
+        result = LMStudioNativeProvider(get_settings()).load_configured_embedding_model()
+    except LLMProviderError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {
         "type": result.type,
         "instance_id": result.instance_id,

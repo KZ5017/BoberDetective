@@ -306,6 +306,7 @@ export type ManualContradictionCandidatePayload = {
 
 export type AnalysisSourceMode = "focused_query" | "document" | "case";
 export type ClaimReviewScope = "reviewable" | "verified" | "needs_review" | "all_source_valid";
+export type RetrievalStrategy = "keyword" | "semantic" | "hybrid";
 
 export type AnalysisRunPayload = {
   query?: string | null;
@@ -315,6 +316,57 @@ export type AnalysisRunPayload = {
   max_chunks?: number;
   batch_size?: number;
   claim_review_scope?: ClaimReviewScope;
+  retrieval_strategy?: RetrievalStrategy;
+};
+
+export type ChunkIndexResponse = {
+  analysis_run_id: string;
+  indexed_count: number;
+  skipped_count: number;
+  collection_name: string;
+  embedding_model: string;
+};
+
+export type ChunkIndexJobResponse = {
+  analysis_run_id: string;
+  status: string;
+  collection_name: string;
+  embedding_model: string;
+};
+
+export type ChunkIndexStatusResponse = {
+  case_id: string;
+  document_id: string | null;
+  collection_name: string;
+  embedding_model: string;
+  current_chunk_count: number;
+  indexed_chunk_count: number;
+  missing_chunk_count: number;
+  is_ready: boolean;
+  needs_indexing: boolean;
+  latest_run_id: string | null;
+  latest_run_status: string | null;
+  latest_run_validation_status: string | null;
+  latest_run_started_at: string | null;
+  latest_run_finished_at: string | null;
+  latest_run_input_count: number;
+  latest_run_output_count: number;
+  latest_run_progress_percent: number | null;
+};
+
+export type LlmSmokeResponse = {
+  provider: string;
+  base_url: string;
+  reachable: boolean;
+  model_ids: string[];
+  configured_chat_model: string;
+  configured_chat_model_available: boolean | null;
+  configured_chat_model_loaded: boolean | null;
+  configured_embedding_model: string;
+  configured_embedding_model_available: boolean | null;
+  configured_embedding_model_loaded: boolean | null;
+  loaded_model_ids: string[];
+  error_message: string | null;
 };
 
 const reviewPathByType: Record<string, (caseId: string, objectId: string) => string> = {
@@ -578,6 +630,49 @@ export function runAnalysis(caseId: string, moduleKey: string, payload: Analysis
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+}
+
+export function indexChunks(
+  caseId: string,
+  payload: { document_id?: string | null; limit?: number; force_reindex?: boolean }
+): Promise<ChunkIndexResponse> {
+  return request(`/cases/${caseId}/indexes/chunks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function startChunkIndexJob(
+  caseId: string,
+  payload: { document_id?: string | null; limit?: number; force_reindex?: boolean }
+): Promise<ChunkIndexJobResponse> {
+  return request(`/cases/${caseId}/indexes/chunks/jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getChunkIndexStatus(caseId: string, documentId?: string | null): Promise<ChunkIndexStatusResponse> {
+  const params = new URLSearchParams();
+  if (documentId) {
+    params.set("document_id", documentId);
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return request(`/cases/${caseId}/indexes/chunks/status${suffix}`);
+}
+
+export function getLlmSmoke(): Promise<LlmSmokeResponse> {
+  return request("/system/llm/smoke");
+}
+
+export function loadEmbeddingModel(): Promise<unknown> {
+  return request("/system/llm/load-embedding-model", { method: "POST" });
+}
+
+export function loadChatModel(): Promise<unknown> {
+  return request("/system/llm/load-chat-model", { method: "POST" });
 }
 
 export function getReviewReport(caseId: string, filters: ReviewReportFilterValues = {}): Promise<ReviewReport> {

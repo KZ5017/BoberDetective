@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 161 passed`, `alembic: 0016_manual_entry (head)`.
+- Current verification baseline: `pytest: 171 passed`, `alembic: 0016_manual_entry (head)`.
 
 Initial implementation exists:
 
@@ -70,6 +70,12 @@ Initial implementation exists:
 - source-cited summary item persistence, source linkage, API, review workflow, and review report inclusion,
 - `summarize_case` analysis module foundation with quote validation and summary item persistence,
 - analysis module retrieval fallback for broader natural-language Hungarian prompts,
+- local chunk indexing foundation through LM Studio/OpenAI-compatible embeddings and model-specific Qdrant collections, with `embed_chunks` analysis run provenance and chunk-level embedding metadata; model switches make chunks eligible for reindexing instead of incorrectly treating an old-model vector id as current,
+- background chunk indexing through `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; the endpoint creates an `embed_chunks` analysis run and returns immediately, while FastAPI `BackgroundTasks` performs the LM Studio/Qdrant work,
+- embedding index creation uses `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` defaulting to `8`, so large documents are embedded and upserted in smaller LM Studio/Qdrant batches instead of one memory-heavy request,
+- chunk index status is available through `GET /api/v1/cases/{case_id}/indexes/chunks/status`; the frontend uses it to show semantic index readiness, latest run progress, and block semantic/hybrid focused analysis until the active source scope is indexed with the configured embedding model,
+- hybrid retrieval foundation through keyword, semantic, and hybrid strategies; focused-query analysis modules can receive `retrieval_strategy`, and analysis run chunk inputs record `retrieval_match_type`,
+- configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`; embedding calls auto-ensure this model is loaded through LM Studio before `/v1/embeddings`; the previous 8B smoke loaded with `context_length=12288`, reindexed 49 Morgue PDF chunks into `boberdetective_chunks_text_embedding_qwen3_embedding_8b`, returned semantic hybrid-search hits, and a focused `extract_claims` smoke recorded `retrieval_strategy=hybrid` plus `retrieval_match_type=semantic` in analysis run provenance,
 - live `summarize_case` smoke passed with the original broad query after retrieval fallback,
 - contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion,
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs,
@@ -240,6 +246,7 @@ Previously unverified items now checked:
 - WSL can reach the Windows-hosted LM Studio API at `http://127.0.0.1:1234/v1`.
 - Whether LM Studio embedding support is sufficient, or a separate embedding provider is needed.
 - Whether the selected local model is good enough for Hungarian claim/event/contradiction extraction.
+- User-side semantic/hybrid retrieval smoke after switching to `text-embedding-qwen3-embedding-4b@q6_k` found no obvious quality regression so far; observed limitations align with planned ranking and source-mode hardening rather than a clear model failure.
 
 ## Suggested Next Steps
 
@@ -247,7 +254,11 @@ Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
 2. Commit and push the batch/contradiction/deduplication/source-correction/manual-entry checkpoint after documentation synchronization.
-3. Move to retrieval/indexing hardening, likely Qdrant/embedding-backed or hybrid source selection for larger cases.
+3. Commit and push the retrieval/indexing foundation checkpoint after user approval.
+4. Continue retrieval hardening with hybrid ranking calibration: combine keyword score, semantic score, exact phrase evidence, source order, and keyword/semantic overlap.
+5. Extend semantic/hybrid retrieval into document and case source modes so broader analysis scopes can use retrieval-aware source ordering.
+6. Add frontend source-selection visibility for analysis runs: document, chunk index, match type, score, and selected-source preview.
+7. Consider durable job supervision if indexing grows beyond FastAPI background tasks.
 
 Strategic rationale:
 
@@ -300,6 +311,7 @@ Implementation status:
 - Latest live batch `extract_events` smoke passed:
   - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, returned `validation_status=passed`.
   - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, returned `validation_status=passed`.
+- Focused semantic `extract_events` has an effective batch-size cap of 2 chunks to avoid local LM Studio chat timeouts on larger semantic result sets. Live regression: query `gyilkossággal esettel kapcsolatos események`, `limit=10`, `retrieval_strategy=semantic`, requested `batch_size=5`; the run completed in about 262s, selected 10 chunks, returned source-cited events, and finished `validation_status=warning` due to unsupported notes rather than timeout.
 - Latest live batch `extract_entities` smoke passed:
   - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, returned `validation_status=passed`.
   - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, returned `validation_status=passed`.
@@ -343,7 +355,9 @@ Implementation status:
 - LM Studio native API notes captured in `Design_documents/04_runtime_and_deployment_v1.md`: use `max_output_tokens`, not `maxTokens`; prefer `store: false`; prefer `system_prompt`; send `reasoning: "off"` only for reasoning-capable models such as Qwen.
 - Backend now supports explicit LM Studio native chat-model loading through `POST /api/v1/system/llm/load-chat-model`.
 - LM Studio native chat calls now auto-ensure the configured chat model is loaded before sending `/api/v1/chat`; loaded instance ids are reused when present, and the configured load profile is applied only when no matching instance is loaded.
-- Current preferred LM Studio load profile is configured as `context_length=4096`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
+- Current preferred chat-model LM Studio load profile is configured as `context_length=12288`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
+- Embedding model load uses `context_length=12288`; LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load.
+- Latest empty-state model-load smoke accepted the reduced profile: `text-embedding-qwen3-embedding-4b` loaded in 3.461s and `qwen/qwen3.5-9b` loaded in 16.942s with `eval_batch_size=6144`.
 - Live model-load smoke accepted the profile and returned `qwen/qwen3.5-9b:2`, `status=loaded`, `load_time_seconds=10.784`, with echoed `parallel=4`.
 - Future native provider refinement: switch benchmark/runtime payload from locally tested `input.type="text"` to documented `input.type="message"` if local testing confirms compatibility.
 - First source-cited analysis smoke works through `POST /api/v1/cases/{case_id}/analysis/source-cited-smoke`.
@@ -446,7 +460,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `161 passed`.
+- Latest test run: `170 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

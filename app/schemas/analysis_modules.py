@@ -12,6 +12,7 @@ class AnalysisModuleRunRequest(BaseModel):
     max_chunks: int = Field(default=50, ge=1, le=200)
     batch_size: int = Field(default=5, ge=1, le=10)
     claim_review_scope: Literal["reviewable", "verified", "needs_review", "all_source_valid"] = "reviewable"
+    retrieval_strategy: Literal["keyword", "semantic", "hybrid"] = "keyword"
 
 
 class AnalysisModuleClaim(BaseModel):

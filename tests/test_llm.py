@@ -6,7 +6,7 @@ from app.core.config import Settings
 from app.services.llm import LMStudioNativeProvider, LLMChatMessage, OpenAICompatibleLocalProvider
 
 
-def _settings(*, auto_load: bool = True) -> Settings:
+def _settings(*, auto_load: bool = True, auto_load_embedding: bool = True) -> Settings:
     return Settings(
         environment="test",
         data_root=Path("/tmp/boberdetective-test"),
@@ -18,15 +18,19 @@ def _settings(*, auto_load: bool = True) -> Settings:
         llm_chat_model="chat-model",
         llm_embedding_model="embedding-model",
         llm_timeout_seconds=1,
-        llm_context_length=4096,
-        llm_eval_batch_size=4096,
+        llm_context_length=12288,
+        llm_eval_batch_size=6144,
         llm_flash_attention=True,
         llm_offload_kv_cache_to_gpu=True,
         llm_auto_load_chat_model=auto_load,
+        llm_auto_load_embedding_model=auto_load_embedding,
+        embedding_batch_size=8,
         pdf_parser="docling_then_pypdf",
         tesseract_cmd="tesseract",
         tesseract_languages="hun+eng",
         max_upload_bytes=1024,
+        qdrant_url="http://qdrant.local",
+        qdrant_chunk_collection="chunks",
     )
 
 
@@ -36,7 +40,7 @@ def test_openai_compatible_provider_lists_models() -> None:
         return httpx.Response(200, json={"data": [{"id": "chat-model"}, {"id": "embedding-model"}]})
 
     client = httpx.Client(base_url="http://llm.local/v1", transport=httpx.MockTransport(handler))
-    provider = OpenAICompatibleLocalProvider(_settings(), client)
+    provider = OpenAICompatibleLocalProvider(_settings(auto_load_embedding=False), client)
 
     assert [model.id for model in provider.list_models()] == ["chat-model", "embedding-model"]
 
@@ -46,7 +50,7 @@ def test_llm_smoke_reports_configured_model_availability() -> None:
         base_url="http://llm.local/v1",
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"data": [{"id": "chat-model"}]})),
     )
-    provider = OpenAICompatibleLocalProvider(_settings(), client)
+    provider = OpenAICompatibleLocalProvider(_settings(auto_load_embedding=False), client)
 
     result = provider.smoke_check()
 
@@ -60,13 +64,73 @@ def test_llm_smoke_reports_unreachable_provider() -> None:
         raise httpx.ConnectError("connection failed", request=request)
 
     client = httpx.Client(base_url="http://llm.local/v1", transport=httpx.MockTransport(handler))
-    provider = OpenAICompatibleLocalProvider(_settings(), client)
+    provider = OpenAICompatibleLocalProvider(_settings(auto_load_embedding=False), client)
 
     result = provider.smoke_check()
 
     assert result.reachable is False
     assert result.model_ids == []
     assert result.error_message is not None
+
+
+def test_openai_compatible_provider_creates_embeddings() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/embeddings"
+        payload = __import__("json").loads(request.content)
+        assert payload["model"] == "embedding-model"
+        assert payload["input"] == ["elso", "masodik"]
+        return httpx.Response(
+            200,
+            json={
+                "model": "embedding-model",
+                "data": [
+                    {"index": 1, "embedding": [0.3, 0.4]},
+                    {"index": 0, "embedding": [0.1, 0.2]},
+                ],
+            },
+        )
+
+    client = httpx.Client(base_url="http://llm.local/v1", transport=httpx.MockTransport(handler))
+    provider = OpenAICompatibleLocalProvider(_settings(auto_load_embedding=False), client)
+
+    result = provider.embeddings("embedding-model", ["elso", "masodik"])
+
+    assert result.model == "embedding-model"
+    assert result.embeddings == [[0.1, 0.2], [0.3, 0.4]]
+
+
+def test_openai_compatible_provider_auto_loads_embedding_model() -> None:
+    paths: list[str] = []
+    captured_payloads: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(f"{request.method} {request.url.path}")
+        payload = __import__("json").loads(request.content) if request.content else {}
+        if payload:
+            captured_payloads.append(payload)
+        if request.url.path == "/api/v1/models":
+            return httpx.Response(200, json={"models": [{"key": "embedding-model", "loaded_instances": []}]})
+        if request.url.path == "/api/v1/models/load":
+            return httpx.Response(200, json={"type": "embedding", "instance_id": "embedding-model:1", "status": "loaded"})
+        if request.url.path == "/v1/embeddings":
+            return httpx.Response(200, json={"model": payload["model"], "data": [{"index": 0, "embedding": [0.1, 0.2]}]})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(base_url="http://llm.local/v1", transport=transport)
+    native_client = httpx.Client(base_url="http://llm.local", transport=transport)
+    provider = OpenAICompatibleLocalProvider(_settings(), client, native_client)
+
+    result = provider.embeddings("embedding-model", ["teszt"])
+
+    assert paths == ["GET /api/v1/models", "POST /api/v1/models/load", "POST /v1/embeddings"]
+    assert captured_payloads[0]["model"] == "embedding-model"
+    assert captured_payloads[0]["context_length"] == 12288
+    assert "eval_batch_size" not in captured_payloads[0]
+    assert "offload_kv_cache_to_gpu" not in captured_payloads[0]
+    assert "flash_attention" not in captured_payloads[0]
+    assert captured_payloads[1]["model"] == "embedding-model:1"
+    assert result.model == "embedding-model:1"
 
 
 def test_lm_studio_native_provider_uses_reasoning_off() -> None:
@@ -138,8 +202,8 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
                 "load_time_seconds": 1.25,
                 "status": "loaded",
                 "load_config": {
-                    "context_length": 4096,
-                    "eval_batch_size": 4096,
+                    "context_length": 12288,
+                    "eval_batch_size": 6144,
                     "flash_attention": True,
                     "offload_kv_cache_to_gpu": True,
                 },
@@ -153,8 +217,8 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
 
     assert captured_payload == {
         "model": "chat-model",
-        "context_length": 4096,
-        "eval_batch_size": 4096,
+        "context_length": 12288,
+        "eval_batch_size": 6144,
         "flash_attention": True,
         "offload_kv_cache_to_gpu": True,
         "echo_load_config": True,
@@ -163,8 +227,8 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
     assert result.instance_id == "chat-model"
     assert result.status == "loaded"
     assert result.load_config == {
-        "context_length": 4096,
-        "eval_batch_size": 4096,
+        "context_length": 12288,
+        "eval_batch_size": 6144,
         "flash_attention": True,
         "offload_kv_cache_to_gpu": True,
     }

@@ -28,6 +28,12 @@ class LLMChatCompletion:
 
 
 @dataclass(frozen=True)
+class LLMEmbeddingResult:
+    model: str
+    embeddings: list[list[float]]
+
+
+@dataclass(frozen=True)
 class LLMSmokeResult:
     provider: str
     base_url: str
@@ -35,8 +41,11 @@ class LLMSmokeResult:
     model_ids: list[str]
     configured_chat_model: str
     configured_chat_model_available: bool | None
+    configured_chat_model_loaded: bool | None
     configured_embedding_model: str
     configured_embedding_model_available: bool | None
+    configured_embedding_model_loaded: bool | None
+    loaded_model_ids: list[str]
     error_message: str | None = None
 
 
@@ -68,13 +77,23 @@ class LLMProvider(Protocol):
     ) -> LLMChatCompletion:
         raise NotImplementedError
 
+    def embeddings(self, model: str, texts: list[str]) -> LLMEmbeddingResult:
+        raise NotImplementedError
+
 
 class OpenAICompatibleLocalProvider:
     provider_name = "openai_compatible_local"
 
-    def __init__(self, settings: Settings | None = None, client: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        client: httpx.Client | None = None,
+        native_client: httpx.Client | None = None,
+    ) -> None:
         self._settings = settings or get_settings()
         self._client = client
+        self._native_client = native_client
+        self._loaded_embedding_model_instance_id: str | None = None
 
     def list_models(self) -> list[LLMModel]:
         client = self._client or self._build_client()
@@ -87,6 +106,8 @@ class OpenAICompatibleLocalProvider:
             if not isinstance(models, list):
                 raise LLMProviderError("LLM provider returned an invalid models payload")
             return [LLMModel(id=str(item["id"])) for item in models if isinstance(item, dict) and item.get("id")]
+        except httpx.HTTPStatusError as exc:
+            raise LLMProviderError(_http_status_error_message(exc)) from exc
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise LLMProviderError(str(exc)) from exc
         finally:
@@ -97,6 +118,7 @@ class OpenAICompatibleLocalProvider:
         try:
             models = self.list_models()
             model_ids = [model.id for model in models]
+            loaded_model_ids = _safe_loaded_model_instance_ids(self._settings, self._native_client)
             return LLMSmokeResult(
                 provider=self._settings.llm_provider,
                 base_url=self._settings.llm_base_url,
@@ -104,8 +126,11 @@ class OpenAICompatibleLocalProvider:
                 model_ids=model_ids,
                 configured_chat_model=self._settings.llm_chat_model,
                 configured_chat_model_available=_model_available(self._settings.llm_chat_model, model_ids),
+                configured_chat_model_loaded=_model_loaded(self._settings.llm_chat_model, loaded_model_ids),
                 configured_embedding_model=self._settings.llm_embedding_model,
                 configured_embedding_model_available=_model_available(self._settings.llm_embedding_model, model_ids),
+                configured_embedding_model_loaded=_model_loaded(self._settings.llm_embedding_model, loaded_model_ids),
+                loaded_model_ids=loaded_model_ids,
             )
         except LLMProviderError as exc:
             return LLMSmokeResult(
@@ -115,8 +140,11 @@ class OpenAICompatibleLocalProvider:
                 model_ids=[],
                 configured_chat_model=self._settings.llm_chat_model,
                 configured_chat_model_available=None,
+                configured_chat_model_loaded=None,
                 configured_embedding_model=self._settings.llm_embedding_model,
                 configured_embedding_model_available=None,
+                configured_embedding_model_loaded=None,
+                loaded_model_ids=[],
                 error_message=str(exc),
             )
 
@@ -149,6 +177,57 @@ class OpenAICompatibleLocalProvider:
             if not isinstance(message, dict) or not isinstance(message.get("content"), str):
                 raise LLMProviderError("LLM provider returned an invalid chat payload")
             return LLMChatCompletion(model=model, content=message["content"])
+        except httpx.HTTPStatusError as exc:
+            raise LLMProviderError(_http_status_error_message(exc)) from exc
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise LLMProviderError(str(exc)) from exc
+        finally:
+            if close_client:
+                client.close()
+
+    def embeddings(self, model: str, texts: list[str]) -> LLMEmbeddingResult:
+        if not texts:
+            return LLMEmbeddingResult(model=model, embeddings=[])
+        client = self._client or self._build_client()
+        close_client = self._client is None
+        try:
+            embedding_model = (
+                LMStudioNativeProvider(self._settings, self._native_client).ensure_configured_embedding_model_loaded()
+                if self._settings.llm_auto_load_embedding_model
+                and self._settings.llm_provider == "lm_studio"
+                and model == self._settings.llm_embedding_model
+                else model
+            )
+            response = client.post(
+                "/embeddings",
+                json={
+                    "model": embedding_model,
+                    "input": texts,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data")
+            if not isinstance(data, list):
+                raise LLMProviderError("LLM provider returned an invalid embeddings payload")
+            embeddings_by_index: dict[int, list[float]] = {}
+            for item in data:
+                if not isinstance(item, dict) or not isinstance(item.get("embedding"), list):
+                    raise LLMProviderError("LLM provider returned an invalid embedding item")
+                index = int(item.get("index", len(embeddings_by_index)))
+                embedding = [_as_float(value) for value in item["embedding"]]
+                embeddings_by_index[index] = embedding
+            embeddings = [embeddings_by_index[index] for index in sorted(embeddings_by_index)]
+            if len(embeddings) != len(texts):
+                raise LLMProviderError("LLM provider returned a different number of embeddings")
+            dimensions = {len(embedding) for embedding in embeddings}
+            if len(dimensions) > 1 or 0 in dimensions:
+                raise LLMProviderError("LLM provider returned invalid embedding dimensions")
+            return LLMEmbeddingResult(model=str(payload.get("model", embedding_model)), embeddings=embeddings)
+        except httpx.HTTPStatusError as exc:
+            raise LLMProviderError(_http_status_error_message(exc)) from exc
+        except httpx.HTTPStatusError as exc:
+            raise LLMProviderError(_http_status_error_message(exc)) from exc
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise LLMProviderError(str(exc)) from exc
         finally:
@@ -173,6 +252,7 @@ class LMStudioNativeProvider:
         self._settings = settings or get_settings()
         self._client = client
         self._loaded_chat_model_instance_id: str | None = None
+        self._loaded_embedding_model_instance_id: str | None = None
 
     def list_models(self) -> list[LLMModel]:
         client = self._client or self._build_client()
@@ -208,6 +288,7 @@ class LMStudioNativeProvider:
         try:
             models = self.list_models()
             model_ids = [model.id for model in models]
+            loaded_model_ids = self.loaded_model_instance_ids()
             return LLMSmokeResult(
                 provider=self.provider_name,
                 base_url=self._native_base_url,
@@ -215,8 +296,11 @@ class LMStudioNativeProvider:
                 model_ids=model_ids,
                 configured_chat_model=self._settings.llm_chat_model,
                 configured_chat_model_available=_model_available(self._settings.llm_chat_model, model_ids),
+                configured_chat_model_loaded=_model_loaded(self._settings.llm_chat_model, loaded_model_ids),
                 configured_embedding_model=self._settings.llm_embedding_model,
                 configured_embedding_model_available=_model_available(self._settings.llm_embedding_model, model_ids),
+                configured_embedding_model_loaded=_model_loaded(self._settings.llm_embedding_model, loaded_model_ids),
+                loaded_model_ids=loaded_model_ids,
             )
         except LLMProviderError as exc:
             return LLMSmokeResult(
@@ -226,8 +310,11 @@ class LMStudioNativeProvider:
                 model_ids=[],
                 configured_chat_model=self._settings.llm_chat_model,
                 configured_chat_model_available=None,
+                configured_chat_model_loaded=None,
                 configured_embedding_model=self._settings.llm_embedding_model,
                 configured_embedding_model_available=None,
+                configured_embedding_model_loaded=None,
+                loaded_model_ids=[],
                 error_message=str(exc),
             )
 
@@ -261,7 +348,7 @@ class LMStudioNativeProvider:
                 client.close()
 
     def ensure_configured_chat_model_loaded(self) -> str:
-        instance_id = self._matching_loaded_instance_id()
+        instance_id = self._matching_loaded_instance_id(self._settings.llm_chat_model, self._loaded_chat_model_instance_id)
         if instance_id is not None:
             self._loaded_chat_model_instance_id = instance_id
             return instance_id
@@ -271,11 +358,21 @@ class LMStudioNativeProvider:
         self._loaded_chat_model_instance_id = result.instance_id
         return result.instance_id
 
-    def _matching_loaded_instance_id(self) -> str | None:
-        configured_model = self._settings.llm_chat_model
+    def ensure_configured_embedding_model_loaded(self) -> str:
+        instance_id = self._matching_loaded_instance_id(self._settings.llm_embedding_model, self._loaded_embedding_model_instance_id)
+        if instance_id is not None:
+            self._loaded_embedding_model_instance_id = instance_id
+            return instance_id
+        result = self.load_configured_embedding_model()
+        if result.status != "loaded" or result.instance_id == "":
+            raise LLMProviderError("LM Studio did not return a loaded embedding model instance")
+        self._loaded_embedding_model_instance_id = result.instance_id
+        return result.instance_id
+
+    def _matching_loaded_instance_id(self, configured_model: str, cached_instance_id: str | None) -> str | None:
         instance_ids = self.loaded_model_instance_ids()
-        if self._loaded_chat_model_instance_id in instance_ids:
-            return self._loaded_chat_model_instance_id
+        if cached_instance_id in instance_ids:
+            return cached_instance_id
         for instance_id in instance_ids:
             if _is_instance_of_model(instance_id, configured_model):
                 return instance_id
@@ -305,6 +402,37 @@ class LMStudioNativeProvider:
                 status=str(payload.get("status", "")),
                 load_config=payload.get("load_config") if isinstance(payload.get("load_config"), dict) else None,
             )
+        except httpx.HTTPStatusError as exc:
+            raise LLMProviderError(_http_status_error_message(exc)) from exc
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise LLMProviderError(str(exc)) from exc
+        finally:
+            if close_client:
+                client.close()
+
+    def load_configured_embedding_model(self) -> LLMModelLoadResult:
+        client = self._client or self._build_client()
+        close_client = self._client is None
+        try:
+            response = client.post(
+                "/api/v1/models/load",
+                json={
+                    "model": self._settings.llm_embedding_model,
+                    "context_length": self._settings.llm_context_length,
+                    "echo_load_config": True,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return LLMModelLoadResult(
+                type=str(payload.get("type", "")),
+                instance_id=str(payload.get("instance_id", "")),
+                load_time_seconds=_optional_float(payload.get("load_time_seconds")),
+                status=str(payload.get("status", "")),
+                load_config=payload.get("load_config") if isinstance(payload.get("load_config"), dict) else None,
+            )
+        except httpx.HTTPStatusError as exc:
+            raise LLMProviderError(_http_status_error_message(exc)) from exc
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise LLMProviderError(str(exc)) from exc
         finally:
@@ -389,6 +517,21 @@ def _model_available(configured_model: str, model_ids: list[str]) -> bool | None
     return configured_model in model_ids
 
 
+def _model_loaded(configured_model: str, loaded_model_ids: list[str]) -> bool | None:
+    if configured_model == "":
+        return None
+    return any(_is_instance_of_model(instance_id, configured_model) for instance_id in loaded_model_ids)
+
+
+def _safe_loaded_model_instance_ids(settings: Settings, client: httpx.Client | None = None) -> list[str]:
+    if settings.llm_provider != "lm_studio":
+        return []
+    try:
+        return LMStudioNativeProvider(settings, client).loaded_model_instance_ids()
+    except LLMProviderError:
+        return []
+
+
 def _messages_to_native_input(messages: list[LLMChatMessage]) -> str:
     return "\n\n".join(f"{message.role.upper()}:\n{message.content}" for message in messages)
 
@@ -411,3 +554,16 @@ def _optional_float(value) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _as_float(value) -> float:
+    if isinstance(value, bool):
+        raise ValueError("Boolean embedding value is invalid")
+    return float(value)
+
+
+def _http_status_error_message(exc: httpx.HTTPStatusError) -> str:
+    detail = exc.response.text.strip()
+    if detail:
+        return f"{exc.response.status_code} {exc.response.reason_phrase}: {detail}"
+    return str(exc)

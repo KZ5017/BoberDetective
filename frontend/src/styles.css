@@ -73,6 +73,17 @@ label {
   gap: 0.35rem;
 }
 
+.checkbox-label {
+  align-items: center;
+  display: flex;
+  gap: 0.45rem;
+  min-height: 2.35rem;
+}
+
+.checkbox-label input {
+  width: auto;
+}
+
 .app-shell {
   min-height: 100vh;
 }
@@ -326,6 +337,41 @@ label {
 .analysis-summary {
   display: grid;
   gap: 0.55rem;
+}
+
+.model-status-panel {
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.75rem;
+}
+
+.model-status-panel p {
+  color: #52616b;
+  font-size: 0.86rem;
+  margin: 0.2rem 0 0;
+}
+
+.model-status-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.model-status-card {
+  align-content: start;
+  background: #f8fafb;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem;
+}
+
+.model-status-card code {
+  color: #33444f;
+  overflow-wrap: anywhere;
 }
 
 .module-note {
@@ -662,6 +708,7 @@ pre {
   .workspace,
   .main-grid,
   .form-row,
+  .model-status-grid,
   .operation-grid,
   .object-facts {
     grid-template-columns: 1fr;

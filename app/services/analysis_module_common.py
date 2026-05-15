@@ -12,6 +12,7 @@ from app.models.document import DocumentChunkModel, DocumentModel
 from app.schemas.analysis_modules import AnalysisModuleRunRequest
 from app.schemas.search import KeywordSearchRequest, SearchFilters
 from app.services.search import keyword_search
+from app.services.vector_index import hybrid_chunk_search, semantic_chunk_search
 
 
 class AnalysisModuleError(ValueError):
@@ -24,6 +25,7 @@ class RetrievedChunk:
     document_name: str
     chunk: DocumentChunkModel
     retrieval_score: float
+    match_type: str = "keyword"
 
 
 ANALYSIS_RETRIEVAL_STOPWORDS = {
@@ -89,7 +91,7 @@ def retrieve_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunReques
     seen_chunk_ids: set[UUID] = set()
 
     for query in analysis_retrieval_queries(payload.query):
-        hits = keyword_search(
+        keyword_hits = keyword_search(
             db,
             case_id,
             KeywordSearchRequest(
@@ -100,6 +102,12 @@ def retrieve_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunReques
                 target="chunks",
             )
         )
+        if payload.retrieval_strategy == "semantic":
+            hits = semantic_chunk_search(db, case_id, query, payload.limit)
+        elif payload.retrieval_strategy == "hybrid":
+            hits = hybrid_chunk_search(db, case_id, query, keyword_hits, payload.limit)
+        else:
+            hits = keyword_hits
         for hit in hits:
             if hit.chunk_id is None or hit.chunk_id in seen_chunk_ids:
                 continue
@@ -113,6 +121,7 @@ def retrieve_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunReques
                     document_name=hit.document_name,
                     chunk=chunk,
                     retrieval_score=hit.score,
+                    match_type=hit.match_type,
                 )
             )
             if len(retrieved_chunks) >= payload.limit:
@@ -175,6 +184,7 @@ def _document_chunks(db: Session, case_id: UUID, document_id: UUID, limit: int) 
                 document_name=row.original_filename,
                 chunk=row.DocumentChunkModel,
                 retrieval_score=0.0,
+                match_type="document_order",
             )
         )
     return retrieved_chunks
@@ -196,6 +206,7 @@ def _fallback_case_chunks(db: Session, case_id: UUID, limit: int) -> list[Retrie
                 document_name=row.original_filename,
                 chunk=row.DocumentChunkModel,
                 retrieval_score=0.0,
+                match_type="case_order",
             )
         )
     return retrieved_chunks
@@ -249,7 +260,11 @@ def add_retrieved_chunk_inputs(
     from app.services.analysis_runs import add_analysis_run_input
 
     for index, retrieved in enumerate(retrieved_chunks, start=1):
-        payload_json = {"source_label": retrieved.label, "retrieval_score": retrieved.retrieval_score}
+        payload_json = {
+            "source_label": retrieved.label,
+            "retrieval_score": retrieved.retrieval_score,
+            "retrieval_match_type": retrieved.match_type,
+        }
         if batch_metadata_by_chunk_id is not None:
             payload_json.update(batch_metadata_by_chunk_id.get(retrieved.chunk.id, {}))
         add_analysis_run_input(

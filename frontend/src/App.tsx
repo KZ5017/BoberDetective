@@ -22,6 +22,7 @@ import {
   AnalysisSourceMode,
   CaseRead,
   ClaimReviewScope,
+  ChunkIndexStatusResponse,
   DetachedSourceItemRead,
   DocumentChunkRead,
   DocumentPageRead,
@@ -30,6 +31,7 @@ import {
   EventRead,
   ExportDetail,
   ExportRead,
+  LlmSmokeResponse,
   ManualObjectPayload,
   ManualObjectType,
   ManualObjectFromSourcePayload,
@@ -39,6 +41,7 @@ import {
   ReviewReportFilterValues,
   ReviewReportItem,
   ReviewReportSource,
+  RetrievalStrategy,
   attachDetachedSourceItem,
   createCase,
   createExport,
@@ -48,8 +51,10 @@ import {
   detachObjectSource,
   discardDetachedSourceItem,
   getAnalysisRun,
+  getChunkIndexStatus,
   getReviewReport,
   importDocument,
+  getLlmSmoke,
   listDetachedSourceItems,
   listDocumentChunks,
   listDocumentPages,
@@ -60,13 +65,16 @@ import {
   listEvents,
   listExports,
   listMissingItemCandidates,
+  loadChatModel,
+  loadEmbeddingModel,
   mergeEvent,
   mergeEntity,
   mergeMissingItemCandidate,
   moveObjectSource,
   reviewObject,
   runAnalysis,
-  runDocumentOcr
+  runDocumentOcr,
+  startChunkIndexJob
 } from "./api";
 
 const modules = [
@@ -92,6 +100,7 @@ const reviewStatuses = ["", "needs_review", "verified", "rejected", "corrected",
 const sourceValidationStatuses = ["", "source_valid", "source_invalid", "pending_source_validation"];
 const analysisSourceModes: AnalysisSourceMode[] = ["focused_query", "document", "case"];
 const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
+const retrievalStrategies: RetrievalStrategy[] = ["keyword", "semantic", "hybrid"];
 
 const busyLabels: Record<string, string> = {
   cases: "Ugylista frissitese",
@@ -118,7 +127,11 @@ const busyLabels: Record<string, string> = {
   "detached-source-attach": "Levalasztott forras csatolasa",
   "detached-source-discard": "Levalasztott forras irrelevansnak jelolese",
   "manual-object": "Kezi objektum rogzitese",
-  "manual-contradiction": "Kezi ellentmondasjelolt rogzitese"
+  "manual-contradiction": "Kezi ellentmondasjelolt rogzitese",
+  "chunk-index": "Chunk indexeles",
+  "llm-smoke": "LLM modell allapot",
+  "chat-load": "Chat modell betoltese",
+  "embedding-load": "Embedding modell betoltese"
 };
 
 const moduleLabels: Record<string, string> = {
@@ -142,6 +155,12 @@ const claimReviewScopeLabels: Record<ClaimReviewScope, string> = {
   verified: "Csak ellenorzott",
   needs_review: "Ellenorzesre varok",
   all_source_valid: "Minden forraservenyes"
+};
+
+const retrievalStrategyLabels: Record<RetrievalStrategy, string> = {
+  keyword: "Kulcsszavas",
+  semantic: "Szemantikus",
+  hybrid: "Hybrid"
 };
 
 const objectTypeLabels: Record<string, string> = {
@@ -244,6 +263,11 @@ export function App() {
   const [maxChunks, setMaxChunks] = useState(50);
   const [batchSize, setBatchSize] = useState(5);
   const [claimReviewScope, setClaimReviewScope] = useState<ClaimReviewScope>("reviewable");
+  const [retrievalStrategy, setRetrievalStrategy] = useState<RetrievalStrategy>("keyword");
+  const [forceReindex, setForceReindex] = useState(false);
+  const [activeIndexJobId, setActiveIndexJobId] = useState<string | null>(null);
+  const [llmSmoke, setLlmSmoke] = useState<LlmSmokeResponse | null>(null);
+  const [chunkIndexStatus, setChunkIndexStatus] = useState<ChunkIndexStatusResponse | null>(null);
   const [objectType, setObjectType] = useState("");
   const [reviewStatus, setReviewStatus] = useState("needs_review");
   const [sourceValidationStatus, setSourceValidationStatus] = useState("source_valid");
@@ -313,12 +337,16 @@ export function App() {
   const isContradictionModule = moduleKey === "detect_contradiction_candidates";
   const effectiveAnalysisSourceMode: AnalysisSourceMode = canUseBatchScope ? analysisSourceMode : "focused_query";
   const requiresFocusText = effectiveAnalysisSourceMode === "focused_query" && !isContradictionModule;
+  const usesSemanticIndex = canUseBatchScope && effectiveAnalysisSourceMode === "focused_query" && retrievalStrategy !== "keyword";
+  const semanticIndexReady = !usesSemanticIndex || Boolean(chunkIndexStatus?.is_ready);
+  const indexJobIsRunning = chunkIndexStatus?.latest_run_status === "running";
   const busyLabel = busy ? (busyLabels[busy] ?? busy) : "Keszenlet";
   const canRunAnalysis =
     Boolean(selectedCaseId) &&
     !busy &&
     (!requiresFocusText || query.trim().length > 0) &&
-    (effectiveAnalysisSourceMode !== "document" || Boolean(analysisDocumentId));
+    (effectiveAnalysisSourceMode !== "document" || Boolean(analysisDocumentId)) &&
+    semanticIndexReady;
   const reportFilters = useMemo<ReviewReportFilterValues>(
     () => ({
       objectType: objectType || undefined,
@@ -365,6 +393,52 @@ export function App() {
       setAnalysisSourceMode("focused_query");
     }
   }, [analysisSourceMode, canUseBatchScope]);
+
+  useEffect(() => {
+    if (!selectedCaseId || !canUseBatchScope) {
+      setChunkIndexStatus(null);
+      return;
+    }
+    const documentId = effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null;
+    if (effectiveAnalysisSourceMode === "document" && !documentId) {
+      setChunkIndexStatus(null);
+      return;
+    }
+    void refreshChunkIndexStatus(documentId).catch(() => setChunkIndexStatus(null));
+  }, [selectedCaseId, canUseBatchScope, effectiveAnalysisSourceMode, analysisDocumentId]);
+
+  useEffect(() => {
+    if (!selectedCaseId || !activeIndexJobId) {
+      return;
+    }
+    const documentId = effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await refreshChunkIndexStatus(documentId);
+        const runsResponse = await listAnalysisRuns(selectedCaseId);
+        if (cancelled) return;
+        setAnalysisRuns(runsResponse.data);
+        if (response?.latest_run_id === activeIndexJobId && response.latest_run_status && response.latest_run_status !== "running") {
+          setActiveIndexJobId(null);
+          setNotice(response.latest_run_status === "succeeded" ? "Szovegresz-indexeles befejezodott." : "Szovegresz-indexeles hibaval leallt.");
+          setLastActionSummary(
+            `Indexeles: ${labelRunStatus(response.latest_run_status)}, ${response.latest_run_output_count}/${response.latest_run_input_count} szovegresz`
+          );
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Indexelesi allapot lekerdezese sikertelen.");
+        }
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedCaseId, activeIndexJobId, effectiveAnalysisSourceMode, analysisDocumentId]);
 
   useEffect(() => {
     if (busyStartedAt === null) {
@@ -556,7 +630,8 @@ export function App() {
         document_id: effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null,
         max_chunks: maxChunks,
         batch_size: batchSize,
-        claim_review_scope: claimReviewScope
+        claim_review_scope: claimReviewScope,
+        retrieval_strategy: retrievalStrategy
       };
       const response = await runAnalysis(selectedCaseId, moduleKey, payload);
       setAnalysis(response);
@@ -580,6 +655,66 @@ export function App() {
       setLastActionSummary(
         `${labelModule(response.module_key)}: ${labelAnalysisSourceMode(effectiveAnalysisSourceMode)}, ${labelValidationStatus(response.validation_status)}, ${analysisSourceMetric(response)}, ${analysisOutputCount(response)} kimenet`
       );
+    });
+  }
+
+  async function refreshChunkIndexStatus(documentIdOverride?: string | null): Promise<ChunkIndexStatusResponse | null> {
+    if (!selectedCaseId) return null;
+    const documentId = documentIdOverride !== undefined ? documentIdOverride : effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null;
+    const response = await getChunkIndexStatus(selectedCaseId, documentId || null);
+    setChunkIndexStatus(response);
+    return response;
+  }
+
+  async function handleIndexChunks() {
+    if (!selectedCaseId) return;
+    await perform("chunk-index", async () => {
+      const response = await startChunkIndexJob(selectedCaseId, {
+        document_id: effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null,
+        limit: maxChunks,
+        force_reindex: forceReindex
+      });
+      const [runsResponse, documentsResponse] = await Promise.all([
+        listAnalysisRuns(selectedCaseId),
+        listDocuments(selectedCaseId)
+      ]);
+      setAnalysisRuns(runsResponse.data);
+      setDocuments(documentsResponse.data);
+      await refreshChunkIndexStatus(effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null);
+      setActiveIndexJobId(response.analysis_run_id);
+      setNotice("Szovegresz-indexeles elindult, az allapot automatikusan frissul.");
+      setLastActionSummary(
+        `Indexeles inditva: ${labelRunStatus(response.status)}, gyujtemeny: ${response.collection_name}`
+      );
+    });
+  }
+
+  async function handleLlmSmoke() {
+    await perform("llm-smoke", async () => {
+      const response = await getLlmSmoke();
+      setLlmSmoke(response);
+      setNotice("LLM modell allapot frissitve.");
+      setLastActionSummary(`Chat: ${labelModelLoadState(response.configured_chat_model_loaded)}, embedding: ${labelModelLoadState(response.configured_embedding_model_loaded)}`);
+    });
+  }
+
+  async function handleLoadChatModel() {
+    await perform("chat-load", async () => {
+      await loadChatModel();
+      const response = await getLlmSmoke();
+      setLlmSmoke(response);
+      setNotice("Chat modell betoltve.");
+      setLastActionSummary(`Betoltott chat modell: ${response.configured_chat_model}`);
+    });
+  }
+
+  async function handleLoadEmbeddingModel() {
+    await perform("embedding-load", async () => {
+      await loadEmbeddingModel();
+      const response = await getLlmSmoke();
+      setLlmSmoke(response);
+      setNotice("Embedding modell betoltve.");
+      setLastActionSummary(`Betoltott embedding modell: ${response.configured_embedding_model}`);
     });
   }
 
@@ -1522,6 +1657,95 @@ export function App() {
               <h2>Elemzes</h2>
               <Search size={20} />
             </div>
+            <div className="source-action-row">
+              <button className="secondary-button" onClick={handleLlmSmoke} disabled={Boolean(busy)}>
+                Modell allapot frissitese
+              </button>
+            </div>
+            {llmSmoke && (
+              <div className="model-status-panel">
+                <div>
+                  <strong>Lokalis modell allapot</strong>
+                  <p>Provider: {llmSmoke.provider} | API: {llmSmoke.reachable ? "elerheto" : "nem erheto el"}</p>
+                </div>
+                <div className="model-status-grid">
+                  <div className="model-status-card">
+                    <strong>Chat modell</strong>
+                    <code>{llmSmoke.configured_chat_model}</code>
+                    <div className="metrics">
+                      <span>{labelModelAvailability(llmSmoke.configured_chat_model_available)}</span>
+                      <span>{labelModelLoadState(llmSmoke.configured_chat_model_loaded)}</span>
+                    </div>
+                    <button className="secondary-button" onClick={handleLoadChatModel} disabled={Boolean(busy)}>
+                      Chat modell betoltese
+                    </button>
+                  </div>
+                  <div className="model-status-card">
+                    <strong>Embedding modell</strong>
+                    <code>{llmSmoke.configured_embedding_model}</code>
+                    <div className="metrics">
+                      <span>{labelModelAvailability(llmSmoke.configured_embedding_model_available)}</span>
+                      <span>{labelModelLoadState(llmSmoke.configured_embedding_model_loaded)}</span>
+                    </div>
+                    <button className="secondary-button" onClick={handleLoadEmbeddingModel} disabled={Boolean(busy)}>
+                      Embedding modell betoltese
+                    </button>
+                  </div>
+                </div>
+                {llmSmoke.loaded_model_ids.length > 0 && (
+                  <p className="field-hint">Betoltott instance-ek: {llmSmoke.loaded_model_ids.join(", ")}</p>
+                )}
+                {llmSmoke.error_message && <p className="error-text">{llmSmoke.error_message}</p>}
+              </div>
+            )}
+            {canUseBatchScope && chunkIndexStatus && (
+              <div className="model-status-panel">
+                <div>
+                  <strong>Szemantikus index allapot</strong>
+                  <p>{chunkIndexStatus.document_id ? "Kivalasztott irat" : "Teljes ugy"} | {chunkIndexStatus.embedding_model}</p>
+                </div>
+                <div className="metrics">
+                  <span>{labelChunkIndexStatus(chunkIndexStatus)}</span>
+                  <span>Indexelve: {chunkIndexStatus.indexed_chunk_count}/{chunkIndexStatus.current_chunk_count}</span>
+                  <span>Hianyzik: {chunkIndexStatus.missing_chunk_count}</span>
+                </div>
+                <code>{chunkIndexStatus.collection_name}</code>
+                {chunkIndexStatus.latest_run_id && (
+                  <p className="field-hint">
+                    Utolso indexeles: {chunkIndexStatus.latest_run_status ? labelRunStatus(chunkIndexStatus.latest_run_status) : "ismeretlen"}
+                    {chunkIndexStatus.latest_run_finished_at ? ` | ${new Date(chunkIndexStatus.latest_run_finished_at).toLocaleString()}` : ""}
+                  </p>
+                )}
+                {chunkIndexStatus.latest_run_input_count > 0 && (
+                  <p className="field-hint">
+                    Folyamat: {chunkIndexStatus.latest_run_output_count}/{chunkIndexStatus.latest_run_input_count} szovegresz
+                    {chunkIndexStatus.latest_run_progress_percent !== null ? ` | ${chunkIndexStatus.latest_run_progress_percent}%` : ""}
+                  </p>
+                )}
+                {indexJobIsRunning && (
+                  <p className="field-hint">Indexeles folyamatban, az allapot automatikusan frissul.</p>
+                )}
+                {usesSemanticIndex && !chunkIndexStatus.is_ready && (
+                  <p className="error-text">Szemantikus vagy hybrid futtatashoz elobb indexelni kell az aktualis forraskort.</p>
+                )}
+              </div>
+            )}
+            {canUseBatchScope && (
+              <div className="source-action-row">
+                <button
+                  className="secondary-button"
+                  onClick={handleIndexChunks}
+                  disabled={!selectedCaseId || Boolean(busy) || indexJobIsRunning || (effectiveAnalysisSourceMode === "document" && !analysisDocumentId)}
+                  title="Lokalis embedding es Qdrant index keszitese az aktualis forraskorhoz"
+                >
+                  {indexJobIsRunning ? "Indexeles folyamatban" : "Szovegreszek indexelese"}
+                </button>
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={forceReindex} onChange={(event) => setForceReindex(event.target.checked)} />
+                  Ujraindexeles
+                </label>
+              </div>
+            )}
             <div className="form-row">
               <label>
                 Modul
@@ -1582,6 +1806,23 @@ export function App() {
                   />
                 </label>
               </div>
+            )}
+            {canUseBatchScope && (
+              <>
+                <div className="form-row">
+                  <label>
+                    Forraskereses
+                    <select
+                      value={retrievalStrategy}
+                      onChange={(event) => setRetrievalStrategy(event.target.value as RetrievalStrategy)}
+                      disabled={effectiveAnalysisSourceMode !== "focused_query"}
+                    >
+                      {retrievalStrategies.map((item) => <option key={item} value={item}>{labelRetrievalStrategy(item)}</option>)}
+                    </select>
+                    <span className="field-hint">Szemantikus vagy hybrid modhoz elobb indexeld a szovegreszeket.</span>
+                  </label>
+                </div>
+              </>
             )}
             {isContradictionModule && (
               <>
@@ -2182,6 +2423,27 @@ function labelAnalysisSourceMode(value: AnalysisSourceMode) {
 
 function labelClaimReviewScope(value: ClaimReviewScope) {
   return claimReviewScopeLabels[value] ?? value;
+}
+
+function labelRetrievalStrategy(value: RetrievalStrategy) {
+  return retrievalStrategyLabels[value] ?? value;
+}
+
+function labelModelAvailability(value: boolean | null) {
+  if (value === null) return "nem ellenorizheto";
+  return value ? "elerheto" : "nem latszik";
+}
+
+function labelModelLoadState(value: boolean | null) {
+  if (value === null) return "nem ellenorizheto";
+  return value ? "betoltve" : "nincs betoltve";
+}
+
+function labelChunkIndexStatus(value: ChunkIndexStatusResponse) {
+  if (value.current_chunk_count === 0) return "nincs chunk";
+  if (value.is_ready) return "index kesz";
+  if (value.indexed_chunk_count > 0) return "reszben indexelve";
+  return "indexeles szukseges";
 }
 
 function clampNumberInput(value: string, min: number, max: number, fallback: number) {

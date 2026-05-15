@@ -24,6 +24,7 @@ class KeywordSearchHit:
     chunk_id: UUID | None = None
     chunk_index: int | None = None
     quote: str | None = None
+    match_type: str = "keyword"
 
 
 def keyword_search(db: Session, case_id: UUID, request: KeywordSearchRequest) -> list[KeywordSearchHit]:

@@ -201,9 +201,10 @@ Current implementation caveats:
 - PostgreSQL is reachable at `127.0.0.1:5432`.
 - Qdrant is reachable at `127.0.0.1:6333`.
 - LM Studio is reachable from WSL at `http://127.0.0.1:1234/v1`.
-- Configured Qwen load profile is `context_length=4096`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; latest model-load smoke accepted it through `POST /api/v1/system/llm/load-chat-model`.
+- Configured chat-model load profile is `context_length=12288`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; chat model loading uses `POST /api/v1/system/llm/load-chat-model`.
+- Configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`; embedding model loading uses `POST /api/v1/system/llm/load-embedding-model` with `context_length=12288`, and embedding calls auto-ensure the configured model is loaded before `/v1/embeddings`. LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load.
 - LM Studio native chat calls auto-ensure the configured chat model is loaded; they reuse a matching loaded instance id or load the model with the configured profile when missing.
-- Latest test run: `161 passed`.
+- Latest test run: `171 passed`.
 - Latest Alembic state: `0016_manual_entry (head)`.
 - Native-text PDF import uses configurable `BOBERDETECTIVE_PDF_PARSER`; the default `docling_then_pypdf` profile prefers Docling and falls back to local `pypdf`.
 - Docling is installed in `.venv`; explicit `BOBERDETECTIVE_PDF_PARSER=docling` import smoke passed with parser `docling` and `parse_document` validation `passed`.
@@ -215,6 +216,7 @@ Current implementation caveats:
 - Document page API returns OCR confidence as a numeric value and handles Decimal-backed DB values.
 - Default upload limit is 50 MiB through `BOBERDETECTIVE_MAX_UPLOAD_BYTES`.
 - Analysis batch processing is planned in `Design_documents/10_analysis_batch_processing_plan.md`; raw-chunk analysis modules are batch-capable while preserving focused query mode.
+- `extract_events` caps its effective batch size at 2 chunks for local LLM stability even when the requested UI/API batch size is higher; latest semantic live regression with query `gyilkossággal esettel kapcsolatos események`, `limit=10`, and requested `batch_size=5` completed without timeout in about 262s.
 - `detect_contradiction_candidates` is intentionally claim-pair based rather than raw chunk batch-based; it records claim-selection and selected-pair metadata, returns a warning without LLM execution when fewer than two source-valid claims or no selected pairs exist, and rejects model output that references unselected claim pairs.
 - Contradiction candidate output is normalized before persistence: same pair/type duplicates are skipped, most model-proposed `high` severities are capped to `medium`, and titles/descriptions are deterministic conservative text based on the selected source-cited claim pair.
 - Contradiction detection supports `claim_review_scope`; default `reviewable` excludes rejected claims and includes source-valid `new`, `needs_review`, `verified`, and `corrected` claims.
@@ -249,8 +251,16 @@ Current implementation caveats:
 Strategic next direction:
 
 - Continue hardening the backend analysis foundation rather than deep frontend polishing.
-- Current checkpoint is ready for commit and push after documentation synchronization.
-- Next larger target after this checkpoint should be retrieval/indexing hardening, likely Qdrant/embedding-backed or hybrid source selection for larger cases.
+- Retrieval/indexing foundation has started: chunk indexing uses local LM Studio/OpenAI-compatible embeddings plus model-specific Qdrant collections, skips only chunks indexed with the currently configured embedding model, and focused-query raw-chunk analysis modules can request `keyword`, `semantic`, or `hybrid` retrieval.
+- Embedding index creation uses `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` defaulting to `8`; keep it conservative on the current 32 GB workstation to avoid LM Studio timeout/RAM spikes.
+- Background chunk indexing is exposed through `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; it creates an `embed_chunks` analysis run and returns immediately while FastAPI `BackgroundTasks` performs the embedding/Qdrant work.
+- Chunk index readiness is exposed through `GET /api/v1/cases/{case_id}/indexes/chunks/status`; frontend semantic/hybrid runs are blocked until the active source scope is fully indexed with the configured embedding model, and the same status response exposes latest-run input/output progress.
+- Latest Qwen3 embedding smoke loaded `text-embedding-qwen3-embedding-8b`, reindexed 49 chunks from the Morgue PDF into `boberdetective_chunks_text_embedding_qwen3_embedding_8b`, returned semantic hybrid-search hits, and a focused `extract_claims` run recorded hybrid/semantic retrieval provenance. The current configured embedding default has since been reduced to `text-embedding-qwen3-embedding-4b@q6_k`; reindex before comparing new retrieval results.
+- Latest empty-state model-load smoke accepted the current reduced profile: `text-embedding-qwen3-embedding-4b` loaded in 3.461s and `qwen/qwen3.5-9b` loaded in 16.942s with `eval_batch_size=6144`.
+- Latest 4B embedding reindex smoke succeeded with `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE=8`: 49 Morgue PDF chunks were indexed into `boberdetective_chunks_text_embedding_qwen3_embedding_4b` in about 120s.
+- Latest background indexing smoke succeeded: a 16-chunk forced Morgue PDF reindex returned immediately, status polling showed `0/16 -> 8/16 -> 16/16`, and the run finished `succeeded` / `passed`.
+- User-side semantic/hybrid retrieval smoke after switching to `text-embedding-qwen3-embedding-4b@q6_k` found no obvious quality regression so far.
+- Next target should be retrieval ranking calibration, document/case source-mode hybrid selection, and frontend visibility into selected source chunks. Keep source provenance and `no source -> no claim` central.
 - Frontend work in this phase should only support the backend workflow: source scope, optional focus, batch limits, Hungarian labels, and clear status/error feedback.
 - Rationale: raw-chunk modules can now process document/case scopes, while contradiction detection should operate downstream from source-cited claims and keep `no source -> no claim` intact.
 

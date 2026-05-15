@@ -64,6 +64,7 @@ def run_detect_missing_items(db: Session, case_id: UUID, payload: AnalysisModule
         "document_id": str(payload.document_id) if payload.document_id is not None else None,
         "max_chunks": payload.max_chunks,
         "batch_size": payload.batch_size,
+        "retrieval_strategy": payload.retrieval_strategy,
     }
     run = start_analysis_run(
         db,

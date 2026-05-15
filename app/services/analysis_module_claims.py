@@ -1,5 +1,7 @@
 from typing import Any
 from uuid import UUID
+import json
+import re
 
 from sqlalchemy.orm import Session
 
@@ -45,6 +47,14 @@ Elvart JSON alak:
 {"claims":[{"claim_type":"document_fact","claim_text":"...","quote_text":"...","source_label":"chunk_1"}],"unsupported_claims":["..."]}
 """
 
+CLAIMS_JSON_REPAIR_SYSTEM_PROMPT = """Te egy szigoruan technikai JSON-javito komponens vagy.
+Feladatod csak az, hogy a kapott, hibas JSON-szeru szoveget ervenyes JSON objektumma javitsd.
+Nem adhatsz hozza uj allitast, nem torolhetsz forrasmegjelolest, nem egeszitheted ki a tartalmat kulso tudassal.
+Kulonosen figyelj arra, hogy a quote_text mezokben levo idezojeleket JSON szerint escape-eld.
+Valaszolj kizarolag ervenyes JSON objektummal ebben az alakban:
+{"claims":[{"claim_type":"document_fact","claim_text":"...","quote_text":"...","source_label":"chunk_1"}],"unsupported_claims":["..."]}
+"""
+
 
 def run_extract_claims(db: Session, case_id: UUID, payload: AnalysisModuleRunRequest) -> AnalysisModuleRunResponse:
     settings = get_settings()
@@ -55,6 +65,7 @@ def run_extract_claims(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
         "document_id": str(payload.document_id) if payload.document_id is not None else None,
         "max_chunks": payload.max_chunks,
         "batch_size": payload.batch_size,
+        "retrieval_strategy": payload.retrieval_strategy,
     }
     run = start_analysis_run(
         db,
@@ -89,7 +100,8 @@ def run_extract_claims(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
 
         for batch_index, batch in enumerate(batches, start=1):
             try:
-                completion = LMStudioNativeProvider(settings).chat_completion(
+                provider = LMStudioNativeProvider(settings)
+                completion = provider.chat_completion(
                     settings.llm_chat_model,
                     [
                         LLMChatMessage(role="system", content=EXTRACT_CLAIMS_SYSTEM_PROMPT),
@@ -101,7 +113,7 @@ def run_extract_claims(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
                     temperature=0.1,
                     max_tokens=1600,
                 )
-                parsed = parse_llm_json_object(completion.content)
+                parsed = parse_claims_json_with_repair(completion.content, provider, settings.llm_chat_model)
                 valid_claims, batch_unsupported = validate_extracted_claims(parsed, batch)
                 unsupported_items.extend(batch_unsupported)
                 processed_batch_count += 1
@@ -165,8 +177,22 @@ def run_extract_claims(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
                 )
 
         if failed_batch_count == len(batches):
-            message = "All claim extraction batches failed"
-            finish_analysis_run(db, run, status="failed", validation_status="failed", error_message=message)
+            message = "Az osszes allitaskinyeresi batch sikertelen volt"
+            if unsupported_items:
+                message = f"{message}: {unsupported_items[0]}"
+            finish_analysis_run(
+                db,
+                run,
+                status="failed",
+                validation_status="failed",
+                error_message=message,
+                output_summary={
+                    "batch_count": len(batches),
+                    "processed_batch_count": processed_batch_count,
+                    "failed_batch_count": failed_batch_count,
+                    "unsupported_items": unsupported_items[:5],
+                },
+            )
             raise AnalysisModuleError(message)
 
         validation_status = "passed"
@@ -213,6 +239,109 @@ def _claim_dedup_key(claim: dict[str, Any]) -> tuple[str, str]:
         _normalize_for_dedup(claim["claim_type"]),
         _normalize_for_dedup(claim["claim_text"]),
     )
+
+
+def parse_claims_json_with_repair(raw_content: str, provider: LMStudioNativeProvider, model: str) -> dict[str, Any]:
+    try:
+        return parse_llm_json_object(raw_content)
+    except AnalysisModuleError as first_error:
+        lenient_payload = parse_claims_json_lenient(raw_content)
+        if lenient_payload is not None:
+            return lenient_payload
+        repair_completion = provider.chat_completion(
+            model,
+            [
+                LLMChatMessage(role="system", content=CLAIMS_JSON_REPAIR_SYSTEM_PROMPT),
+                LLMChatMessage(
+                    role="user",
+                    content=(
+                        "HIBAS JSON-SZERU VALASZ:\n"
+                        f"{raw_content}\n\n"
+                        "Javitsd ervenyes JSON objektumma. Csak a JSON-t add vissza."
+                    ),
+                ),
+            ],
+            temperature=0.0,
+            max_tokens=2200,
+        )
+        try:
+            return parse_llm_json_object(repair_completion.content)
+        except AnalysisModuleError as repair_error:
+            lenient_payload = parse_claims_json_lenient(repair_completion.content)
+            if lenient_payload is not None:
+                return lenient_payload
+            raise AnalysisModuleError(f"{first_error}; JSON repair failed: {repair_error}") from repair_error
+
+
+def parse_claims_json_lenient(raw_content: str) -> dict[str, Any] | None:
+    claim_objects = _extract_claim_like_objects(raw_content)
+    claims = []
+    for item in claim_objects:
+        claim_type = _extract_json_like_string_field(item, "claim_type")
+        claim_text = _extract_json_like_string_field(item, "claim_text")
+        quote_text = _extract_json_like_string_field(item, "quote_text")
+        source_label = _extract_json_like_string_field(item, "source_label")
+        if claim_text is None or quote_text is None or source_label is None:
+            continue
+        claims.append(
+            {
+                "claim_type": claim_type or "document_fact",
+                "claim_text": claim_text,
+                "quote_text": quote_text,
+                "source_label": source_label,
+            }
+        )
+    if not claims:
+        return None
+    return {"claims": claims, "unsupported_claims": _extract_unsupported_claims_lenient(raw_content)}
+
+
+def _extract_claim_like_objects(raw_content: str) -> list[str]:
+    claims_match = re.search(r'"claims"\s*:\s*\[', raw_content)
+    if claims_match is None:
+        return []
+    index = claims_match.end()
+    depth = 0
+    object_start: int | None = None
+    objects: list[str] = []
+    while index < len(raw_content):
+        char = raw_content[index]
+        if char == "]" and depth == 0:
+            break
+        if char == "{":
+            if depth == 0:
+                object_start = index
+            depth += 1
+        elif char == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and object_start is not None:
+                objects.append(raw_content[object_start : index + 1])
+                object_start = None
+        index += 1
+    return objects
+
+
+def _extract_json_like_string_field(object_text: str, field_name: str) -> str | None:
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*"(?P<value>.*?)"\s*(?=,\s*"[a-zA-Z_]+":|\s*}})'
+    match = re.search(pattern, object_text, flags=re.DOTALL)
+    if match is None:
+        return None
+    value = match.group("value")
+    try:
+        return json.loads(f'"{value}"')
+    except json.JSONDecodeError:
+        return value
+
+
+def _extract_unsupported_claims_lenient(raw_content: str) -> list[str]:
+    match = re.search(r'"unsupported_claims"\s*:\s*(\[[\s\S]*?\])', raw_content)
+    if match is None:
+        return []
+    try:
+        value = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _normalize_for_dedup(value: str) -> str:
