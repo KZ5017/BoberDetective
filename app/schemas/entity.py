@@ -51,3 +51,17 @@ class EntityDetail(BaseModel):
     entity: EntityRead
     mentions: list[EntityMentionRead]
     reviews: list[HumanReviewRead]
+
+
+class EntityMergeCreate(BaseModel):
+    target_entity_id: UUID
+    review_comment: str | None = None
+
+
+class EntitySourceDetachCreate(BaseModel):
+    review_comment: str | None = None
+
+
+class EntitySourceMoveCreate(BaseModel):
+    target_entity_id: UUID
+    review_comment: str | None = None

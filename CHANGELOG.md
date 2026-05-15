@@ -19,15 +19,30 @@
 - Added contradiction candidate quality safeguards: same pair/type deduplication, conservative severity normalization, and deterministic pair-bound titles/descriptions generated from selected source-cited claims.
 - Added `claim_review_scope` for `detect_contradiction_candidates`; the default `reviewable` scope excludes rejected claims while allowing `new`, `needs_review`, `verified`, and `corrected` source-valid claims.
 - Added explicit contradiction qualification for `detect_contradiction_candidates`; persisted candidates now require `is_contradiction_candidate=true` and a concrete `conflict_basis`, while related/non-conflicting pairs are rejected or reported as unsupported.
+- Added historical deduplication before persistence for repeated analysis runs across claims, events, summary items, missing item candidates, and contradiction candidates.
+- Added regression coverage for analysis deduplication normalization and content-matched duplicate detection.
+- Added entity merge-on-extraction behavior: repeated content-matched entities reuse the existing entity and add/link mentions instead of creating duplicate entity review objects.
+- Added explicit entity merge workflow with an API endpoint and frontend `Osszevonas` action so ambiguous identity decisions remain human-reviewed instead of automatic alias guesses.
+- Moved frontend entity merge target selection to the full case entity list and exposed quick merge controls directly on report item cards as well as the object detail panel.
+- Added explicit event merge workflow with API and frontend controls; event source links move to the selected target event, duplicate source links are skipped, and the source event is marked `corrected`.
+- Added explicit missing item candidate merge workflow with API and frontend controls; source links move to the selected target candidate, duplicate source links are skipped, and the source candidate is marked `corrected`.
+- Added audit-tracked source detach workflows for entities, events, and missing item candidates, with frontend `Levalasztas` actions on source details when a concrete source-link id is available.
+- Added `detached_source_items` persistence and a frontend `Levalasztott forrasok` panel so detached source links keep their source reference and detached-from object snapshot.
+- Added parked-source reattach/discard actions and direct same-type source move controls for entity, event, and missing item candidate sources.
+- Added persisted reattach target fields for detached source items so the parked-source list shows which object received a reattached source.
+- Added source-bound manual object creation from selected document chunk text for claims, entities, events, and missing item candidates, tracked through `manual_entry` analysis runs.
+- Added source-bound manual object creation from detached source items, marking the detached item handled by the newly created object.
+- Added manual contradiction candidate creation from two source-valid, non-rejected claims, with readonly claim/source previews in the frontend and `manual_entry` analysis run provenance in the backend.
 - Hardened LLM JSON handling for analysis modules by extracting a JSON object from otherwise valid responses with extra surrounding text, while still rejecting malformed JSON.
 - Added frontend source scope controls for batch-capable raw-chunk analysis modules, including focused query, selected document, whole case, optional focus text, max source chunks, and batch size.
 - Added frontend support for the contradiction claim-pair workflow: optional focus and claim review scope in the analysis panel, claim-selection metrics, selected pair display, claim pair membership display, claim-pair based analysis summary text, and conservative review notes for contradiction candidates.
 - Changed frontend analysis focus input to start empty for every module; module-specific examples are placeholders only and are not submitted unless the user types text.
+- Removed redundant review report quick-filter buttons; review report filtering now uses the dropdown controls only.
 
 ### Changed
 
 - Updated handoff/session documentation to make the analysis batch foundation the next logical development direction while preserving the current focused query workflow.
-- Updated the verification baseline to `142 passed` and Alembic head `0013_processing_runs`.
+- Updated the verification baseline to `161 passed` and Alembic head `0016_manual_entry`.
 - Recorded live batch analysis smoke results for `extract_claims` in document and case source modes; both completed with `validation_status=passed`.
 - Recorded live batch analysis smoke results for `extract_events` in document and case source modes; both completed with `validation_status=passed`.
 - Recorded live batch analysis smoke results for `extract_entities` in document and case source modes; both completed with `validation_status=passed`.
@@ -35,6 +50,7 @@
 - Recorded live batch analysis smoke results for `detect_missing_items` in document and case source modes; both completed with `validation_status=passed`.
 - Verified the frontend build after adding source scope controls.
 - Verified the frontend build after adding contradiction claim-pair UI support.
+- Verified the frontend build after adding manual contradiction candidate UI support.
 - Hardened the `extract_events` prompt against invalid JSON from long quotes and unescaped double quotes; focused query `narrátor Dupin` now returns `validation_status=passed`.
 - Made all-failed `extract_events` batch errors include the first batch failure reason instead of only a generic message.
 - Clarified `detect_contradiction_candidates` as a claim-pair module rather than a raw chunk batch module.

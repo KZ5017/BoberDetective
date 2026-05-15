@@ -6,12 +6,14 @@ import {
   Download,
   FilePlus2,
   FolderPlus,
+  GitMerge,
   Loader2,
   MessageSquare,
   Play,
   RefreshCw,
   Search,
-  ShieldCheck
+  ShieldCheck,
+  Unlink
 } from "lucide-react";
 import {
   AnalysisResponse,
@@ -20,25 +22,48 @@ import {
   AnalysisSourceMode,
   CaseRead,
   ClaimReviewScope,
+  DetachedSourceItemRead,
   DocumentChunkRead,
   DocumentPageRead,
   DocumentRead,
+  EntityRead,
+  EventRead,
   ExportDetail,
   ExportRead,
+  ManualObjectPayload,
+  ManualObjectType,
+  ManualObjectFromSourcePayload,
+  ManualContradictionCandidatePayload,
+  MissingItemCandidateRead,
   ReviewReport,
   ReviewReportFilterValues,
   ReviewReportItem,
+  ReviewReportSource,
+  attachDetachedSourceItem,
   createCase,
   createExport,
+  createManualObject,
+  createManualContradictionCandidate,
+  createManualObjectFromDetachedSource,
+  detachObjectSource,
+  discardDetachedSourceItem,
   getAnalysisRun,
   getReviewReport,
   importDocument,
+  listDetachedSourceItems,
   listDocumentChunks,
   listDocumentPages,
   listAnalysisRuns,
   listCases,
   listDocuments,
+  listEntities,
+  listEvents,
   listExports,
+  listMissingItemCandidates,
+  mergeEvent,
+  mergeEntity,
+  mergeMissingItemCandidate,
+  moveObjectSource,
   reviewObject,
   runAnalysis,
   runDocumentOcr
@@ -84,7 +109,16 @@ const busyLabels: Record<string, string> = {
   "review-verify": "Felulvizsgalat rogzítese",
   "review-reject": "Felulvizsgalat rogzítese",
   "review-mark_needs_review": "Felulvizsgalat rogzítese",
-  "review-comment": "Megjegyzes rogzítese"
+  "review-comment": "Megjegyzes rogzítese",
+  "entity-merge": "Entitasok osszevonasa",
+  "event-merge": "Esemenyek osszevonasa",
+  "missing-item-merge": "Hianyzo irat jeloltek osszevonasa",
+  "source-detach": "Forras levalasztasa",
+  "source-move": "Forras athelyezese",
+  "detached-source-attach": "Levalasztott forras csatolasa",
+  "detached-source-discard": "Levalasztott forras irrelevansnak jelolese",
+  "manual-object": "Kezi objektum rogzitese",
+  "manual-contradiction": "Kezi ellentmondasjelolt rogzitese"
 };
 
 const moduleLabels: Record<string, string> = {
@@ -93,7 +127,8 @@ const moduleLabels: Record<string, string> = {
   extract_entities: "Entitasok kinyerese",
   summarize_case: "Ugyosszefoglalo keszitese",
   detect_contradiction_candidates: "Ellentmondasjeloltek keresese",
-  detect_missing_items: "Hianyzo iratok keresese"
+  detect_missing_items: "Hianyzo iratok keresese",
+  manual_entry: "Kezi rogzitese"
 };
 
 const analysisSourceModeLabels: Record<AnalysisSourceMode, string> = {
@@ -117,6 +152,28 @@ const objectTypeLabels: Record<string, string> = {
   contradiction_candidate: "Ellentmondasjelolt",
   missing_item_candidate: "Hianyzo irat jelolt",
   export: "Export"
+};
+
+const manualObjectTypeLabels: Record<ManualObjectType, string> = {
+  claim: "Allitas",
+  entity: "Entitas",
+  event: "Esemeny",
+  missing_item_candidate: "Hianyzo irat jelolt"
+};
+
+const contradictionTypeLabels: Record<ManualContradictionCandidatePayload["contradiction_type"], string> = {
+  time_conflict: "Idobeli elteres",
+  location_conflict: "Helyszinbeli elteres",
+  identity_conflict: "Azonossagi elteres",
+  document_mismatch: "Iratbeli elteres",
+  amount_conflict: "Osszegbeli elteres",
+  other: "Egyeb elteres"
+};
+
+const severityHintLabels: Record<NonNullable<ManualContradictionCandidatePayload["severity_hint"]>, string> = {
+  low: "Alacsony",
+  medium: "Kozepes",
+  high: "Magas"
 };
 
 const reviewStatusLabels: Record<string, string> = {
@@ -150,14 +207,26 @@ const actionLabels: Record<string, string> = {
   verify: "Ellenorzes",
   reject: "Elutasitas",
   mark_needs_review: "Ellenorzesre jeloles",
-  comment: "Megjegyzes"
+  comment: "Megjegyzes",
+  correct: "Javitas",
+  attach_source: "Forras csatolasa",
+  detach_source: "Forras levalasztasa"
 };
+
+function getManualContradictionClaims(caseId: string): Promise<ReviewReport> {
+  return getReviewReport(caseId, { objectType: "claim", sourceValidationStatus: "source_valid" });
+}
 
 export function App() {
   const [cases, setCases] = useState<CaseRead[]>([]);
   const [documents, setDocuments] = useState<DocumentRead[]>([]);
   const [analysisRuns, setAnalysisRuns] = useState<AnalysisRunRead[]>([]);
   const [exports, setExports] = useState<ExportRead[]>([]);
+  const [entities, setEntities] = useState<EntityRead[]>([]);
+  const [events, setEvents] = useState<EventRead[]>([]);
+  const [missingItemCandidates, setMissingItemCandidates] = useState<MissingItemCandidateRead[]>([]);
+  const [detachedSourceItems, setDetachedSourceItems] = useState<DetachedSourceItemRead[]>([]);
+  const [manualContradictionClaims, setManualContradictionClaims] = useState<ReviewReportItem[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<DocumentRead | null>(null);
   const [documentPages, setDocumentPages] = useState<DocumentPageRead[]>([]);
   const [documentChunks, setDocumentChunks] = useState<DocumentChunkRead[]>([]);
@@ -183,6 +252,31 @@ export function App() {
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [lastExport, setLastExport] = useState<ExportDetail | null>(null);
   const [reviewComments, setReviewComments] = useState<Record<string, string>>({});
+  const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
+  const [sourceMoveTargets, setSourceMoveTargets] = useState<Record<string, string>>({});
+  const [detachedSourceTargets, setDetachedSourceTargets] = useState<Record<string, string>>({});
+  const [detachedManualTypes, setDetachedManualTypes] = useState<Record<string, ManualObjectType>>({});
+  const [detachedManualFields, setDetachedManualFields] = useState<Record<string, Record<string, string>>>({});
+  const [manualSource, setManualSource] = useState<{
+    documentId: string;
+    documentName: string;
+    pageId: string | null;
+    chunkId: string;
+    chunkIndex: number;
+    quoteText: string;
+    quoteStart: number;
+    quoteEnd: number;
+    citationLabel: string;
+  } | null>(null);
+  const [manualObjectType, setManualObjectType] = useState<ManualObjectType>("claim");
+  const [manualFields, setManualFields] = useState<Record<string, string>>({});
+  const [manualContradiction, setManualContradiction] = useState<ManualContradictionCandidatePayload>({
+    claim_id_a: "",
+    claim_id_b: "",
+    contradiction_type: "other",
+    severity_hint: "low",
+    description: ""
+  });
   const [busy, setBusy] = useState("");
   const [busyStartedAt, setBusyStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -194,6 +288,21 @@ export function App() {
   const selectedAnalysisDocument = useMemo(
     () => documents.find((item) => item.id === analysisDocumentId) ?? null,
     [analysisDocumentId, documents]
+  );
+  const manualContradictionClaimOptions = useMemo(
+    () =>
+      manualContradictionClaims.filter(
+        (item) => item.source_validation_status === "source_valid" && item.review_status !== "rejected"
+      ),
+    [manualContradictionClaims]
+  );
+  const selectedManualClaimA = useMemo(
+    () => manualContradictionClaimOptions.find((item) => item.object_id === manualContradiction.claim_id_a) ?? null,
+    [manualContradiction.claim_id_a, manualContradictionClaimOptions]
+  );
+  const selectedManualClaimB = useMemo(
+    () => manualContradictionClaimOptions.find((item) => item.object_id === manualContradiction.claim_id_b) ?? null,
+    [manualContradiction.claim_id_b, manualContradictionClaimOptions]
   );
   const canUseBatchScope =
     moduleKey === "extract_claims" ||
@@ -228,11 +337,17 @@ export function App() {
       void refreshCaseData(false);
     } else {
       setDocuments([]);
+      setEntities([]);
+      setEvents([]);
+      setMissingItemCandidates([]);
+      setDetachedSourceItems([]);
+      setManualContradictionClaims([]);
       setAnalysisRuns([]);
       setExports([]);
       setSelectedDocument(null);
       setDocumentPages([]);
       setDocumentChunks([]);
+      setManualSource(null);
       setAnalysisRunDetail(null);
       setSelectedReportItem(null);
       setReport(null);
@@ -291,34 +406,30 @@ export function App() {
   async function refreshCaseData(showNotice = true) {
     if (!selectedCaseId) return;
     await perform("case-data", async () => {
-      const [documentsResponse, runsResponse, exportsResponse, reportResponse] = await Promise.all([
+      const [documentsResponse, runsResponse, exportsResponse, reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
         listDocuments(selectedCaseId),
         listAnalysisRuns(selectedCaseId),
         listExports(selectedCaseId),
-        getReviewReport(selectedCaseId, reportFilters)
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId),
+        listDetachedSourceItems(selectedCaseId)
       ]);
       setDocuments(documentsResponse.data);
       setAnalysisRuns(runsResponse.data);
       setExports(exportsResponse.data);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setDetachedSourceItems(detachedSourcesResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
       setReport(reportResponse);
       if (showNotice) {
         setNotice("Ugyadatok frissitve.");
       }
       setLastActionSummary(`${documentsResponse.data.length} irat, ${runsResponse.data.length} elemzesi futas.`);
-    });
-  }
-
-  async function applyReviewQueue(filters: ReviewReportFilterValues, summary: string) {
-    if (!selectedCaseId) return;
-    setObjectType(filters.objectType ?? "");
-    setReviewStatus(filters.reviewStatus ?? "");
-    setSourceValidationStatus(filters.sourceValidationStatus ?? "");
-    await perform("report", async () => {
-      const reportResponse = await getReviewReport(selectedCaseId, filters);
-      setReport(reportResponse);
-      setSelectedReportItem(reportResponse.items[0] ?? null);
-      setNotice("Ellenorzesi lista betoltve.");
-      setLastActionSummary(`${summary}: ${reportResponse.items.length} elem.`);
     });
   }
 
@@ -342,9 +453,37 @@ export function App() {
       setSelectedDocument(document);
       setDocumentPages(pagesResponse.data);
       setDocumentChunks(chunksResponse.data);
+      setManualSource(null);
       setNotice("Irat reszletek betoltve.");
       setLastActionSummary(`${document.original_filename}: ${pagesResponse.data.length} oldal, ${chunksResponse.data.length} szovegresz.`);
     });
+  }
+
+  function handleManualSourceFromChunk(chunk: DocumentChunkRead, textarea: HTMLTextAreaElement) {
+    if (!selectedDocument) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const quote = chunk.chunk_text.slice(start, end).trim();
+    if (quote.length === 0 || end <= start) {
+      setError("Jelolj ki egy konkret forrasreszletet a szovegreszbol.");
+      return;
+    }
+    const quoteStart = chunk.chunk_text.indexOf(quote, start);
+    const resolvedStart = quoteStart >= 0 ? quoteStart : start;
+    const resolvedEnd = resolvedStart + quote.length;
+    setManualSource({
+      documentId: selectedDocument.id,
+      documentName: selectedDocument.original_filename,
+      pageId: null,
+      chunkId: chunk.id,
+      chunkIndex: chunk.chunk_index,
+      quoteText: quote,
+      quoteStart: resolvedStart,
+      quoteEnd: resolvedEnd,
+      citationLabel: `${selectedDocument.original_filename}, chunk ${chunk.chunk_index}`
+    });
+    setManualFields({});
+    setNotice("Forras kijelolve kezi rogzitesehez.");
   }
 
   async function handleDocumentOcr(document: DocumentRead) {
@@ -421,12 +560,22 @@ export function App() {
       };
       const response = await runAnalysis(selectedCaseId, moduleKey, payload);
       setAnalysis(response);
-      const [reportResponse, runsResponse] = await Promise.all([
+      const [reportResponse, manualClaimsResponse, runsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
         getReviewReport(selectedCaseId, reportFilters),
-        listAnalysisRuns(selectedCaseId)
+        getManualContradictionClaims(selectedCaseId),
+        listAnalysisRuns(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId),
+        listDetachedSourceItems(selectedCaseId)
       ]);
       setReport(reportResponse);
       setAnalysisRuns(runsResponse.data);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setDetachedSourceItems(detachedSourcesResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
       setNotice("Elemzes lefutott, jelentés frissitve.");
       setLastActionSummary(
         `${labelModule(response.module_key)}: ${labelAnalysisSourceMode(effectiveAnalysisSourceMode)}, ${labelValidationStatus(response.validation_status)}, ${analysisSourceMetric(response)}, ${analysisOutputCount(response)} kimenet`
@@ -437,8 +586,20 @@ export function App() {
   async function handleLoadReport() {
     if (!selectedCaseId) return;
     await perform("report", async () => {
-      const reportResponse = await getReviewReport(selectedCaseId, reportFilters);
+      const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId),
+        listDetachedSourceItems(selectedCaseId)
+      ]);
       setReport(reportResponse);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setDetachedSourceItems(detachedSourcesResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
       setSelectedReportItem((current) => (current ? reportResponse.items.find((item) => item.object_id === current.object_id) ?? null : null));
       setNotice("Attekintesi jelentés frissitve.");
       setLastActionSummary(`Jelentes betoltve: ${reportResponse.items.length} elem.`);
@@ -463,12 +624,675 @@ export function App() {
     await perform(`review-${actionType}`, async () => {
       await reviewObject(selectedCaseId, itemObjectType, objectId, actionType, comment);
       setReviewComments((current) => ({ ...current, [objectId]: "" }));
-      const reportResponse = await getReviewReport(selectedCaseId, reportFilters);
+      const [reportResponse, manualClaimsResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId)
+      ]);
       setReport(reportResponse);
+      setManualContradictionClaims(manualClaimsResponse.items);
       setSelectedReportItem(reportResponse.items.find((item) => item.object_id === objectId) ?? null);
       setNotice("Felulvizsgalat rogzítve, jelentes frissitve.");
       setLastActionSummary(`${labelObjectType(itemObjectType)}: ${labelAction(actionType)}`);
     });
+  }
+
+  async function handleEntityMerge(sourceItem: ReviewReportItem) {
+    if (!selectedCaseId || sourceItem.object_type !== "entity") return;
+    const targetEntityId = mergeTargets[sourceItem.object_id];
+    if (!targetEntityId) {
+      setError("Valassz celentitast az osszevonashoz.");
+      return;
+    }
+    const comment = reviewComments[sourceItem.object_id] ?? "";
+    await perform("entity-merge", async () => {
+      await mergeEntity(selectedCaseId, sourceItem.object_id, targetEntityId, comment);
+      setReviewComments((current) => ({ ...current, [sourceItem.object_id]: "" }));
+      setMergeTargets((current) => ({ ...current, [sourceItem.object_id]: "" }));
+      const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId),
+        listDetachedSourceItems(selectedCaseId)
+      ]);
+      setReport(reportResponse);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setDetachedSourceItems(detachedSourcesResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(reportResponse.items.find((item) => item.object_id === targetEntityId) ?? null);
+      setNotice("Entitasok osszevonva, forrasok atkapcsolva.");
+      setLastActionSummary(`Entitas osszevonva: ${sourceItem.title}`);
+    });
+  }
+
+  async function handleEventMerge(sourceItem: ReviewReportItem) {
+    if (!selectedCaseId || sourceItem.object_type !== "event") return;
+    const targetEventId = mergeTargets[sourceItem.object_id];
+    if (!targetEventId) {
+      setError("Valassz celesemenyt az osszevonashoz.");
+      return;
+    }
+    const comment = reviewComments[sourceItem.object_id] ?? "";
+    await perform("event-merge", async () => {
+      await mergeEvent(selectedCaseId, sourceItem.object_id, targetEventId, comment);
+      setReviewComments((current) => ({ ...current, [sourceItem.object_id]: "" }));
+      setMergeTargets((current) => ({ ...current, [sourceItem.object_id]: "" }));
+      const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId),
+        listDetachedSourceItems(selectedCaseId)
+      ]);
+      setReport(reportResponse);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setDetachedSourceItems(detachedSourcesResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(reportResponse.items.find((item) => item.object_id === targetEventId) ?? null);
+      setNotice("Esemenyek osszevonva, forrasok atkapcsolva.");
+      setLastActionSummary(`Esemeny osszevonva: ${sourceItem.title}`);
+    });
+  }
+
+  async function handleMissingItemMerge(sourceItem: ReviewReportItem) {
+    if (!selectedCaseId || sourceItem.object_type !== "missing_item_candidate") return;
+    const targetCandidateId = mergeTargets[sourceItem.object_id];
+    if (!targetCandidateId) {
+      setError("Valassz celjeloltet az osszevonashoz.");
+      return;
+    }
+    const comment = reviewComments[sourceItem.object_id] ?? "";
+    await perform("missing-item-merge", async () => {
+      await mergeMissingItemCandidate(selectedCaseId, sourceItem.object_id, targetCandidateId, comment);
+      setReviewComments((current) => ({ ...current, [sourceItem.object_id]: "" }));
+      setMergeTargets((current) => ({ ...current, [sourceItem.object_id]: "" }));
+      const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId),
+        listDetachedSourceItems(selectedCaseId)
+      ]);
+      setReport(reportResponse);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setDetachedSourceItems(detachedSourcesResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(reportResponse.items.find((item) => item.object_id === targetCandidateId) ?? null);
+      setNotice("Hianyzo irat jeloltek osszevonva, forrasok atkapcsolva.");
+      setLastActionSummary(`Hianyzo irat jelolt osszevonva: ${sourceItem.title}`);
+    });
+  }
+
+  function canDetachSource(item: ReviewReportItem, source: ReviewReportSource) {
+    return (
+      Boolean(source.source_link_id) &&
+      (item.object_type === "entity" || item.object_type === "event" || item.object_type === "missing_item_candidate")
+    );
+  }
+
+  async function handleDetachSource(item: ReviewReportItem, source: ReviewReportSource) {
+    if (!selectedCaseId || !source.source_link_id || !canDetachSource(item, source)) return;
+    const comment = reviewComments[item.object_id] ?? "";
+    await perform("source-detach", async () => {
+      await detachObjectSource(selectedCaseId, item.object_type, item.object_id, source.source_link_id!, comment);
+      setReviewComments((current) => ({ ...current, [item.object_id]: "" }));
+      const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId),
+        listDetachedSourceItems(selectedCaseId)
+      ]);
+      setReport(reportResponse);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setDetachedSourceItems(detachedSourcesResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(reportResponse.items.find((reportItem) => reportItem.object_id === item.object_id) ?? null);
+      setNotice("Forras levalasztva, jelentés frissitve.");
+      setLastActionSummary(`${labelObjectType(item.object_type)}: forras levalasztva.`);
+    });
+  }
+
+  function sourceMoveKey(item: ReviewReportItem, source: ReviewReportSource) {
+    return `${item.object_id}:${source.source_link_id ?? source.source_reference_id}`;
+  }
+
+  function sourceMoveTargetOptions(item: ReviewReportItem) {
+    if (item.object_type === "entity") {
+      return entities
+        .filter((entity) => entity.id !== item.object_id && entity.entity_type === item.subtype && entity.review_status !== "corrected")
+        .map((entity) => ({ id: entity.id, label: `${entity.canonical_name} (${labelReviewStatus(entity.review_status)})` }));
+    }
+    if (item.object_type === "event") {
+      return events
+        .filter((event) => event.id !== item.object_id && event.event_type === item.subtype && event.review_status !== "corrected")
+        .map((event) => ({ id: event.id, label: `${event.event_title} (${labelReviewStatus(event.review_status)})` }));
+    }
+    if (item.object_type === "missing_item_candidate") {
+      return missingItemCandidates
+        .filter((candidate) => candidate.id !== item.object_id && candidate.missing_item_type === item.subtype && candidate.review_status !== "corrected")
+        .map((candidate) => ({ id: candidate.id, label: `${candidate.referenced_item_text} (${labelReviewStatus(candidate.review_status)})` }));
+    }
+    return [];
+  }
+
+  function detachedSourceTargetOptions(item: DetachedSourceItemRead) {
+    if (item.detached_from_object_type === "entity") {
+      return entities
+        .filter((entity) => entity.entity_type === item.object_subtype_snapshot && entity.review_status !== "corrected")
+        .map((entity) => ({ id: entity.id, label: `${entity.canonical_name} (${labelReviewStatus(entity.review_status)})` }));
+    }
+    if (item.detached_from_object_type === "event") {
+      return events
+        .filter((event) => event.event_type === item.object_subtype_snapshot && event.review_status !== "corrected")
+        .map((event) => ({ id: event.id, label: `${event.event_title} (${labelReviewStatus(event.review_status)})` }));
+    }
+    if (item.detached_from_object_type === "missing_item_candidate") {
+      return missingItemCandidates
+        .filter((candidate) => candidate.missing_item_type === item.object_subtype_snapshot && candidate.review_status !== "corrected")
+        .map((candidate) => ({ id: candidate.id, label: `${candidate.referenced_item_text} (${labelReviewStatus(candidate.review_status)})` }));
+    }
+    return [];
+  }
+
+  async function refreshReviewStateAfterSourceChange(selectedObjectId?: string | null) {
+    if (!selectedCaseId) return;
+    const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+      getReviewReport(selectedCaseId, reportFilters),
+      getManualContradictionClaims(selectedCaseId),
+      listEntities(selectedCaseId),
+      listEvents(selectedCaseId),
+      listMissingItemCandidates(selectedCaseId),
+      listDetachedSourceItems(selectedCaseId)
+    ]);
+    setReport(reportResponse);
+    setEntities(entitiesResponse.data);
+    setEvents(eventsResponse.data);
+    setMissingItemCandidates(missingItemsResponse.data);
+    setDetachedSourceItems(detachedSourcesResponse.data);
+    setManualContradictionClaims(manualClaimsResponse.items);
+    setSelectedReportItem(selectedObjectId ? reportResponse.items.find((reportItem) => reportItem.object_id === selectedObjectId) ?? null : null);
+  }
+
+  async function handleMoveSource(item: ReviewReportItem, source: ReviewReportSource) {
+    if (!selectedCaseId || !source.source_link_id || !canDetachSource(item, source)) return;
+    const key = sourceMoveKey(item, source);
+    const targetObjectId = sourceMoveTargets[key];
+    if (!targetObjectId) {
+      setError("Valassz celobjektumot a forras athelyezesehez.");
+      return;
+    }
+    const comment = reviewComments[item.object_id] ?? "";
+    await perform("source-move", async () => {
+      await moveObjectSource(selectedCaseId, item.object_type, item.object_id, source.source_link_id!, targetObjectId, comment);
+      setReviewComments((current) => ({ ...current, [item.object_id]: "" }));
+      setSourceMoveTargets((current) => ({ ...current, [key]: "" }));
+      await refreshReviewStateAfterSourceChange(targetObjectId);
+      setNotice("Forras athelyezve, jelentés frissitve.");
+      setLastActionSummary(`${labelObjectType(item.object_type)}: forras athelyezve.`);
+    });
+  }
+
+  async function handleAttachDetachedSource(item: DetachedSourceItemRead) {
+    if (!selectedCaseId) return;
+    const targetObjectId = detachedSourceTargets[item.id];
+    if (!targetObjectId) {
+      setError("Valassz celobjektumot a levalasztott forras csatolasahoz.");
+      return;
+    }
+    await perform("detached-source-attach", async () => {
+      await attachDetachedSourceItem(selectedCaseId, item.id, targetObjectId, item.detach_comment ?? undefined);
+      setDetachedSourceTargets((current) => ({ ...current, [item.id]: "" }));
+      await refreshReviewStateAfterSourceChange(targetObjectId);
+      setNotice("Levalasztott forras csatolva.");
+      setLastActionSummary(`${labelObjectType(item.detached_from_object_type)}: levalasztott forras csatolva.`);
+    });
+  }
+
+  async function handleDiscardDetachedSource(item: DetachedSourceItemRead) {
+    if (!selectedCaseId) return;
+    await perform("detached-source-discard", async () => {
+      await discardDetachedSourceItem(selectedCaseId, item.id, item.detach_comment ?? undefined);
+      await refreshReviewStateAfterSourceChange(null);
+      setNotice("Levalasztott forras irrelevansnak jelolve.");
+      setLastActionSummary("Levalasztott forras irrelevansnak jelolve.");
+    });
+  }
+
+  function updateManualField(key: string, value: string) {
+    setManualFields((current) => ({ ...current, [key]: value }));
+  }
+
+  function manualObjectFieldsPayload(type: ManualObjectType, fields: Record<string, string>): ManualObjectFromSourcePayload {
+    return {
+      object_type: type,
+      claim_type: fields.claim_type || "document_fact",
+      claim_text: fields.claim_text || null,
+      entity_type: fields.entity_type || (type === "entity" ? "person" : null),
+      canonical_name: fields.canonical_name || null,
+      normalized_value: fields.normalized_value || null,
+      description: fields.description || null,
+      event_type: fields.event_type || (type === "event" ? "statement" : null),
+      event_title: fields.event_title || null,
+      event_description: fields.event_description || null,
+      event_time_raw: fields.event_time_raw || null,
+      time_precision: fields.time_precision || "unknown",
+      location_text: fields.location_text || null,
+      missing_item_type: fields.missing_item_type || (type === "missing_item_candidate" ? "document_reference" : null),
+      referenced_item_text: fields.referenced_item_text || null,
+      expected_document_type: fields.expected_document_type || null
+    };
+  }
+
+  function manualObjectPayload(): ManualObjectPayload | null {
+    if (!manualSource) return null;
+    return {
+      source_reference: {
+        document_id: manualSource.documentId,
+        page_id: manualSource.pageId,
+        chunk_id: manualSource.chunkId,
+        quote_text: manualSource.quoteText,
+        quote_char_start: manualSource.quoteStart,
+        quote_char_end: manualSource.quoteEnd,
+        citation_label: manualSource.citationLabel,
+        source_kind: "chunk_quote"
+      },
+      ...manualObjectFieldsPayload(manualObjectType, manualFields)
+    };
+  }
+
+  async function handleCreateManualObject() {
+    if (!selectedCaseId || !manualSource) return;
+    const payload = manualObjectPayload();
+    if (!payload) return;
+    await perform("manual-object", async () => {
+      const response = await createManualObject(selectedCaseId, payload);
+      setManualSource(null);
+      setManualFields({});
+      const [reportResponse, manualClaimsResponse, runsResponse, entitiesResponse, eventsResponse, missingItemsResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listAnalysisRuns(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId)
+      ]);
+      setReport(reportResponse);
+      setAnalysisRuns(runsResponse.data);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(reportResponse.items.find((item) => item.object_id === response.object_id) ?? null);
+      setNotice("Forrasbol rogzitett objektum letrehozva.");
+      setLastActionSummary(`${labelObjectType(response.object_type)}: forrasbol rogzitve.`);
+    });
+  }
+
+  function updateDetachedManualField(itemId: string, key: string, value: string) {
+    setDetachedManualFields((current) => ({ ...current, [itemId]: { ...(current[itemId] ?? {}), [key]: value } }));
+  }
+
+  async function handleCreateManualObjectFromDetachedSource(item: DetachedSourceItemRead) {
+    if (!selectedCaseId) return;
+    const type = detachedManualTypes[item.id] ?? "claim";
+    const fields = detachedManualFields[item.id] ?? {};
+    await perform("manual-object", async () => {
+      const response = await createManualObjectFromDetachedSource(selectedCaseId, item.id, manualObjectFieldsPayload(type, fields));
+      setDetachedManualFields((current) => ({ ...current, [item.id]: {} }));
+      setDetachedManualTypes((current) => ({ ...current, [item.id]: "claim" }));
+      await refreshReviewStateAfterSourceChange(response.object_id);
+      setNotice("Levalasztott forrasbol uj objektum letrehozva.");
+      setLastActionSummary(`${labelObjectType(response.object_type)}: levalasztott forrasbol rogzitve.`);
+    });
+  }
+
+  function updateManualContradictionField<K extends keyof ManualContradictionCandidatePayload>(
+    key: K,
+    value: ManualContradictionCandidatePayload[K]
+  ) {
+    setManualContradiction((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleCreateManualContradictionCandidate() {
+    if (!selectedCaseId) return;
+    if (!manualContradiction.claim_id_a || !manualContradiction.claim_id_b) {
+      setError("Valassz ket allitast a kezi ellentmondasjelolthez.");
+      return;
+    }
+    if (manualContradiction.claim_id_a === manualContradiction.claim_id_b) {
+      setError("Ket kulonbozo allitast kell valasztani.");
+      return;
+    }
+    if (!manualContradiction.description.trim()) {
+      setError("Add meg roviden, hogy miert igenyel ellenorzest ez a par.");
+      return;
+    }
+    await perform("manual-contradiction", async () => {
+      await createManualContradictionCandidate(selectedCaseId, {
+        ...manualContradiction,
+        description: manualContradiction.description.trim()
+      });
+      setManualContradiction((current) => ({ ...current, claim_id_a: "", claim_id_b: "", description: "" }));
+      const [reportResponse, manualClaimsResponse, runsResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listAnalysisRuns(selectedCaseId)
+      ]);
+      setReport(reportResponse);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setAnalysisRuns(runsResponse.data);
+      setSelectedReportItem(reportResponse.items.find((item) => item.object_type === "contradiction_candidate") ?? null);
+      setNotice("Kezi ellentmondasjelolt letrehozva.");
+      setLastActionSummary("Kezi ellentmondasjelolt: ket allitas parositva.");
+    });
+  }
+
+  function renderClaimPreview(item: ReviewReportItem | null, fallback: string) {
+    if (!item) {
+      return <p className="muted">{fallback}</p>;
+    }
+    return (
+      <article className="text-sample">
+        <strong>{item.title}</strong>
+        <span>
+          {labelReviewStatus(item.review_status)} | {item.sources.length} forras
+        </span>
+        <pre>{item.body_text ?? ""}</pre>
+        <div className="source-list">
+          {item.sources.slice(0, 3).map((source, index) => (
+            <details key={source.source_link_id ?? source.source_reference_id} className="source-detail" open={index === 0}>
+              <summary>
+                {index + 1}. forras: {source.document_filename ?? "irat"} {source.page_number ? `${source.page_number}. oldal` : ""}{" "}
+                {source.chunk_index !== null ? `${source.chunk_index}. szovegresz` : ""}
+              </summary>
+              <blockquote>{source.quote_text}</blockquote>
+            </details>
+          ))}
+        </div>
+      </article>
+    );
+  }
+
+  function renderSourceDetachButton(item: ReviewReportItem, source: ReviewReportSource) {
+    if (!canDetachSource(item, source)) return null;
+    const key = sourceMoveKey(item, source);
+    const targetOptions = sourceMoveTargetOptions(item);
+    return (
+      <div className="source-action-row">
+        <button
+          className="secondary-button source-action"
+          title="Forras levalasztasa errol az objektumrol"
+          onClick={() => handleDetachSource(item, source)}
+          disabled={Boolean(busy)}
+        >
+          <Unlink size={16} /> Levalasztas
+        </button>
+        {targetOptions.length > 0 && (
+          <>
+            <select
+              value={sourceMoveTargets[key] ?? ""}
+              onChange={(event) => setSourceMoveTargets((current) => ({ ...current, [key]: event.target.value }))}
+              aria-label="Forras athelyezes celja"
+            >
+              <option value="">Athelyezes celja</option>
+              {targetOptions.map((target) => (
+                <option key={target.id} value={target.id}>
+                  {target.label}
+                </option>
+              ))}
+            </select>
+            <button className="secondary-button source-action" onClick={() => handleMoveSource(item, source)} disabled={Boolean(busy) || !sourceMoveTargets[key]}>
+              Athelyezes
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  function renderManualObjectFields() {
+    return renderManualObjectFieldsFor(manualObjectType, manualFields, updateManualField);
+  }
+
+  function renderManualObjectFieldsFor(type: ManualObjectType, fields: Record<string, string>, updateField: (key: string, value: string) => void) {
+    if (type === "claim") {
+      return (
+        <>
+          <label>
+            Allitas tipusa
+            <select value={fields.claim_type ?? "document_fact"} onChange={(event) => updateField("claim_type", event.target.value)}>
+              <option value="document_fact">Iratbeli teny</option>
+              <option value="witness_statement">Tanui allitas</option>
+              <option value="expert_opinion">Szakertoi velemeny</option>
+              <option value="administrative_fact">Hivatalos teny</option>
+              <option value="inference_candidate">Kovetkeztetesjelolt</option>
+              <option value="unknown">Ismeretlen</option>
+            </select>
+          </label>
+          <label>
+            Allitas szovege
+            <textarea value={fields.claim_text ?? ""} onChange={(event) => updateField("claim_text", event.target.value)} />
+          </label>
+        </>
+      );
+    }
+    if (type === "entity") {
+      return (
+        <>
+          <label>
+            Entitas tipus
+            <select value={fields.entity_type ?? "person"} onChange={(event) => updateField("entity_type", event.target.value)}>
+              <option value="person">Szemely</option>
+              <option value="organization">Szervezet</option>
+              <option value="location">Hely</option>
+              <option value="phone">Telefon</option>
+              <option value="email">Email</option>
+              <option value="license_plate">Rendszam</option>
+              <option value="case_reference">Ugyhivatkozas</option>
+              <option value="money_amount">Penzosszeg</option>
+              <option value="document_reference">Irat hivatkozas</option>
+              <option value="other">Egyeb</option>
+            </select>
+          </label>
+          <label>
+            Nev / ertek
+            <input value={fields.canonical_name ?? ""} onChange={(event) => updateField("canonical_name", event.target.value)} />
+          </label>
+          <label>
+            Leiras
+            <textarea value={fields.description ?? ""} onChange={(event) => updateField("description", event.target.value)} />
+          </label>
+        </>
+      );
+    }
+    if (type === "event") {
+      return (
+        <>
+          <label>
+            Esemeny tipus
+            <select value={fields.event_type ?? "statement"} onChange={(event) => updateField("event_type", event.target.value)}>
+              <option value="statement">Nyilatkozat</option>
+              <option value="call">Hivas</option>
+              <option value="meeting">Talalkozo</option>
+              <option value="transfer">Atadas / utalas</option>
+              <option value="search">Kutatas</option>
+              <option value="seizure">Lefoglalas</option>
+              <option value="document_created">Irat keletkezett</option>
+              <option value="document_received">Irat erkezett</option>
+              <option value="other">Egyeb</option>
+            </select>
+          </label>
+          <label>
+            Esemeny cime
+            <input value={fields.event_title ?? ""} onChange={(event) => updateField("event_title", event.target.value)} />
+          </label>
+          <label>
+            Leiras
+            <textarea value={fields.event_description ?? ""} onChange={(event) => updateField("event_description", event.target.value)} />
+          </label>
+          <label>
+            Ido szovegesen
+            <input value={fields.event_time_raw ?? ""} onChange={(event) => updateField("event_time_raw", event.target.value)} />
+          </label>
+          <label>
+            Hely
+            <input value={fields.location_text ?? ""} onChange={(event) => updateField("location_text", event.target.value)} />
+          </label>
+        </>
+      );
+    }
+    return (
+      <>
+        <label>
+          Hianyzo irat tipus
+          <select value={fields.missing_item_type ?? "document_reference"} onChange={(event) => updateField("missing_item_type", event.target.value)}>
+            <option value="attachment">Melleklet</option>
+            <option value="video">Video</option>
+            <option value="expert_report">Szakertoi velemeny</option>
+            <option value="protocol">Jegyzokonyv</option>
+            <option value="image">Kep</option>
+            <option value="document_reference">Irat hivatkozas</option>
+            <option value="other">Egyeb</option>
+          </select>
+        </label>
+        <label>
+          Hivatkozott elem
+          <input value={fields.referenced_item_text ?? ""} onChange={(event) => updateField("referenced_item_text", event.target.value)} />
+        </label>
+        <label>
+          Leiras
+          <textarea value={fields.description ?? ""} onChange={(event) => updateField("description", event.target.value)} />
+        </label>
+        <label>
+          Varhato irattipus
+          <input value={fields.expected_document_type ?? ""} onChange={(event) => updateField("expected_document_type", event.target.value)} />
+        </label>
+      </>
+    );
+  }
+
+  function renderEntityMergeControls(item: ReviewReportItem, compact = false) {
+    if (item.object_type !== "entity") return null;
+    const targetOptions = entities.filter(
+      (entity) =>
+        entity.id !== item.object_id &&
+        entity.entity_type === item.subtype &&
+        entity.review_status !== "corrected"
+    );
+    if (targetOptions.length === 0) return null;
+    return (
+      <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
+        <label>
+          Osszevonas celja
+          <select
+            value={mergeTargets[item.object_id] ?? ""}
+            onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
+          >
+            <option value="">Valassz celentitast</option>
+            {targetOptions.map((entity) => (
+              <option key={entity.id} value={entity.id}>
+                {entity.canonical_name} ({labelReviewStatus(entity.review_status)})
+              </option>
+            ))}
+          </select>
+          <span className="field-hint">Csak azonos tipusú, nem javitott entitasok valaszthatok celkent.</span>
+        </label>
+        <button
+          className="secondary-button"
+          onClick={() => handleEntityMerge(item)}
+          disabled={Boolean(busy) || !mergeTargets[item.object_id]}
+        >
+          <GitMerge size={18} /> Osszevonas
+        </button>
+      </div>
+    );
+  }
+
+  function renderEventMergeControls(item: ReviewReportItem, compact = false) {
+    if (item.object_type !== "event") return null;
+    const targetOptions = events.filter(
+      (event) =>
+        event.id !== item.object_id &&
+        event.event_type === item.subtype &&
+        event.review_status !== "corrected"
+    );
+    if (targetOptions.length === 0) return null;
+    return (
+      <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
+        <label>
+          Osszevonas celja
+          <select
+            value={mergeTargets[item.object_id] ?? ""}
+            onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
+          >
+            <option value="">Valassz celesemenyt</option>
+            {targetOptions.map((event) => (
+              <option key={event.id} value={event.id}>
+                {event.event_title} ({labelReviewStatus(event.review_status)})
+              </option>
+            ))}
+          </select>
+          <span className="field-hint">Csak azonos tipusú, nem javitott esemenyek valaszthatok celkent.</span>
+        </label>
+        <button
+          className="secondary-button"
+          onClick={() => handleEventMerge(item)}
+          disabled={Boolean(busy) || !mergeTargets[item.object_id]}
+        >
+          <GitMerge size={18} /> Osszevonas
+        </button>
+      </div>
+    );
+  }
+
+  function renderMissingItemMergeControls(item: ReviewReportItem, compact = false) {
+    if (item.object_type !== "missing_item_candidate") return null;
+    const targetOptions = missingItemCandidates.filter(
+      (candidate) =>
+        candidate.id !== item.object_id &&
+        candidate.missing_item_type === item.subtype &&
+        candidate.review_status !== "corrected"
+    );
+    if (targetOptions.length === 0) return null;
+    return (
+      <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
+        <label>
+          Osszevonas celja
+          <select
+            value={mergeTargets[item.object_id] ?? ""}
+            onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
+          >
+            <option value="">Valassz celjeloltet</option>
+            {targetOptions.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {candidate.referenced_item_text} ({labelReviewStatus(candidate.review_status)})
+              </option>
+            ))}
+          </select>
+          <span className="field-hint">Csak azonos tipusú, nem javitott hianyzo irat jeloltek valaszthatok celkent.</span>
+        </label>
+        <button
+          className="secondary-button"
+          onClick={() => handleMissingItemMerge(item)}
+          disabled={Boolean(busy) || !mergeTargets[item.object_id]}
+        >
+          <GitMerge size={18} /> Osszevonas
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -616,11 +1440,59 @@ export function App() {
                       <article key={chunk.id} className="text-sample">
                         <strong>{chunk.chunk_index}. szovegresz</strong>
                         <span>oldalak: {chunk.page_start}-{chunk.page_end} | karakterek: {formatRange(chunk.char_start, chunk.char_end)}</span>
-                        <pre>{chunk.chunk_text}</pre>
+                        <textarea
+                          className="chunk-selector"
+                          readOnly
+                          defaultValue={chunk.chunk_text}
+                          aria-label={`${chunk.chunk_index}. szovegresz kijelolheto szovege`}
+                        />
+                        <button
+                          className="secondary-button"
+                          onClick={(event) => {
+                            const textarea = event.currentTarget.parentElement?.querySelector("textarea");
+                            if (textarea) handleManualSourceFromChunk(chunk, textarea);
+                          }}
+                          disabled={Boolean(busy)}
+                        >
+                          Forras kijelolese
+                        </button>
                       </article>
                     ))}
                   </div>
                 </details>
+                {manualSource && (
+                  <details open>
+                    <summary>Uj objektum forrasbol</summary>
+                    <div className="manual-entry-panel">
+                      <label>
+                        Kijelolt forras
+                        <textarea readOnly value={manualSource.quoteText} aria-label="Kijelolt forras readonly elonezet" />
+                      </label>
+                      <span className="field-hint">
+                        {manualSource.citationLabel} | idezet {formatRange(manualSource.quoteStart, manualSource.quoteEnd)}
+                      </span>
+                      <label>
+                        Objektum tipus
+                        <select value={manualObjectType} onChange={(event) => setManualObjectType(event.target.value as ManualObjectType)}>
+                          {(Object.keys(manualObjectTypeLabels) as ManualObjectType[]).map((type) => (
+                            <option key={type} value={type}>
+                              {manualObjectTypeLabels[type]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {renderManualObjectFields()}
+                      <div className="button-row">
+                        <button onClick={handleCreateManualObject} disabled={Boolean(busy)}>
+                          Rogzites forrasbol
+                        </button>
+                        <button className="secondary-button" onClick={() => setManualSource(null)} disabled={Boolean(busy)}>
+                          Megse
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+                )}
               </div>
             )}
           </section>
@@ -755,6 +1627,114 @@ export function App() {
 
           <section className="panel">
             <div className="section-heading">
+              <h2>Kezi ellentmondasjelolt</h2>
+              <GitMerge size={20} />
+            </div>
+            <div className="module-note">
+              Ket forraservenyes, nem elutasitott allitasbol hoz letre ellenorzendo jeloltet. A rogzites nem bizonyitott ellentmondas, hanem emberi review-ra varo par.
+            </div>
+            {manualContradictionClaimOptions.length < 2 && (
+              <p className="muted">Legalabb ket forraservenyes, nem elutasitott allitas kell a kezi jelolthez.</p>
+            )}
+            <div className="form-row">
+              <label>
+                1. allitas
+                <select
+                  value={manualContradiction.claim_id_a}
+                  onChange={(event) => updateManualContradictionField("claim_id_a", event.target.value)}
+                >
+                  <option value="">Valassz allitast</option>
+                  {manualContradictionClaimOptions.map((item) => (
+                    <option key={item.object_id} value={item.object_id} disabled={item.object_id === manualContradiction.claim_id_b}>
+                      {truncateText(item.title || item.body_text || item.object_id, 90)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                2. allitas
+                <select
+                  value={manualContradiction.claim_id_b}
+                  onChange={(event) => updateManualContradictionField("claim_id_b", event.target.value)}
+                >
+                  <option value="">Valassz allitast</option>
+                  {manualContradictionClaimOptions.map((item) => (
+                    <option key={item.object_id} value={item.object_id} disabled={item.object_id === manualContradiction.claim_id_a}>
+                      {truncateText(item.title || item.body_text || item.object_id, 90)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="form-row">
+              <label>
+                Elteres tipusa
+                <select
+                  value={manualContradiction.contradiction_type}
+                  onChange={(event) =>
+                    updateManualContradictionField(
+                      "contradiction_type",
+                      event.target.value as ManualContradictionCandidatePayload["contradiction_type"]
+                    )
+                  }
+                >
+                  {(Object.keys(contradictionTypeLabels) as ManualContradictionCandidatePayload["contradiction_type"][]).map((type) => (
+                    <option key={type} value={type}>
+                      {contradictionTypeLabels[type]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Sulyossagi jelzes
+                <select
+                  value={manualContradiction.severity_hint ?? "low"}
+                  onChange={(event) =>
+                    updateManualContradictionField(
+                      "severity_hint",
+                      event.target.value as NonNullable<ManualContradictionCandidatePayload["severity_hint"]>
+                    )
+                  }
+                >
+                  {(Object.keys(severityHintLabels) as NonNullable<ManualContradictionCandidatePayload["severity_hint"]>[]).map((severity) => (
+                    <option key={severity} value={severity}>
+                      {severityHintLabels[severity]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label>
+              Ellenorzesi indoklas
+              <textarea
+                value={manualContradiction.description}
+                onChange={(event) => updateManualContradictionField("description", event.target.value)}
+                rows={3}
+                placeholder="Roviden ird le, milyen konkret elteres miatt kell emberi ellenorzes."
+              />
+            </label>
+            <div className="claim-preview-grid">
+              {renderClaimPreview(selectedManualClaimA, "Valassz elso allitast az elonezethez.")}
+              {renderClaimPreview(selectedManualClaimB, "Valassz masodik allitast az elonezethez.")}
+            </div>
+            <button
+              onClick={handleCreateManualContradictionCandidate}
+              disabled={
+                Boolean(busy) ||
+                !selectedCaseId ||
+                manualContradictionClaimOptions.length < 2 ||
+                !manualContradiction.claim_id_a ||
+                !manualContradiction.claim_id_b ||
+                manualContradiction.claim_id_a === manualContradiction.claim_id_b ||
+                !manualContradiction.description.trim()
+              }
+            >
+              <GitMerge size={18} /> Kezi jelolt letrehozasa
+            </button>
+          </section>
+
+          <section className="panel">
+            <div className="section-heading">
               <h2>Elemzesi elozmenyek</h2>
               <Archive size={20} />
             </div>
@@ -847,36 +1827,6 @@ export function App() {
                 <RefreshCw size={18} /> Betoltes
               </button>
             </div>
-            <div className="queue-row">
-              <button
-                className="secondary-button"
-                onClick={() => applyReviewQueue({ reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Ellenorzesi lista")}
-                disabled={!selectedCaseId || Boolean(busy)}
-              >
-                Ellenorzesi lista
-              </button>
-              <button
-                className="secondary-button"
-                onClick={() => applyReviewQueue({ objectType: "missing_item_candidate", reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Hianyzo iratok")}
-                disabled={!selectedCaseId || Boolean(busy)}
-              >
-                Hianyzo iratok
-              </button>
-              <button
-                className="secondary-button"
-                onClick={() => applyReviewQueue({ objectType: "contradiction_candidate", reviewStatus: "needs_review", sourceValidationStatus: "source_valid" }, "Ellentmondasok")}
-                disabled={!selectedCaseId || Boolean(busy)}
-              >
-                Ellentmondasok
-              </button>
-              <button
-                className="secondary-button"
-                onClick={() => applyReviewQueue({}, "Osszes jelenteselem")}
-                disabled={!selectedCaseId || Boolean(busy)}
-              >
-                Osszes
-              </button>
-            </div>
             {report && (
               <>
                 <div className="metrics">
@@ -906,9 +1856,12 @@ export function App() {
                       <button className="secondary-button" onClick={() => setSelectedReportItem(item)}>
                         Reszletek
                       </button>
+                      {renderEntityMergeControls(item, true)}
+                      {renderEventMergeControls(item, true)}
+                      {renderMissingItemMergeControls(item, true)}
                       <div className="source-list">
                         {item.sources.map((source, index) => (
-                          <details key={source.source_reference_id} className="source-detail" open={index === 0}>
+                          <details key={source.source_link_id ?? source.source_reference_id} className="source-detail" open={index === 0}>
                             <summary>
                               {index + 1}. forras: {source.document_filename ?? "irat"} {source.page_number ? `${source.page_number}. oldal` : ""} {source.chunk_index !== null ? `${source.chunk_index}. szovegresz` : ""}
                             </summary>
@@ -922,6 +1875,7 @@ export function App() {
                             <blockquote>{source.quote_text}</blockquote>
                             {source.source_text_excerpt && <p className="excerpt">{source.source_text_excerpt}</p>}
                             {source.document_sha256_hash && <code className="hash">{source.document_sha256_hash}</code>}
+                            {renderSourceDetachButton(item, source)}
                           </details>
                         ))}
                       </div>
@@ -992,14 +1946,18 @@ export function App() {
                     </div>
                   ))}
                 </div>
+                {renderEntityMergeControls(selectedReportItem)}
+                {renderEventMergeControls(selectedReportItem)}
+                {renderMissingItemMergeControls(selectedReportItem)}
                 <details open>
                   <summary>Forrasok</summary>
                   <div className="detail-list">
                     {selectedReportItem.sources.map((source, index) => (
-                      <article key={source.source_reference_id} className="text-sample">
+                      <article key={source.source_link_id ?? source.source_reference_id} className="text-sample">
                         <strong>{index + 1}. {source.document_filename ?? "irat"}</strong>
                         <span>{source.citation_label ?? "nincs hivatkozas"} | idezet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
                         <pre>{source.quote_text}</pre>
+                        {renderSourceDetachButton(selectedReportItem, source)}
                       </article>
                     ))}
                   </div>
@@ -1018,6 +1976,91 @@ export function App() {
                 </details>
               </div>
             )}
+          </section>
+
+          <section className="panel">
+            <div className="section-heading">
+              <h2>Levalasztott forrasok</h2>
+              <Archive size={20} />
+            </div>
+            <div className="compact-list detached-source-list">
+              {detachedSourceItems.length === 0 && <p className="muted">Nincs levalasztott forras.</p>}
+              {detachedSourceItems.slice(0, 12).map((item) => (
+                <article key={item.id} className="compact-item">
+                  <strong>
+                    {labelObjectType(item.detached_from_object_type)}: {item.object_title_snapshot}
+                  </strong>
+                  <span>
+                    {labelDetachedHandlingStatus(item.handling_status)} | {new Date(item.detached_at).toLocaleString()}
+                    {item.reattached_to_object_type && item.reattached_to_object_title_snapshot
+                      ? ` | ${labelObjectType(item.reattached_to_object_type)}: ${item.reattached_to_object_title_snapshot}`
+                      : ""}
+                  </span>
+                  <span>
+                    Eredeti tipus: {item.object_subtype_snapshot ?? "ismeretlen"} | korabbi allapot:{" "}
+                    {item.object_review_status_snapshot ? labelReviewStatus(item.object_review_status_snapshot) : "ismeretlen"}
+                  </span>
+                  {item.source_snapshot_json?.citation_label && <span>{item.source_snapshot_json.citation_label}</span>}
+                  {item.source_snapshot_json?.quote_text && <blockquote>{item.source_snapshot_json.quote_text}</blockquote>}
+                  {item.detach_comment && <p>{item.detach_comment}</p>}
+                  {item.handling_status === "needs_review" && (
+                    <>
+                      <div className="source-action-row">
+                        <select
+                          value={detachedSourceTargets[item.id] ?? ""}
+                          onChange={(event) => setDetachedSourceTargets((current) => ({ ...current, [item.id]: event.target.value }))}
+                          aria-label="Levalasztott forras csatolasi celja"
+                        >
+                          <option value="">Csatolas celja</option>
+                          {detachedSourceTargetOptions(item).map((target) => (
+                            <option key={target.id} value={target.id}>
+                              {target.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          className="secondary-button source-action"
+                          onClick={() => handleAttachDetachedSource(item)}
+                          disabled={Boolean(busy) || !detachedSourceTargets[item.id]}
+                        >
+                          Csatolas
+                        </button>
+                        <button className="secondary-button source-action" onClick={() => handleDiscardDetachedSource(item)} disabled={Boolean(busy)}>
+                          Irrelevans
+                        </button>
+                      </div>
+                      <details>
+                        <summary>Uj objektum ebből a forrasbol</summary>
+                        <div className="manual-entry-panel">
+                          <textarea readOnly value={item.source_snapshot_json?.quote_text ?? ""} aria-label="Levalasztott forras readonly elonezet" />
+                          <label>
+                            Objektum tipus
+                            <select
+                              value={detachedManualTypes[item.id] ?? "claim"}
+                              onChange={(event) => setDetachedManualTypes((current) => ({ ...current, [item.id]: event.target.value as ManualObjectType }))}
+                            >
+                              {(Object.keys(manualObjectTypeLabels) as ManualObjectType[]).map((type) => (
+                                <option key={type} value={type}>
+                                  {manualObjectTypeLabels[type]}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {renderManualObjectFieldsFor(
+                            detachedManualTypes[item.id] ?? "claim",
+                            detachedManualFields[item.id] ?? {},
+                            (key, value) => updateDetachedManualField(item.id, key, value)
+                          )}
+                          <button onClick={() => handleCreateManualObjectFromDetachedSource(item)} disabled={Boolean(busy)}>
+                            Uj objektum letrehozasa
+                          </button>
+                        </div>
+                      </details>
+                    </>
+                  )}
+                </article>
+              ))}
+            </div>
           </section>
 
           <section className="panel">
@@ -1149,6 +2192,13 @@ function clampNumberInput(value: string, min: number, max: number, fallback: num
   return Math.min(max, Math.max(min, parsed));
 }
 
+function truncateText(value: string, maxLength: number) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
 function labelObjectType(value: string) {
   return objectTypeLabels[value] ?? value;
 }
@@ -1171,6 +2221,15 @@ function labelValidationStatus(value: string) {
 
 function labelAction(value: string) {
   return actionLabels[value] ?? value;
+}
+
+function labelDetachedHandlingStatus(value: string) {
+  const labels: Record<string, string> = {
+    needs_review: "Ellenorzesre var",
+    reattached: "Ujra csatolva",
+    discarded: "Irrelevansnak jelolve"
+  };
+  return labels[value] ?? value;
 }
 
 function labelProcessingStatus(value: string) {

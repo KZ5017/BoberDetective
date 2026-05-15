@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.schemas.event import EventDetail, EventList, EventRead, EventSourceRead
+from app.schemas.event import EventDetail, EventList, EventMergeCreate, EventRead, EventSourceDetachCreate, EventSourceMoveCreate, EventSourceRead
 from app.schemas.review import HumanReviewCreate, HumanReviewRead
-from app.services.events import EventError, EventNotFoundError, get_event, list_event_reviews, list_event_sources, list_events, review_event
+from app.services.events import EventError, EventNotFoundError, detach_event_source, get_event, list_event_reviews, list_event_sources, list_events, merge_event, move_event_source, review_event
 
 router = APIRouter()
 
@@ -52,4 +52,85 @@ def post_event_review(
         event=EventRead.model_validate(event),
         sources=[EventSourceRead.model_validate(source) for source in list_event_sources(db, event_id)],
         reviews=[HumanReviewRead.model_validate(review) for review in list_event_reviews(db, event_id)],
+    )
+
+
+@router.post("/cases/{case_id}/events/{event_id}/merge", response_model=EventDetail)
+def post_event_merge(
+    case_id: UUID,
+    event_id: UUID,
+    payload: EventMergeCreate,
+    db: Session = Depends(get_db),
+) -> EventDetail:
+    try:
+        target_event = merge_event(
+            db,
+            case_id=case_id,
+            source_event_id=event_id,
+            target_event_id=payload.target_event_id,
+            review_comment=payload.review_comment,
+        )
+    except EventNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except EventError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return EventDetail(
+        event=EventRead.model_validate(target_event),
+        sources=[EventSourceRead.model_validate(source) for source in list_event_sources(db, target_event.id)],
+        reviews=[HumanReviewRead.model_validate(review) for review in list_event_reviews(db, target_event.id)],
+    )
+
+
+@router.post("/cases/{case_id}/events/{event_id}/sources/{event_source_id}/detach", response_model=EventDetail)
+def post_event_source_detach(
+    case_id: UUID,
+    event_id: UUID,
+    event_source_id: UUID,
+    payload: EventSourceDetachCreate,
+    db: Session = Depends(get_db),
+) -> EventDetail:
+    try:
+        event = detach_event_source(
+            db,
+            case_id=case_id,
+            event_id=event_id,
+            event_source_id=event_source_id,
+            review_comment=payload.review_comment,
+        )
+    except EventNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except EventError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return EventDetail(
+        event=EventRead.model_validate(event),
+        sources=[EventSourceRead.model_validate(source) for source in list_event_sources(db, event.id)],
+        reviews=[HumanReviewRead.model_validate(review) for review in list_event_reviews(db, event.id)],
+    )
+
+
+@router.post("/cases/{case_id}/events/{event_id}/sources/{event_source_id}/move", response_model=EventDetail)
+def post_event_source_move(
+    case_id: UUID,
+    event_id: UUID,
+    event_source_id: UUID,
+    payload: EventSourceMoveCreate,
+    db: Session = Depends(get_db),
+) -> EventDetail:
+    try:
+        target_event = move_event_source(
+            db,
+            case_id=case_id,
+            source_event_id=event_id,
+            event_source_id=event_source_id,
+            target_event_id=payload.target_event_id,
+            review_comment=payload.review_comment,
+        )
+    except EventNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except EventError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return EventDetail(
+        event=EventRead.model_validate(target_event),
+        sources=[EventSourceRead.model_validate(source) for source in list_event_sources(db, target_event.id)],
+        reviews=[HumanReviewRead.model_validate(review) for review in list_event_reviews(db, target_event.id)],
     )

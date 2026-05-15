@@ -47,3 +47,17 @@ class EventDetail(BaseModel):
     event: EventRead
     sources: list[EventSourceRead]
     reviews: list[HumanReviewRead]
+
+
+class EventMergeCreate(BaseModel):
+    target_event_id: UUID
+    review_comment: str | None = None
+
+
+class EventSourceDetachCreate(BaseModel):
+    review_comment: str | None = None
+
+
+class EventSourceMoveCreate(BaseModel):
+    target_event_id: UUID
+    review_comment: str | None = None

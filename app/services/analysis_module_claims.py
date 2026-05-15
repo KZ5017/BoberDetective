@@ -16,6 +16,7 @@ from app.services.analysis_module_common import (
     select_source_chunks,
     split_retrieved_chunks,
 )
+from app.services.analysis_deduplication import find_duplicate_claim
 from app.services.analysis_runs import add_analysis_run_input, add_analysis_run_output, finish_analysis_run, start_analysis_run
 from app.services.claims import create_claim_with_source
 from app.services.llm import LLMChatMessage, LMStudioNativeProvider
@@ -81,6 +82,7 @@ def run_extract_claims(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
         response_claims: list[AnalysisModuleClaim] = []
         unsupported_items: list[str] = []
         duplicate_skipped_count = 0
+        historical_duplicate_skipped_count = 0
         failed_batch_count = 0
         processed_batch_count = 0
         dedup_keys: set[tuple[UUID, str, str]] = set()
@@ -114,6 +116,18 @@ def run_extract_claims(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
                     duplicate_skipped_count += 1
                     continue
                 dedup_keys.add(dedup_key)
+                existing_claim = find_duplicate_claim(
+                    db,
+                    case_id=case_id,
+                    claim_type=claim["claim_type"],
+                    claim_text=claim["claim_text"],
+                    document_id=claim["chunk"].document_id,
+                    chunk_id=claim["chunk"].id,
+                    quote_text=claim["quote_text"],
+                )
+                if existing_claim is not None:
+                    historical_duplicate_skipped_count += 1
+                    continue
                 output_position = len(response_claims)
                 source_reference = create_source_reference_for_run(
                     db,
@@ -169,6 +183,7 @@ def run_extract_claims(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
                 "failed_batch_count": failed_batch_count,
                 "created_claim_count": len(response_claims),
                 "duplicate_skipped_count": duplicate_skipped_count,
+                "historical_duplicate_skipped_count": historical_duplicate_skipped_count,
                 "unsupported_count": len(unsupported_items),
             },
         )
@@ -193,10 +208,9 @@ def run_extract_claims(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
         raise AnalysisModuleError(str(exc)) from exc
 
 
-def _claim_dedup_key(claim: dict[str, Any]) -> tuple[UUID, str, str]:
+def _claim_dedup_key(claim: dict[str, Any]) -> tuple[str, str]:
     return (
-        claim["chunk"].id,
-        _normalize_for_dedup(claim["quote_text"]),
+        _normalize_for_dedup(claim["claim_type"]),
         _normalize_for_dedup(claim["claim_text"]),
     )
 

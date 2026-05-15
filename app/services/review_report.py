@@ -278,6 +278,8 @@ def _contradiction_candidate_sources(db: Session, contradiction_candidate_id: UU
             source_reference,
             support_type=source_link.side_label or "contextual",
             relevance_rank=index,
+            source_link_id=source_link.id,
+            source_link_type="contradiction_candidate_source",
         )
         for index, (source_link, source_reference) in enumerate(rows)
     ]
@@ -290,7 +292,17 @@ def _missing_item_candidate_sources(db: Session, missing_item_candidate_id: UUID
         .where(MissingItemCandidateSourceModel.missing_item_candidate_id == missing_item_candidate_id)
         .order_by(MissingItemCandidateSourceModel.relevance_rank.asc())
     )
-    return [_report_source_from_reference(db, source_reference, support_type="direct", relevance_rank=index) for index, (_source_link, source_reference) in enumerate(rows)]
+    return [
+        _report_source_from_reference(
+            db,
+            source_reference,
+            support_type="direct",
+            relevance_rank=index,
+            source_link_id=source_link.id,
+            source_link_type="missing_item_candidate_source",
+        )
+        for index, (source_link, source_reference) in enumerate(rows)
+    ]
 
 
 def _entity_sources(db: Session, entity_id: UUID) -> list[ReviewReportSource]:
@@ -306,8 +318,10 @@ def _entity_sources(db: Session, entity_id: UUID) -> list[ReviewReportSource]:
             source_reference,
             support_type="direct",
             relevance_rank=index,
+            source_link_id=mention.id,
+            source_link_type="entity_mention",
         )
-        for index, (_mention, source_reference) in enumerate(rows)
+        for index, (mention, source_reference) in enumerate(rows)
     ]
 
 
@@ -321,6 +335,8 @@ def _report_source(
         source_reference,
         support_type=source_link.support_type,
         relevance_rank=source_link.relevance_rank,
+        source_link_id=source_link.id,
+        source_link_type=source_link.__tablename__[:-1] if hasattr(source_link, "__tablename__") else None,
     )
 
 
@@ -330,6 +346,8 @@ def _report_source_from_reference(
     *,
     support_type: str,
     relevance_rank: int | None,
+    source_link_id: UUID | None = None,
+    source_link_type: str | None = None,
 ) -> ReviewReportSource:
     document = db.get(DocumentModel, source_reference.document_id) if db is not None else None
     page = db.get(DocumentPageModel, source_reference.page_id) if db is not None and source_reference.page_id else None
@@ -342,6 +360,8 @@ def _report_source_from_reference(
         source_reference.quote_char_end,
     )
     return ReviewReportSource(
+        source_link_id=source_link_id,
+        source_link_type=source_link_type,
         source_reference_id=source_reference.id,
         document_id=source_reference.document_id,
         document_filename=document.original_filename if document is not None else None,

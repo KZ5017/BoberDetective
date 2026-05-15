@@ -92,7 +92,7 @@ def run_extract_entities(db: Session, case_id: UUID, payload: AnalysisModuleRunR
         duplicate_skipped_count = 0
         failed_batch_count = 0
         processed_batch_count = 0
-        dedup_keys: set[tuple[UUID, str, str, str]] = set()
+        dedup_keys: set[tuple[UUID, str, str, str, str, str]] = set()
 
         for batch_index, batch in enumerate(batches, start=1):
             try:
@@ -185,7 +185,7 @@ def run_extract_entities(db: Session, case_id: UUID, payload: AnalysisModuleRunR
                 "batch_count": len(batches),
                 "processed_batch_count": processed_batch_count,
                 "failed_batch_count": failed_batch_count,
-                "created_entity_count": len(response_entities),
+                "created_or_linked_entity_mention_count": len(response_entities),
                 "duplicate_skipped_count": duplicate_skipped_count,
                 "unsupported_count": len(unsupported_items),
             },
@@ -211,11 +211,13 @@ def run_extract_entities(db: Session, case_id: UUID, payload: AnalysisModuleRunR
         raise AnalysisModuleError(str(exc)) from exc
 
 
-def _entity_dedup_key(entity: dict[str, Any]) -> tuple[UUID, str, str, str]:
+def _entity_dedup_key(entity: dict[str, Any]) -> tuple[UUID, str, str, str, str, str]:
     return (
         entity["chunk"].id,
         _normalize_for_dedup(entity["quote_text"]),
+        _normalize_for_dedup(entity["entity_type"]),
         _normalize_for_dedup(entity["canonical_name"]),
+        _normalize_for_dedup(entity["normalized_value"] or ""),
         _normalize_for_dedup(entity["surface_text"]),
     )
 

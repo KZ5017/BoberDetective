@@ -184,7 +184,7 @@ As of the latest handoff:
   - secure storage path resolver,
   - SQLAlchemy/psycopg DB layer,
   - Alembic migration foundation,
-  - migrations through `0013_processing_runs`,
+  - migrations through `0016_manual_entry`,
   - users/cases/case_users/audit_events tables,
   - documents/pages/chunks/source references,
   - analysis runs and source-cited analysis modules,
@@ -203,8 +203,8 @@ Current implementation caveats:
 - LM Studio is reachable from WSL at `http://127.0.0.1:1234/v1`.
 - Configured Qwen load profile is `context_length=4096`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; latest model-load smoke accepted it through `POST /api/v1/system/llm/load-chat-model`.
 - LM Studio native chat calls auto-ensure the configured chat model is loaded; they reuse a matching loaded instance id or load the model with the configured profile when missing.
-- Latest test run: `142 passed`.
-- Latest Alembic state: `0013_processing_runs (head)`.
+- Latest test run: `161 passed`.
+- Latest Alembic state: `0016_manual_entry (head)`.
 - Native-text PDF import uses configurable `BOBERDETECTIVE_PDF_PARSER`; the default `docling_then_pypdf` profile prefers Docling and falls back to local `pypdf`.
 - Docling is installed in `.venv`; explicit `BOBERDETECTIVE_PDF_PARSER=docling` import smoke passed with parser `docling` and `parse_document` validation `passed`.
 - Tesseract OCR foundation exists for PDF documents through `POST /api/v1/cases/{case_id}/documents/{document_id}/ocr`.
@@ -219,6 +219,17 @@ Current implementation caveats:
 - Contradiction candidate output is normalized before persistence: same pair/type duplicates are skipped, most model-proposed `high` severities are capped to `medium`, and titles/descriptions are deterministic conservative text based on the selected source-cited claim pair.
 - Contradiction detection supports `claim_review_scope`; default `reviewable` excludes rejected claims and includes source-valid `new`, `needs_review`, `verified`, and `corrected` claims.
 - Contradiction detection requires explicit qualification before persistence: `is_contradiction_candidate=true` and a concrete `conflict_basis`; contextual/non-conflicting pairs should become unsupported items, not saved candidates.
+- Repeated analysis runs now skip already persisted, content-matched review outputs for claims, events, summary items, missing item candidates, and contradiction candidates instead of creating duplicate review objects.
+- Entity extraction automatically merges only exact/normalized repeated entities into the existing entity review object and links additional occurrences as mentions/sources.
+- Ambiguous entity identity decisions should be handled through the explicit entity merge workflow, not by automatic alias guessing.
+- Frontend entity merge controls are available on report item cards and the object detail panel; target choices come from the full case entity list.
+- Event merge follows the same human-reviewed pattern, with target choices from the full case event list.
+- Missing item candidate merge follows the same human-reviewed pattern, with target choices from the full case missing item candidate list.
+- Entity, event, and missing item candidate source links can be manually detached through audit-tracked `detach_source` review actions; review report sources expose the concrete source-link id needed for this, and detached links are parked in `detached_source_items` with object/source snapshots.
+- Detached sources can be reattached from the `Levalasztott forrasok` panel or marked irrelevant; source details also support direct source move to another same-type target object without a manual detach/reattach round.
+- Users can create source-bound manual objects from selected document chunk text through `manual_entry` provenance runs; the selected quote is read-only in the frontend and revalidated by the backend source-reference flow.
+- Detached source items can also be used as the source for new manual claim/entity/event/missing item candidate objects, then marked handled with the created object target.
+- Manual contradiction candidates can be created from two source-valid, non-rejected claims through a dedicated `Kezi ellentmondasjelolt` panel; selected claim text and sources are shown as read-only previews and the created candidate is tracked through `manual_entry` analysis run provenance.
 - Latest live analysis smoke: `detect_missing_items` produced 2 source-cited `attachment` candidates and review report inclusion.
 - Latest export smoke: missing item candidates are included in JSON/HTML review report exports with tracked export items.
 - Latest retrieval smoke: `Keress hivatkozott mellekletet.` now succeeds after Hungarian suffix fallback tuning.
@@ -231,14 +242,15 @@ Current implementation caveats:
 - Frontend shows document page/chunk and analysis run input/output drill-down.
 - Frontend shows contradiction claim-selection metadata as Hungarian claim-pair summaries in analysis run details, exposes claim review scope in the contradiction analysis panel, and marks contradiction report items as review-only candidates rather than proven facts.
 - Frontend review report supports object/review/source filters and selected object detail.
-- Frontend shows export history and focused review queue shortcuts.
+- Frontend shows export history; review report filtering is handled through object/review/source dropdown filters.
 - Frontend visible labels are localized to Hungarian; keep future UI text Hungarian and map backend enum/internal values before displaying them.
 - Latest frontend verification: `npm run build` passed.
 
 Strategic next direction:
 
 - Continue hardening the backend analysis foundation rather than deep frontend polishing.
-- Next target should be live smoke of contradiction detection after document/case-scope `extract_claims` on real imported documents, including frontend review report inspection.
+- Current checkpoint is ready for commit and push after documentation synchronization.
+- Next larger target after this checkpoint should be retrieval/indexing hardening, likely Qdrant/embedding-backed or hybrid source selection for larger cases.
 - Frontend work in this phase should only support the backend workflow: source scope, optional focus, batch limits, Hungarian labels, and clear status/error feedback.
 - Rationale: raw-chunk modules can now process document/case scopes, while contradiction detection should operate downstream from source-cited claims and keep `no source -> no claim` intact.
 

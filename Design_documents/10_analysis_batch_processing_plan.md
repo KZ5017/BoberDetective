@@ -211,7 +211,23 @@ Indok:
   - `failed_batch_count`
   - `created_claim_count`
   - `duplicate_skipped_count`
+  - `historical_duplicate_skipped_count`
   - `unsupported_count`
+
+Megvalositott kiegeszites:
+
+- A batch-futason beluli deduplikacio mellett a modulok torteneti deduplikaciot is vegeznek a perzisztalas elott.
+- Azonos ugy + azonos objektumtipus + azonos normalizalt tartalom eseten a rendszer kihagyja a mar rogzitett claim/event/entity/summary/missing item/contradiction objektum ujra letrehozasat.
+- Ez nem valtja ki az emberi review dontest, csak megakadalyozza, hogy ismetelt futtatasok ugyanazt a review objektumot sokszorozzak.
+- Entitasoknal az exact/normalizalt egyezes automatikusan a meglevo entitashoz kapcsol uj mention/source elofordulast.
+- Nem egyertelmu entitas-azonossag eseten a rendszer ne talalgasson: a felhasznalo explicit `Osszevonas` review muvelettel donthet.
+- Esemenyeknel az explicit `Osszevonas` review muvelet a forraslinkeket a cel esemenyhez kapcsolja, a forras esemenyt `corrected` allapotba teszi, es audit es review bejegyzeseket rogzit.
+- Hianyzo irat jelolteknel az explicit `Osszevonas` review muvelet a forraslinkeket a cel jelolthoz kapcsolja, a forras jeloltet `corrected` allapotba teszi, es audit es review bejegyzeseket rogzit.
+- Entitas, esemeny es hianyzo irat jelolt eseteben a hibasan csatolt forras explicit `Levalasztas` review muvelettel eltavolithato az objektumrol; ez nem torli az eredeti iratot vagy source reference-t, csak az objektum-forras kapcsolatot, es audit/review bejegyzest hagy maga utan.
+- A levalasztott forraslinkek `detached_source_items` rekordkent parkolnak tovabbi emberi dontesre: megorzodik a source reference, a levalasztas pillanataban latott objektum-snapshot, a megjegyzes es a kezelesi allapot.
+- A parkolt forras kesobb visszacsatolhato azonos objektumtipusu celhoz vagy irrelevansnak jelolheto. Ha a felhasznalo mar a forras reszleteinel tudja a helyes celobjektumot, ugyanaz a koncepcio direkt `Athelyezes` muvelettel is elerheto, kulon kezi parkolasi kor nelkul.
+- Kezi rogzitessel is letrehozhato forrashoz kotott claim/entity/event/missing item candidate: a felhasznalo dokumentumchunkbol jelol ki idezetet, a frontend readonly forras-elonezetet mutat, a backend pedig source reference validacioval es `manual_entry` analysis run provenance-szal rogzit.
+- Ugyanez a kezi rogzitessel letrehozott objektum workflow levalasztott forrasbol is indithato; ilyenkor a meglevo source reference marad az alap, es a parkolt forras a letrehozott objektumra mutato kezelt celadatot kap.
 
 Kesobbi migracio akkor kellhet, ha:
 

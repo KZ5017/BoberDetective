@@ -18,6 +18,7 @@ from app.services.analysis_module_common import (
     select_source_chunks,
     split_retrieved_chunks,
 )
+from app.services.analysis_deduplication import find_duplicate_missing_item_candidate
 from app.services.analysis_runs import add_analysis_run_input, add_analysis_run_output, finish_analysis_run, start_analysis_run
 from app.services.llm import LLMChatMessage, LMStudioNativeProvider
 from app.services.missing_items import create_missing_item_candidate
@@ -90,6 +91,7 @@ def run_detect_missing_items(db: Session, case_id: UUID, payload: AnalysisModule
         response_candidates: list[AnalysisModuleMissingItemCandidate] = []
         unsupported_items: list[str] = []
         duplicate_skipped_count = 0
+        historical_duplicate_skipped_count = 0
         failed_batch_count = 0
         processed_batch_count = 0
         dedup_keys: set[tuple[UUID, str, str, str]] = set()
@@ -123,6 +125,19 @@ def run_detect_missing_items(db: Session, case_id: UUID, payload: AnalysisModule
                     duplicate_skipped_count += 1
                     continue
                 dedup_keys.add(dedup_key)
+                existing_candidate = find_duplicate_missing_item_candidate(
+                    db,
+                    case_id=case_id,
+                    missing_item_type=candidate["missing_item_type"],
+                    referenced_item_text=candidate["referenced_item_text"],
+                    expected_document_type=candidate["expected_document_type"],
+                    document_id=candidate["chunk"].document_id,
+                    chunk_id=candidate["chunk"].id,
+                    quote_text=candidate["quote_text"],
+                )
+                if existing_candidate is not None:
+                    historical_duplicate_skipped_count += 1
+                    continue
                 output_position = len(response_candidates)
                 source_reference = create_source_reference_for_run(
                     db,
@@ -184,6 +199,7 @@ def run_detect_missing_items(db: Session, case_id: UUID, payload: AnalysisModule
                 "failed_batch_count": failed_batch_count,
                 "created_missing_item_candidate_count": len(response_candidates),
                 "duplicate_skipped_count": duplicate_skipped_count,
+                "historical_duplicate_skipped_count": historical_duplicate_skipped_count,
                 "unsupported_count": len(unsupported_items),
             },
         )
@@ -209,12 +225,11 @@ def run_detect_missing_items(db: Session, case_id: UUID, payload: AnalysisModule
         raise AnalysisModuleError(str(exc)) from exc
 
 
-def _missing_item_dedup_key(candidate: dict[str, Any]) -> tuple[UUID, str, str, str]:
+def _missing_item_dedup_key(candidate: dict[str, Any]) -> tuple[str, str, str]:
     return (
-        candidate["chunk"].id,
-        _normalize_for_dedup(candidate["quote_text"]),
+        _normalize_for_dedup(candidate["missing_item_type"]),
         _normalize_for_dedup(candidate["referenced_item_text"]),
-        _normalize_for_dedup(candidate["description"]),
+        _normalize_for_dedup(candidate["expected_document_type"] or ""),
     )
 
 

@@ -17,6 +17,7 @@ from app.services.analysis_module_common import (
     select_source_chunks,
     split_retrieved_chunks,
 )
+from app.services.analysis_deduplication import find_duplicate_summary_item
 from app.services.analysis_runs import add_analysis_run_input, add_analysis_run_output, finish_analysis_run, start_analysis_run
 from app.services.llm import LLMChatMessage, LMStudioNativeProvider
 from app.services.source_references import create_source_reference_for_run
@@ -89,6 +90,7 @@ def run_summarize_case(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
         response_items: list[AnalysisModuleSummaryItem] = []
         unsupported_items: list[str] = []
         duplicate_skipped_count = 0
+        historical_duplicate_skipped_count = 0
         failed_batch_count = 0
         processed_batch_count = 0
         dedup_keys: set[tuple[UUID, str, str, str]] = set()
@@ -122,6 +124,19 @@ def run_summarize_case(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
                     duplicate_skipped_count += 1
                     continue
                 dedup_keys.add(dedup_key)
+                existing_summary_item = find_duplicate_summary_item(
+                    db,
+                    case_id=case_id,
+                    summary_type=item["summary_type"],
+                    title=item["title"],
+                    body_text=item["body_text"],
+                    document_id=item["chunk"].document_id,
+                    chunk_id=item["chunk"].id,
+                    quote_text=item["quote_text"],
+                )
+                if existing_summary_item is not None:
+                    historical_duplicate_skipped_count += 1
+                    continue
                 output_position = len(response_items)
                 source_reference = create_source_reference_for_run(
                     db,
@@ -183,6 +198,7 @@ def run_summarize_case(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
                 "failed_batch_count": failed_batch_count,
                 "created_summary_item_count": len(response_items),
                 "duplicate_skipped_count": duplicate_skipped_count,
+                "historical_duplicate_skipped_count": historical_duplicate_skipped_count,
                 "unsupported_count": len(unsupported_items),
             },
         )
@@ -207,10 +223,9 @@ def run_summarize_case(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
         raise AnalysisModuleError(str(exc)) from exc
 
 
-def _summary_item_dedup_key(item: dict[str, Any]) -> tuple[UUID, str, str, str]:
+def _summary_item_dedup_key(item: dict[str, Any]) -> tuple[str, str, str]:
     return (
-        item["chunk"].id,
-        _normalize_for_dedup(item["quote_text"]),
+        _normalize_for_dedup(item["summary_type"]),
         _normalize_for_dedup(item["title"]),
         _normalize_for_dedup(item["body_text"]),
     )

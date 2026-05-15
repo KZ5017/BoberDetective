@@ -12,8 +12,11 @@ from app.models.contradiction import ContradictionCandidateModel, ContradictionC
 from app.models.event import EventModel
 from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
-from app.schemas.contradiction import ContradictionSourceCreate
+from app.schemas.contradiction import ContradictionSourceCreate, ManualContradictionCandidateCreate
+from app.services.analysis_deduplication import find_duplicate_contradiction_candidate
+from app.services.analysis_runs import add_analysis_run_input, add_analysis_run_output, finish_analysis_run, start_analysis_run
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
+from app.services.claims import list_claim_sources
 from app.services.reviews import list_object_reviews, record_object_review, review_status_for_action
 from app.services.storage import StoragePaths
 
@@ -137,6 +140,115 @@ def create_contradiction_candidate(
     return candidate
 
 
+def create_manual_contradiction_candidate(
+    db: Session,
+    *,
+    case_id: UUID,
+    payload: ManualContradictionCandidateCreate,
+) -> ContradictionCandidateModel:
+    description = payload.description.strip()
+    if description == "":
+        raise ContradictionCandidateValidationError("Contradiction candidate description is required")
+    if payload.claim_id_a == payload.claim_id_b:
+        raise ContradictionCandidateValidationError("Two different claims are required")
+
+    claim_a = _get_manual_contradiction_claim(db, case_id, payload.claim_id_a)
+    claim_b = _get_manual_contradiction_claim(db, case_id, payload.claim_id_b)
+    sources_a = list_claim_sources(db, claim_a.id)
+    sources_b = list_claim_sources(db, claim_b.id)
+    if not sources_a or not sources_b:
+        raise ContradictionCandidateValidationError("Both claims must have at least one source")
+
+    existing_candidate = find_duplicate_contradiction_candidate(
+        db,
+        case_id=case_id,
+        contradiction_type=payload.contradiction_type,
+        claim_id_a=claim_a.id,
+        claim_id_b=claim_b.id,
+    )
+    if existing_candidate is not None:
+        raise ContradictionCandidateValidationError("Contradiction candidate already exists for this claim pair and type")
+
+    run = start_analysis_run(
+        db,
+        case_id,
+        "manual_entry",
+        provider_type="human",
+        model_name=None,
+        input_parameters={
+            "object_type": "contradiction_candidate",
+            "claim_id_a": str(claim_a.id),
+            "claim_id_b": str(claim_b.id),
+            "contradiction_type": payload.contradiction_type,
+        },
+        output_schema_name="manual_contradiction_candidate",
+        output_schema_version="v1",
+        retrieval_strategy="user_selected_claim_pair",
+    )
+    try:
+        add_analysis_run_input(
+            db,
+            run.id,
+            "claim",
+            0,
+            related_object_type="claim",
+            related_object_id=claim_a.id,
+            payload_json={
+                "input_kind": "manual_claim_pair_selection",
+                "claim_text": claim_a.claim_text,
+                "source_validation_status": claim_a.source_validation_status,
+                "review_status": claim_a.review_status,
+            },
+        )
+        add_analysis_run_input(
+            db,
+            run.id,
+            "claim",
+            1,
+            related_object_type="claim",
+            related_object_id=claim_b.id,
+            payload_json={
+                "input_kind": "manual_claim_pair_selection",
+                "claim_text": claim_b.claim_text,
+                "source_validation_status": claim_b.source_validation_status,
+                "review_status": claim_b.review_status,
+            },
+        )
+        candidate = create_contradiction_candidate(
+            db,
+            case_id=case_id,
+            contradiction_type=payload.contradiction_type,
+            title=_manual_contradiction_title(payload.contradiction_type),
+            description=description,
+            analysis_run_id=run.id,
+            sources=[
+                *[
+                    ContradictionSourceCreate(source_reference_id=source.source_reference_id, side_label="a")
+                    for source in sources_a
+                ],
+                *[
+                    ContradictionSourceCreate(source_reference_id=source.source_reference_id, side_label="b")
+                    for source in sources_b
+                ],
+            ],
+            claim_id_a=claim_a.id,
+            claim_id_b=claim_b.id,
+            severity_hint=payload.severity_hint,
+        )
+        add_analysis_run_output(db, run.id, "contradiction_candidate", candidate.id, 0)
+        finish_analysis_run(
+            db,
+            run,
+            status="succeeded",
+            validation_status="passed",
+            output_summary={"object_type": "contradiction_candidate", "object_id": str(candidate.id)},
+        )
+        return candidate
+    except Exception as exc:
+        finish_analysis_run(db, run, status="failed", validation_status="failed", error_message=str(exc))
+        raise
+
+
 def review_contradiction_candidate(
     db: Session,
     *,
@@ -197,6 +309,15 @@ def _get_case_claim(db: Session, case_id: UUID, claim_id: UUID) -> ClaimModel:
     return claim
 
 
+def _get_manual_contradiction_claim(db: Session, case_id: UUID, claim_id: UUID) -> ClaimModel:
+    claim = _get_case_claim(db, case_id, claim_id)
+    if claim.source_validation_status != "source_valid":
+        raise ContradictionCandidateValidationError("Only source-valid claims can be used")
+    if claim.review_status == "rejected":
+        raise ContradictionCandidateValidationError("Rejected claims cannot be used")
+    return claim
+
+
 def _get_case_event(db: Session, case_id: UUID, event_id: UUID) -> EventModel:
     event = db.get(EventModel, event_id)
     if event is None or event.case_id != case_id:
@@ -213,3 +334,15 @@ def _get_case_source_reference(db: Session, case_id: UUID, source_reference_id: 
 
 def _review_status_for_action(action_type: str, previous_status: str) -> str | None:
     return review_status_for_action(action_type, previous_status, ContradictionCandidateValidationError)
+
+
+def _manual_contradiction_title(contradiction_type: str) -> str:
+    labels = {
+        "time_conflict": "Kezi idobeli elteresjelolt",
+        "location_conflict": "Kezi helyszinbeli elteresjelolt",
+        "identity_conflict": "Kezi azonossagi elteresjelolt",
+        "document_mismatch": "Kezi iratbeli elteresjelolt",
+        "amount_conflict": "Kezi osszegbeli elteresjelolt",
+        "other": "Kezi ellentmondasjelolt",
+    }
+    return labels.get(contradiction_type, labels["other"])

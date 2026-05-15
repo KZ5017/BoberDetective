@@ -17,7 +17,7 @@ class AnalysisRunModel(Base):
             "'chunk_document', 'embed_chunks', 'index_chunks', 'validate_document_processing', "
             "'extract_entities', 'extract_events', "
             "'extract_claims', 'detect_contradictions', 'detect_missing_items', 'summarize_case', "
-            "'answer_with_citations', 'export_bundle', 'llm_smoke'"
+            "'answer_with_citations', 'export_bundle', 'llm_smoke', 'manual_entry'"
             ")",
             name="ck_analysis_runs_run_type",
         ),

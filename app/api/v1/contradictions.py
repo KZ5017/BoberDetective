@@ -10,12 +10,14 @@ from app.schemas.contradiction import (
     ContradictionCandidateList,
     ContradictionCandidateRead,
     ContradictionCandidateSourceRead,
+    ManualContradictionCandidateCreate,
 )
 from app.schemas.review import HumanReviewCreate, HumanReviewRead
 from app.services.contradictions import (
     ContradictionCandidateNotFoundError,
     ContradictionCandidateValidationError,
     create_contradiction_candidate,
+    create_manual_contradiction_candidate,
     get_contradiction_candidate,
     list_contradiction_candidate_reviews,
     list_contradiction_candidate_sources,
@@ -59,6 +61,23 @@ def post_case_contradiction_candidate(
             confidence=payload.confidence,
             severity_hint=payload.severity_hint,
         )
+    except ContradictionCandidateValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _contradiction_candidate_detail(db, case_id, candidate.id)
+
+
+@router.post(
+    "/cases/{case_id}/contradiction-candidates/manual",
+    response_model=ContradictionCandidateDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_manual_contradiction_candidate(
+    case_id: UUID,
+    payload: ManualContradictionCandidateCreate,
+    db: Session = Depends(get_db),
+) -> ContradictionCandidateDetail:
+    try:
+        candidate = create_manual_contradiction_candidate(db, case_id=case_id, payload=payload)
     except ContradictionCandidateValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return _contradiction_candidate_detail(db, case_id, candidate.id)

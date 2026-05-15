@@ -14,6 +14,7 @@ from app.models.source_reference import SourceReferenceModel
 from app.schemas.analysis_modules import AnalysisModuleContradictionCandidate, AnalysisModuleRunRequest, AnalysisModuleRunResponse
 from app.schemas.contradiction import ContradictionSourceCreate
 from app.services.analysis_module_common import AnalysisModuleError, parse_llm_json_object
+from app.services.analysis_deduplication import find_duplicate_contradiction_candidate
 from app.services.analysis_runs import add_analysis_run_input, add_analysis_run_output, finish_analysis_run, start_analysis_run
 from app.services.contradictions import create_contradiction_candidate
 from app.services.llm import LLMChatMessage, LMStudioNativeProvider
@@ -282,7 +283,19 @@ def run_detect_contradiction_candidates(
         )
 
         response_candidates: list[AnalysisModuleContradictionCandidate] = []
-        for index, candidate in enumerate(valid_candidates):
+        historical_duplicate_skipped_count = 0
+        for candidate in valid_candidates:
+            existing_candidate = find_duplicate_contradiction_candidate(
+                db,
+                case_id=case_id,
+                contradiction_type=candidate["contradiction_type"],
+                claim_id_a=candidate["claim_a"].claim.id,
+                claim_id_b=candidate["claim_b"].claim.id,
+            )
+            if existing_candidate is not None:
+                historical_duplicate_skipped_count += 1
+                continue
+            output_position = len(response_candidates)
             persisted_candidate = create_contradiction_candidate(
                 db,
                 case_id=case_id,
@@ -299,7 +312,7 @@ def run_detect_contradiction_candidates(
                 confidence=candidate["confidence"],
                 severity_hint=candidate["severity_hint"],
             )
-            add_analysis_run_output(db, run.id, "contradiction_candidate", persisted_candidate.id, index)
+            add_analysis_run_output(db, run.id, "contradiction_candidate", persisted_candidate.id, output_position)
             response_candidates.append(
                 AnalysisModuleContradictionCandidate(
                     contradiction_candidate_id=persisted_candidate.id,
@@ -327,6 +340,7 @@ def run_detect_contradiction_candidates(
                 "selected_claim_count": len(selected_claims),
                 "selected_pair_count": len(claim_pairs),
                 "contradiction_candidate_count": len(response_candidates),
+                "historical_duplicate_skipped_count": historical_duplicate_skipped_count,
                 "unsupported_count": len(unsupported_items),
                 **selection_metadata,
             },

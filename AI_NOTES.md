@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 142 passed`, `alembic: 0013_processing_runs (head)`.
+- Current verification baseline: `pytest: 161 passed`, `alembic: 0016_manual_entry (head)`.
 
 Initial implementation exists:
 
@@ -79,6 +79,18 @@ Initial implementation exists:
 - contradiction candidate validation now deduplicates same claim-pair/type candidates, caps most model-proposed `high` severities to `medium`, and replaces model-written titles/descriptions with conservative pair-bound text generated from the two selected source-cited claims,
 - `detect_contradiction_candidates` supports `claim_review_scope`; default `reviewable` uses source-valid claims with review status `new`, `needs_review`, `verified`, or `corrected`, excluding `rejected`,
 - `detect_contradiction_candidates` now requires explicit contradiction qualification: persisted candidates need `is_contradiction_candidate=true` and a concrete `conflict_basis`; contextual/non-conflicting pairs are rejected or carried as unsupported items,
+- manual contradiction candidate creation now exists as a separate claim-pair workflow: the frontend exposes `Kezi ellentmondasjelolt`, only source-valid/non-rejected claims are selectable, selected claim text and sources are readonly-previewed, and the backend persists the candidate through a `manual_entry` analysis run,
+- historical deduplication now skips already persisted, content-matched review outputs across repeated analysis runs for claims, events, summary items, missing item candidates, and contradiction candidates,
+- entity extraction automatically merges only exact/normalized repeated entities into the existing entity review object and links additional occurrences as mentions/sources,
+- ambiguous entity identity decisions should be handled through the explicit entity merge workflow, not by automatic alias guessing,
+- frontend entity merge is available both from report item cards and the object detail panel; merge target selection uses the full case entity list, not only currently filtered report items,
+- event merge follows the same human-reviewed pattern: `event_merged` audit event, source links moved to the target event, source event marked `corrected`, and frontend merge controls use the full case event list,
+- missing item candidate merge follows the same human-reviewed pattern: `missing_item_candidate_merged` audit event, source links moved to the target candidate, source candidate marked `corrected`, and frontend merge controls use the full case missing item candidate list,
+- entity, event, and missing item candidate source links can be detached manually through audit-tracked `detach_source` review actions; frontend source details show `Levalasztas` only when a concrete source-link id is available,
+- detached source links are parked in `detached_source_items` with the source reference plus object/source snapshots, and the frontend shows them under `Levalasztott forrasok`,
+- detached sources can be reattached from the parked-source panel or marked irrelevant; source details can also directly move a source to another same-type target object without a manual detach/reattach round,
+- users can select readonly text from document chunks and create source-bound manual claim/entity/event/missing item candidate objects through `manual_entry` provenance runs,
+- detached source items can also create new source-bound manual claim/entity/event/missing item candidate objects and then store the created object as their handled target,
 - missing item candidate persistence, source linkage, API, review workflow, and review report inclusion,
 - `detect_missing_items` analysis module foundation over source-cited chunk quotes,
 - live `detect_missing_items` smoke passed on a referenced attachment/photo documentation sample,
@@ -95,7 +107,7 @@ Initial implementation exists:
 - frontend contradiction-candidate UI now reflects the claim-pair workflow: the analysis panel marks focus as optional and exposes claim review scope for contradiction detection, claim-selection metrics and selected pairs are rendered in analysis run details, analysis summaries show claim-pair based execution, and review report items include a conservative review note,
 - frontend analysis focus text starts empty for every module; module-specific examples are placeholders only and are not sent as query text unless the user types actual text,
 - frontend review filter controls and object detail panel,
-- frontend export history and focused review queue controls,
+- frontend export history and review report filter controls,
 - pytest smoke tests.
 
 Completed design documents:
@@ -234,9 +246,8 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Live-smoke contradiction detection after document/case-scope `extract_claims` on real imported documents, including frontend review report inspection.
-3. Refine batch-capable raw-chunk module guardrails and status/error wording from live smoke.
-4. Decide whether selected claim-pair details should be exposed in a dedicated contradiction detail view beyond analysis run metadata.
+2. Commit and push the batch/contradiction/deduplication/source-correction/manual-entry checkpoint after documentation synchronization.
+3. Move to retrieval/indexing hardening, likely Qdrant/embedding-backed or hybrid source selection for larger cases.
 
 Strategic rationale:
 
@@ -264,7 +275,7 @@ Implementation status:
 - Initial FastAPI scaffold exists under `app/`.
 - Health endpoint works.
 - SQLAlchemy/psycopg DB layer exists.
-- Alembic migrations through `0013_processing_runs` are applied.
+- Alembic migrations through `0016_manual_entry` are applied.
 - `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, `export_items`, `summary_items`, `summary_item_sources`, `contradiction_candidates`, `contradiction_candidate_sources`, `missing_item_candidates`, and `missing_item_candidate_sources` tables exist.
 - Case create/list API works.
 - Case creation writes DB audit event and JSONL audit event.
@@ -403,7 +414,7 @@ Implementation status:
 - Frontend document details show imported pages and chunks with source text; analysis run details show recorded inputs and outputs.
 - Frontend review report controls can filter by object type, review status, and source validation status. Exports use the same selected filters.
 - Frontend object detail panel shows object-specific facts, sources, and review history for the selected report item.
-- Frontend now has focused queue shortcuts for general review, missing items, contradictions, and all report items.
+- Frontend review report filtering is handled through object type, review status, and source validation dropdown controls.
 - Frontend export history lists prior JSON/HTML exports and download links.
 - Frontend visible UI text is localized to Hungarian, with backend enum/internal values mapped to Hungarian labels before display.
 - Frontend uses Vite proxy from `/api` to `http://127.0.0.1:8000`; backend CORS was not loosened.
@@ -435,7 +446,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `142 passed`.
+- Latest test run: `161 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

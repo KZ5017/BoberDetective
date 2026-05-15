@@ -8,7 +8,10 @@ from app.schemas.missing_item import (
     MissingItemCandidateCreate,
     MissingItemCandidateDetail,
     MissingItemCandidateList,
+    MissingItemCandidateMergeCreate,
     MissingItemCandidateRead,
+    MissingItemCandidateSourceDetachCreate,
+    MissingItemCandidateSourceMoveCreate,
     MissingItemCandidateSourceRead,
 )
 from app.schemas.review import HumanReviewCreate, HumanReviewRead
@@ -16,10 +19,13 @@ from app.services.missing_items import (
     MissingItemCandidateNotFoundError,
     MissingItemCandidateValidationError,
     create_missing_item_candidate,
+    detach_missing_item_candidate_source,
     get_missing_item_candidate,
     list_missing_item_candidate_reviews,
     list_missing_item_candidate_sources,
     list_missing_item_candidates,
+    merge_missing_item_candidate,
+    move_missing_item_candidate_source,
     review_missing_item_candidate,
 )
 
@@ -95,6 +101,84 @@ def post_missing_item_candidate_review(
     except MissingItemCandidateValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return _missing_item_candidate_detail(db, case_id, candidate.id)
+
+
+@router.post(
+    "/cases/{case_id}/missing-item-candidates/{missing_item_candidate_id}/merge",
+    response_model=MissingItemCandidateDetail,
+)
+def post_missing_item_candidate_merge(
+    case_id: UUID,
+    missing_item_candidate_id: UUID,
+    payload: MissingItemCandidateMergeCreate,
+    db: Session = Depends(get_db),
+) -> MissingItemCandidateDetail:
+    try:
+        target_candidate = merge_missing_item_candidate(
+            db,
+            case_id=case_id,
+            source_candidate_id=missing_item_candidate_id,
+            target_candidate_id=payload.target_missing_item_candidate_id,
+            review_comment=payload.review_comment,
+        )
+    except MissingItemCandidateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except MissingItemCandidateValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _missing_item_candidate_detail(db, case_id, target_candidate.id)
+
+
+@router.post(
+    "/cases/{case_id}/missing-item-candidates/{missing_item_candidate_id}/sources/{source_link_id}/detach",
+    response_model=MissingItemCandidateDetail,
+)
+def post_missing_item_candidate_source_detach(
+    case_id: UUID,
+    missing_item_candidate_id: UUID,
+    source_link_id: UUID,
+    payload: MissingItemCandidateSourceDetachCreate,
+    db: Session = Depends(get_db),
+) -> MissingItemCandidateDetail:
+    try:
+        candidate = detach_missing_item_candidate_source(
+            db,
+            case_id=case_id,
+            missing_item_candidate_id=missing_item_candidate_id,
+            source_link_id=source_link_id,
+            review_comment=payload.review_comment,
+        )
+    except MissingItemCandidateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except MissingItemCandidateValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _missing_item_candidate_detail(db, case_id, candidate.id)
+
+
+@router.post(
+    "/cases/{case_id}/missing-item-candidates/{missing_item_candidate_id}/sources/{source_link_id}/move",
+    response_model=MissingItemCandidateDetail,
+)
+def post_missing_item_candidate_source_move(
+    case_id: UUID,
+    missing_item_candidate_id: UUID,
+    source_link_id: UUID,
+    payload: MissingItemCandidateSourceMoveCreate,
+    db: Session = Depends(get_db),
+) -> MissingItemCandidateDetail:
+    try:
+        target_candidate = move_missing_item_candidate_source(
+            db,
+            case_id=case_id,
+            source_candidate_id=missing_item_candidate_id,
+            source_link_id=source_link_id,
+            target_candidate_id=payload.target_missing_item_candidate_id,
+            review_comment=payload.review_comment,
+        )
+    except MissingItemCandidateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except MissingItemCandidateValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _missing_item_candidate_detail(db, case_id, target_candidate.id)
 
 
 def _missing_item_candidate_detail(db: Session, case_id: UUID, missing_item_candidate_id: UUID) -> MissingItemCandidateDetail:

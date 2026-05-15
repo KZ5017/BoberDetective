@@ -57,3 +57,17 @@ class MissingItemCandidateDetail(BaseModel):
     missing_item_candidate: MissingItemCandidateRead
     sources: list[MissingItemCandidateSourceRead]
     reviews: list[HumanReviewRead]
+
+
+class MissingItemCandidateMergeCreate(BaseModel):
+    target_missing_item_candidate_id: UUID
+    review_comment: str | None = None
+
+
+class MissingItemCandidateSourceDetachCreate(BaseModel):
+    review_comment: str | None = None
+
+
+class MissingItemCandidateSourceMoveCreate(BaseModel):
+    target_missing_item_candidate_id: UUID
+    review_comment: str | None = None

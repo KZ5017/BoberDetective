@@ -23,8 +23,8 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 142 passed
-alembic: 0013_processing_runs (head)
+pytest: 161 passed
+alembic: 0016_manual_entry (head)
 ```
 
 ## What Works Now
@@ -33,7 +33,7 @@ alembic: 0013_processing_runs (head)
 - Minimal React/Vite frontend workbench scaffold under `frontend/`.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0013_processing_runs`.
+- Alembic migrations through `0016_manual_entry`.
 - Immutable TXT import with page/chunk persistence.
 - Explicit imported-document processing validation run flow.
 - Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile, page/chunk persistence, and `parse_document` analysis run provenance.
@@ -83,12 +83,24 @@ alembic: 0013_processing_runs (head)
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion.
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs.
 - `detect_contradiction_candidates` is intentionally claim-based, not raw chunk batch-based: it works on existing `source_valid` claims and records claim selection metadata as analysis run input.
+- Manual contradiction candidate creation now exists as a separate claim-pair workflow: the UI lets the user select two source-valid, non-rejected claims, previews their readonly text and sources, and creates a `needs_review` contradiction candidate through a `manual_entry` provenance run.
 - If fewer than two source-valid claims exist, `detect_contradiction_candidates` now returns `validation_status=warning` with a clear unsupported item instead of a hard backend error or unnecessary LLM call.
 - `detect_contradiction_candidates` now builds deterministic backend-selected claim pairs before the LLM call, applies safe pair/fetch limits, optionally filters by meaningful focus terms in claim/source text, and rejects model candidates that reference claim pairs outside the selected pair set.
 - Claim-pair selection is audit-visible through analysis run `filter` metadata, including `claim_fetch_limit`, `pair_limit`, `selected_pair_count`, `selected_pairs`, focus terms, and matched/selected claim counts.
 - Contradiction candidate validation now deduplicates same claim-pair/type candidates, caps most model-proposed `high` severities to `medium`, and replaces model-written titles/descriptions with conservative, pair-bound, source-claim-based Hungarian text.
 - `detect_contradiction_candidates` now supports `claim_review_scope`; the default `reviewable` scope uses source-valid claims with review status `new`, `needs_review`, `verified`, or `corrected`, excluding `rejected`.
 - `detect_contradiction_candidates` now requires explicit contradiction qualification from the LLM: `is_contradiction_candidate=true` plus a concrete `conflict_basis`; related/contextual pairs without a concrete conflict basis are rejected or recorded as unsupported items instead of persisted as contradiction candidates.
+- Analysis modules now perform historical deduplication before persistence: repeated runs skip already-stored content-matched claims, events, summary items, missing item candidates, and contradiction candidates instead of creating duplicate review objects.
+- Entity extraction automatically merges only exact/normalized repeated entities into the existing entity review object and links additional occurrences as mentions/sources.
+- Ambiguous entity identity decisions should be handled through the explicit entity merge workflow, not by automatic alias guessing.
+- Frontend entity merge is available both from report item cards and the object detail panel; merge target selection uses the full case entity list, not only the currently filtered report items.
+- Event merge now follows the same human-reviewed pattern: `event_merged` audit event, source links moved to the target event, source event marked `corrected`, and frontend merge controls use the full case event list.
+- Missing item candidate merge now follows the same human-reviewed pattern: `missing_item_candidate_merged` audit event, source links moved to the target candidate, source candidate marked `corrected`, and frontend merge controls use the full case missing item candidate list.
+- Entity, event, and missing item candidate source links can be manually detached through audit-tracked `detach_source` review actions; the UI exposes `Levalasztas` on source details where the backend has a concrete source-link id.
+- Detached source links are parked in `detached_source_items` with the source reference plus a snapshot of the object they were detached from; the frontend shows these under `Levalasztott forrasok`.
+- Detached sources can be reattached from the parked-source panel or marked irrelevant; source details also support direct move to another same-type target object without first parking the source manually.
+- Users can select readonly text from document chunks and create source-bound manual claim/entity/event/missing item candidate objects through `manual_entry` provenance runs.
+- Detached source items can also create new source-bound manual claim/entity/event/missing item candidate objects and then store the created object as their handled target.
 - Missing item candidate persistence, source linkage, API, review workflow, and review report inclusion.
 - `detect_missing_items` analysis module foundation over source-cited chunk quotes.
 - Claim, event, source, review, export, and audit persistence.
@@ -107,7 +119,7 @@ alembic: 0013_processing_runs (head)
 - Frontend now reflects `detect_contradiction_candidates` as a claim-pair module: the analysis panel shows a claim-pair note, optional focus field, and claim review scope selector, analysis summaries show claim-pair based execution, analysis run details render claim-selection metrics and selected pairs instead of raw JSON, and contradiction report items include a conservative review note.
 - Frontend analysis focus text starts empty for every module; module-specific helper text is a placeholder only and is never sent to processing unless the user types actual text.
 - Frontend review report supports object type, review status, and source validation filters plus object detail panel.
-- Frontend shows export history and focused review queue shortcuts.
+- Frontend shows export history; review report filtering is handled through object/review/source dropdown filters.
 - Frontend visible labels are localized to Hungarian, including mapped labels for backend enum/internal values.
 - Frontend dev server is configured under `frontend/`; when running, it is available at `http://localhost:5173` and proxies `/api` to `http://127.0.0.1:8000`.
 - Append-only human review history for claims, entities, events, and exports.
@@ -288,9 +300,8 @@ Latest document-processing/PDF smoke:
 
 Recommended order:
 
-1. Live-smoke contradiction detection after document/case-scope `extract_claims` on real imported documents, including frontend review report inspection.
-2. Refine batch-capable raw-chunk module guardrails and status/error wording from live smoke.
-3. Decide whether selected claim-pair details should be exposed in a dedicated contradiction detail view beyond analysis run metadata.
+1. Commit and push the batch/contradiction/deduplication/source-correction/manual-entry checkpoint after documentation synchronization.
+2. Move to the next larger architecture step: retrieval/indexing hardening, likely Qdrant/embedding-backed or hybrid source selection for larger cases.
 
 Rationale:
 

@@ -34,6 +34,20 @@ class ContradictionCandidateCreate(BaseModel):
         return self
 
 
+class ManualContradictionCandidateCreate(BaseModel):
+    claim_id_a: UUID
+    claim_id_b: UUID
+    contradiction_type: str = Field(default="other", pattern="^(time_conflict|location_conflict|identity_conflict|document_mismatch|amount_conflict|other)$")
+    severity_hint: str | None = Field(default="low", pattern="^(low|medium|high)$")
+    description: str = Field(min_length=3)
+
+    @model_validator(mode="after")
+    def reject_self_pair(self) -> "ManualContradictionCandidateCreate":
+        if self.claim_id_a == self.claim_id_b:
+            raise ValueError("Two different claims are required")
+        return self
+
+
 class ContradictionCandidateRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

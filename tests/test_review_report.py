@@ -173,6 +173,8 @@ def test_report_source_expands_document_chunk_and_excerpt_details() -> None:
         source_reference,
         support_type="direct",
         relevance_rank=1,
+        source_link_id=uuid4(),
+        source_link_type="entity_mention",
     )
 
     assert report_source.document_filename == "irat.txt"
@@ -180,4 +182,6 @@ def test_report_source_expands_document_chunk_and_excerpt_details() -> None:
     assert report_source.chunk_index == 2
     assert report_source.chunk_char_start == 100
     assert report_source.page_text_source == "native"
+    assert report_source.source_link_type == "entity_mention"
+    assert report_source.source_link_id is not None
     assert report_source.source_text_excerpt == "eleje fontos idezet vege"

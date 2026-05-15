@@ -22,6 +22,8 @@ class ReviewReportCounts(BaseModel):
 
 
 class ReviewReportSource(BaseModel):
+    source_link_id: UUID | None = None
+    source_link_type: str | None = None
     source_reference_id: UUID
     document_id: UUID
     document_filename: str | None = None

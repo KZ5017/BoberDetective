@@ -16,6 +16,7 @@ from app.services.analysis_module_common import (
     select_source_chunks,
     split_retrieved_chunks,
 )
+from app.services.analysis_deduplication import find_duplicate_event
 from app.services.analysis_runs import add_analysis_run_input, add_analysis_run_output, finish_analysis_run, start_analysis_run
 from app.services.events import create_event_with_source
 from app.services.llm import LLMChatMessage, LMStudioNativeProvider
@@ -90,6 +91,7 @@ def run_extract_events(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
         response_events: list[AnalysisModuleEvent] = []
         unsupported_items: list[str] = []
         duplicate_skipped_count = 0
+        historical_duplicate_skipped_count = 0
         failed_batch_count = 0
         processed_batch_count = 0
         dedup_keys: set[tuple[UUID, str, str]] = set()
@@ -123,6 +125,20 @@ def run_extract_events(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
                     duplicate_skipped_count += 1
                     continue
                 dedup_keys.add(dedup_key)
+                existing_event = find_duplicate_event(
+                    db,
+                    case_id=case_id,
+                    event_type=event["event_type"],
+                    event_title=event["event_title"],
+                    event_time_raw=event["event_time_raw"],
+                    location_text=event["location_text"],
+                    document_id=event["chunk"].document_id,
+                    chunk_id=event["chunk"].id,
+                    quote_text=event["quote_text"],
+                )
+                if existing_event is not None:
+                    historical_duplicate_skipped_count += 1
+                    continue
                 output_position = len(response_events)
                 source_reference = create_source_reference_for_run(
                     db,
@@ -187,6 +203,7 @@ def run_extract_events(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
                 "failed_batch_count": failed_batch_count,
                 "created_event_count": len(response_events),
                 "duplicate_skipped_count": duplicate_skipped_count,
+                "historical_duplicate_skipped_count": historical_duplicate_skipped_count,
                 "unsupported_count": len(unsupported_items),
             },
         )
@@ -211,11 +228,12 @@ def run_extract_events(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
         raise AnalysisModuleError(str(exc)) from exc
 
 
-def _event_dedup_key(event: dict[str, Any]) -> tuple[UUID, str, str]:
+def _event_dedup_key(event: dict[str, Any]) -> tuple[str, str, str, str]:
     return (
-        event["chunk"].id,
-        _normalize_for_dedup(event["quote_text"]),
+        _normalize_for_dedup(event["event_type"]),
         _normalize_for_dedup(event["event_title"]),
+        _normalize_for_dedup(event["event_time_raw"] or ""),
+        _normalize_for_dedup(event["location_text"] or ""),
     )
 
 

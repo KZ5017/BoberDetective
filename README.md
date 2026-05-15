@@ -79,6 +79,17 @@ Completed:
 - Contradiction candidate output is normalized before persistence: same pair/type duplicates are skipped, most model-proposed `high` severities are capped to `medium`, and titles/descriptions are conservative pair-bound text from selected source-cited claims
 - `detect_contradiction_candidates` supports claim review scope; the default excludes rejected claims
 - `detect_contradiction_candidates` requires explicit contradiction qualification before persistence; contextual but non-conflicting pairs are not saved as contradiction candidates
+- Repeated analysis runs skip already persisted, content-matched review outputs for claims, events, summary items, missing item candidates, and contradiction candidates instead of creating duplicate review objects
+- Entity extraction automatically merges only exact/normalized repeated entities into the existing entity review object and links additional occurrences as mentions/sources
+- Ambiguous entity identity decisions are handled through the explicit entity merge workflow, not by automatic alias guessing
+- Entity merge controls are available on report item cards and the object detail panel; target choices come from the full case entity list
+- Event merge follows the same human-reviewed pattern, with target choices from the full case event list
+- Missing item candidate merge follows the same human-reviewed pattern, with target choices from the full case missing item candidate list
+- Entity/event/missing item candidate source links can be detached manually from source details through audit-tracked `detach_source` review actions
+- Detached source links are parked with source/object snapshots and shown in the frontend under `Levalasztott forrasok`
+- Parked detached sources can be reattached or marked irrelevant; source details can also move a source directly to another same-type target object
+- Users can select readonly text from document chunks and create source-bound manual claim/entity/event/missing item candidate objects through `manual_entry` provenance runs
+- Detached source items can also be used as the source for new manual claim/entity/event/missing item candidate objects
 - Missing item candidate persistence, source linkage, API, review workflow, and review report inclusion
 - `detect_missing_items` analysis module foundation over source-cited chunk quotes
 - Live `detect_missing_items` smoke passed on referenced attachment/photo documentation sample
@@ -96,7 +107,8 @@ Completed:
 - Frontend optional-focus and claim-review-scope claim-pair display for contradiction analysis, contradiction analysis run details, and conservative contradiction review notes
 - Frontend analysis focus input starts empty; examples are placeholders only and are not processed unless the user types text
 - Frontend review status/source validation filters and object detail panel
-- Frontend export history and focused review queue controls
+- Frontend export history and review report filter controls
+- Manual contradiction candidate UI from two source-valid, non-rejected claims with readonly claim/source previews
 - Frontend visible text localized to Hungarian with labels for backend enum/internal values
 - End-to-end frontend/API smoke passed through case creation, TXT import, all MVP analysis modules, review queue filter, claim review, JSON export, export history backing endpoint, download, and Vite proxy
 
@@ -107,9 +119,8 @@ PDF/OCR sample checks:
 
 Next:
 
-- Live-smoke contradiction detection after document/case-scope `extract_claims` on real imported documents, including frontend review report inspection
-- Refine batch-capable raw-chunk module guardrails and status/error wording from live smoke
-- Decide whether selected claim-pair details need a dedicated contradiction detail view beyond analysis run metadata
+- Commit and push the batch/contradiction/deduplication/source-correction/manual-entry checkpoint
+- Move to retrieval/indexing hardening, likely Qdrant/embedding-backed or hybrid source selection for larger cases
 
 Frontend dev URL:
 
@@ -201,5 +212,5 @@ Frontend:
 - React/Vite scaffold under `frontend/`
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
-- Current UI workflows: case create/list, TXT import, document list, page/chunk drill-down, analysis run with elapsed-time feedback, analysis history/detail, focused review queues, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, JSON/HTML export, export history
+- Current UI workflows: case create/list, TXT/PDF import, document list, page/chunk drill-down, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
 - Raw-chunk analysis module UI supports focused query, selected-document, and whole-case source scopes with optional focus text and batch controls

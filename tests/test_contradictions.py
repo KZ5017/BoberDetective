@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.contradiction import ContradictionCandidateCreate, ContradictionSourceCreate
+from app.schemas.contradiction import ContradictionCandidateCreate, ContradictionSourceCreate, ManualContradictionCandidateCreate
 from app.services.contradictions import (
     ContradictionCandidateValidationError,
     _review_status_for_action,
@@ -31,6 +31,18 @@ def test_contradiction_create_schema_requires_claim_or_event_pair() -> None:
             description="Ket forras mas idopontot emlit.",
             analysis_run_id=uuid4(),
             sources=_sources(),
+        )
+
+
+def test_manual_contradiction_candidate_schema_rejects_self_pair() -> None:
+    claim_id = uuid4()
+
+    with pytest.raises(ValidationError):
+        ManualContradictionCandidateCreate(
+            claim_id_a=claim_id,
+            claim_id_b=claim_id,
+            contradiction_type="other",
+            description="Ugyanaz az allitas nem lehet mindket oldalon.",
         )
 
 

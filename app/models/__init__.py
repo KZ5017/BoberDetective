@@ -3,6 +3,7 @@ from app.models.audit import AuditEventModel
 from app.models.case import CaseModel, CaseUserModel
 from app.models.claim import ClaimModel, ClaimSourceModel
 from app.models.contradiction import ContradictionCandidateModel, ContradictionCandidateSourceModel
+from app.models.detached_source import DetachedSourceItemModel
 from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.entity import EntityMentionModel, EntityModel
@@ -24,6 +25,7 @@ __all__ = [
     "ClaimSourceModel",
     "ContradictionCandidateModel",
     "ContradictionCandidateSourceModel",
+    "DetachedSourceItemModel",
     "DocumentChunkModel",
     "DocumentModel",
     "DocumentPageModel",

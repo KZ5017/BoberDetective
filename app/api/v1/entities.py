@@ -4,15 +4,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.schemas.entity import EntityDetail, EntityList, EntityMentionRead, EntityRead
+from app.schemas.entity import EntityDetail, EntityList, EntityMentionRead, EntityMergeCreate, EntityRead, EntitySourceDetachCreate, EntitySourceMoveCreate
 from app.schemas.review import HumanReviewCreate, HumanReviewRead
 from app.services.entities import (
     EntityError,
     EntityNotFoundError,
+    detach_entity_mention,
     get_entity,
     list_entities,
     list_entity_mentions,
     list_entity_reviews,
+    merge_entity,
+    move_entity_mention,
     review_entity,
 )
 
@@ -60,4 +63,85 @@ def post_entity_review(
         entity=EntityRead.model_validate(entity),
         mentions=[EntityMentionRead.model_validate(mention) for mention in list_entity_mentions(db, entity_id)],
         reviews=[HumanReviewRead.model_validate(review) for review in list_entity_reviews(db, entity_id)],
+    )
+
+
+@router.post("/cases/{case_id}/entities/{entity_id}/merge", response_model=EntityDetail)
+def post_entity_merge(
+    case_id: UUID,
+    entity_id: UUID,
+    payload: EntityMergeCreate,
+    db: Session = Depends(get_db),
+) -> EntityDetail:
+    try:
+        target_entity = merge_entity(
+            db,
+            case_id=case_id,
+            source_entity_id=entity_id,
+            target_entity_id=payload.target_entity_id,
+            review_comment=payload.review_comment,
+        )
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except EntityError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return EntityDetail(
+        entity=EntityRead.model_validate(target_entity),
+        mentions=[EntityMentionRead.model_validate(mention) for mention in list_entity_mentions(db, target_entity.id)],
+        reviews=[HumanReviewRead.model_validate(review) for review in list_entity_reviews(db, target_entity.id)],
+    )
+
+
+@router.post("/cases/{case_id}/entities/{entity_id}/mentions/{mention_id}/detach", response_model=EntityDetail)
+def post_entity_source_detach(
+    case_id: UUID,
+    entity_id: UUID,
+    mention_id: UUID,
+    payload: EntitySourceDetachCreate,
+    db: Session = Depends(get_db),
+) -> EntityDetail:
+    try:
+        entity = detach_entity_mention(
+            db,
+            case_id=case_id,
+            entity_id=entity_id,
+            mention_id=mention_id,
+            review_comment=payload.review_comment,
+        )
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except EntityError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return EntityDetail(
+        entity=EntityRead.model_validate(entity),
+        mentions=[EntityMentionRead.model_validate(mention) for mention in list_entity_mentions(db, entity.id)],
+        reviews=[HumanReviewRead.model_validate(review) for review in list_entity_reviews(db, entity.id)],
+    )
+
+
+@router.post("/cases/{case_id}/entities/{entity_id}/mentions/{mention_id}/move", response_model=EntityDetail)
+def post_entity_source_move(
+    case_id: UUID,
+    entity_id: UUID,
+    mention_id: UUID,
+    payload: EntitySourceMoveCreate,
+    db: Session = Depends(get_db),
+) -> EntityDetail:
+    try:
+        target_entity = move_entity_mention(
+            db,
+            case_id=case_id,
+            source_entity_id=entity_id,
+            mention_id=mention_id,
+            target_entity_id=payload.target_entity_id,
+            review_comment=payload.review_comment,
+        )
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except EntityError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return EntityDetail(
+        entity=EntityRead.model_validate(target_entity),
+        mentions=[EntityMentionRead.model_validate(mention) for mention in list_entity_mentions(db, target_entity.id)],
+        reviews=[HumanReviewRead.model_validate(review) for review in list_entity_reviews(db, target_entity.id)],
     )

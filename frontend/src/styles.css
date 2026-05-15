@@ -254,16 +254,10 @@ label {
 .button-row,
 .metrics,
 .tags,
-.review-row,
-.queue-row {
+.review-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
-}
-
-.queue-row {
-  border-bottom: 1px solid #d7dde2;
-  padding-bottom: 0.75rem;
 }
 
 .review-row {
@@ -277,6 +271,56 @@ label {
 .review-row button {
   min-width: 2.45rem;
   padding-inline: 0.65rem;
+}
+
+.merge-panel {
+  align-items: end;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0.7rem;
+}
+
+.merge-panel button {
+  min-height: 2.45rem;
+}
+
+.compact-merge {
+  grid-template-columns: minmax(180px, 1fr) auto;
+  padding: 0.55rem;
+}
+
+.source-action {
+  margin-top: 0.55rem;
+}
+
+.source-action-row {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.55rem;
+}
+
+.source-action-row select {
+  min-width: min(100%, 14rem);
+}
+
+.detached-source-list blockquote {
+  margin: 0.2rem 0 0;
+}
+
+.chunk-selector {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  min-height: 10rem;
+  resize: vertical;
+}
+
+.manual-entry-panel {
+  display: grid;
+  gap: 0.75rem;
 }
 
 .analysis-summary {

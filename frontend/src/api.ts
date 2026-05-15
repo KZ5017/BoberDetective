@@ -81,6 +81,8 @@ export type AnalysisRunDetail = {
 };
 
 export type ReviewReportSource = {
+  source_link_id: string | null;
+  source_link_type: string | null;
   source_reference_id: string;
   document_id: string;
   document_filename: string | null;
@@ -154,6 +156,89 @@ export type ExportRead = {
   created_at: string;
 };
 
+export type EntityRead = {
+  id: string;
+  case_id: string;
+  entity_type: string;
+  canonical_name: string;
+  normalized_value: string | null;
+  description: string | null;
+  confidence: string | number | null;
+  created_by_analysis_run_id: string | null;
+  created_by_user_id: string | null;
+  review_status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EventRead = {
+  id: string;
+  case_id: string;
+  event_type: string;
+  event_title: string;
+  event_description: string | null;
+  event_time_raw: string | null;
+  event_time_start: string | null;
+  event_time_end: string | null;
+  time_precision: string | null;
+  location_text: string | null;
+  confidence: string | number | null;
+  created_by_analysis_run_id: string;
+  source_validation_status: string;
+  review_status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MissingItemCandidateRead = {
+  id: string;
+  case_id: string;
+  missing_item_type: string;
+  referenced_item_text: string;
+  description: string;
+  expected_document_type: string | null;
+  confidence: string | number | null;
+  created_by_analysis_run_id: string;
+  source_validation_status: string;
+  review_status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DetachedSourceItemRead = {
+  id: string;
+  case_id: string;
+  source_reference_id: string;
+  detached_from_object_type: string;
+  detached_from_object_id: string;
+  detached_from_source_link_id: string;
+  detached_from_source_link_type: string;
+  object_title_snapshot: string;
+  object_body_snapshot: string | null;
+  object_subtype_snapshot: string | null;
+  object_review_status_snapshot: string | null;
+  source_validation_status_snapshot: string | null;
+  source_snapshot_json: {
+    document_id?: string | null;
+    page_id?: string | null;
+    chunk_id?: string | null;
+    page_number?: number | null;
+    quote_text?: string | null;
+    quote_char_start?: number | null;
+    quote_char_end?: number | null;
+    citation_label?: string | null;
+    source_kind?: string | null;
+  } | null;
+  handling_status: string;
+  reattached_to_object_type: string | null;
+  reattached_to_object_id: string | null;
+  reattached_to_object_title_snapshot: string | null;
+  detach_comment: string | null;
+  detached_by_user_id: string;
+  detached_at: string;
+  updated_at: string;
+};
+
 export type AnalysisResponse = {
   analysis_run_id: string;
   module_key: string;
@@ -166,6 +251,57 @@ export type AnalysisResponse = {
   summary_items: unknown[];
   contradiction_candidates: unknown[];
   missing_item_candidates: unknown[];
+};
+
+export type ManualObjectType = "claim" | "entity" | "event" | "missing_item_candidate";
+
+export type ManualObjectPayload = {
+  source_reference: {
+    document_id: string;
+    page_id?: string | null;
+    chunk_id?: string | null;
+    quote_text: string;
+    quote_char_start?: number | null;
+    quote_char_end?: number | null;
+    citation_label?: string | null;
+    source_kind: "chunk_quote" | "page_quote";
+  };
+  object_type: ManualObjectType;
+  claim_type?: string;
+  claim_text?: string | null;
+  entity_type?: string | null;
+  canonical_name?: string | null;
+  normalized_value?: string | null;
+  description?: string | null;
+  event_type?: string | null;
+  event_title?: string | null;
+  event_description?: string | null;
+  event_time_raw?: string | null;
+  time_precision?: string | null;
+  location_text?: string | null;
+  missing_item_type?: string | null;
+  referenced_item_text?: string | null;
+  expected_document_type?: string | null;
+};
+
+export type ManualObjectFromSourcePayload = Omit<ManualObjectPayload, "source_reference">;
+
+export type ManualObjectResponse = {
+  analysis_run_id: string;
+  source_reference: {
+    id: string;
+    citation_label: string | null;
+  };
+  object_type: string;
+  object_id: string;
+};
+
+export type ManualContradictionCandidatePayload = {
+  claim_id_a: string;
+  claim_id_b: string;
+  contradiction_type: "time_conflict" | "location_conflict" | "identity_conflict" | "document_mismatch" | "amount_conflict" | "other";
+  severity_hint?: "low" | "medium" | "high" | null;
+  description: string;
 };
 
 export type AnalysisSourceMode = "focused_query" | "document" | "case";
@@ -217,6 +353,157 @@ export function reviewObject(
   });
 }
 
+export function mergeEntity(
+  caseId: string,
+  sourceEntityId: string,
+  targetEntityId: string,
+  reviewComment?: string
+): Promise<unknown> {
+  return request(`/cases/${caseId}/entities/${sourceEntityId}/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_entity_id: targetEntityId, review_comment: reviewComment || null })
+  });
+}
+
+export function mergeEvent(
+  caseId: string,
+  sourceEventId: string,
+  targetEventId: string,
+  reviewComment?: string
+): Promise<unknown> {
+  return request(`/cases/${caseId}/events/${sourceEventId}/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_event_id: targetEventId, review_comment: reviewComment || null })
+  });
+}
+
+export function mergeMissingItemCandidate(
+  caseId: string,
+  sourceCandidateId: string,
+  targetCandidateId: string,
+  reviewComment?: string
+): Promise<unknown> {
+  return request(`/cases/${caseId}/missing-item-candidates/${sourceCandidateId}/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_missing_item_candidate_id: targetCandidateId, review_comment: reviewComment || null })
+  });
+}
+
+export function detachObjectSource(
+  caseId: string,
+  objectType: string,
+  objectId: string,
+  sourceLinkId: string,
+  reviewComment?: string
+): Promise<unknown> {
+  const detachPathByType: Record<string, string> = {
+    entity: `/cases/${caseId}/entities/${objectId}/mentions/${sourceLinkId}/detach`,
+    event: `/cases/${caseId}/events/${objectId}/sources/${sourceLinkId}/detach`,
+    missing_item_candidate: `/cases/${caseId}/missing-item-candidates/${objectId}/sources/${sourceLinkId}/detach`
+  };
+  const path = detachPathByType[objectType];
+  if (!path) {
+    throw new Error(`Unsupported source detach object type: ${objectType}`);
+  }
+  return request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ review_comment: reviewComment || null })
+  });
+}
+
+export function moveObjectSource(
+  caseId: string,
+  objectType: string,
+  objectId: string,
+  sourceLinkId: string,
+  targetObjectId: string,
+  reviewComment?: string
+): Promise<unknown> {
+  const movePathByType: Record<string, { path: string; targetKey: string }> = {
+    entity: {
+      path: `/cases/${caseId}/entities/${objectId}/mentions/${sourceLinkId}/move`,
+      targetKey: "target_entity_id"
+    },
+    event: {
+      path: `/cases/${caseId}/events/${objectId}/sources/${sourceLinkId}/move`,
+      targetKey: "target_event_id"
+    },
+    missing_item_candidate: {
+      path: `/cases/${caseId}/missing-item-candidates/${objectId}/sources/${sourceLinkId}/move`,
+      targetKey: "target_missing_item_candidate_id"
+    }
+  };
+  const config = movePathByType[objectType];
+  if (!config) {
+    throw new Error(`Unsupported source move object type: ${objectType}`);
+  }
+  return request(config.path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ [config.targetKey]: targetObjectId, review_comment: reviewComment || null })
+  });
+}
+
+export function attachDetachedSourceItem(
+  caseId: string,
+  itemId: string,
+  targetObjectId: string,
+  reviewComment?: string
+): Promise<DetachedSourceItemRead> {
+  return request(`/cases/${caseId}/detached-source-items/${itemId}/attach`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_object_id: targetObjectId, review_comment: reviewComment || null })
+  });
+}
+
+export function discardDetachedSourceItem(
+  caseId: string,
+  itemId: string,
+  reviewComment?: string
+): Promise<DetachedSourceItemRead> {
+  return request(`/cases/${caseId}/detached-source-items/${itemId}/discard`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ review_comment: reviewComment || null })
+  });
+}
+
+export function createManualObject(caseId: string, payload: ManualObjectPayload): Promise<ManualObjectResponse> {
+  return request(`/cases/${caseId}/manual-objects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function createManualObjectFromDetachedSource(
+  caseId: string,
+  itemId: string,
+  payload: ManualObjectFromSourcePayload
+): Promise<ManualObjectResponse> {
+  return request(`/cases/${caseId}/detached-source-items/${itemId}/manual-object`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function createManualContradictionCandidate(
+  caseId: string,
+  payload: ManualContradictionCandidatePayload
+): Promise<unknown> {
+  return request(`/cases/${caseId}/contradiction-candidates/manual`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
 export function listCases(): Promise<{ data: CaseRead[] }> {
   return request("/cases");
 }
@@ -231,6 +518,22 @@ export function createCase(payload: { case_name: string; case_reference?: string
 
 export function listDocuments(caseId: string): Promise<{ data: DocumentRead[] }> {
   return request(`/cases/${caseId}/documents`);
+}
+
+export function listEntities(caseId: string): Promise<{ data: EntityRead[] }> {
+  return request(`/cases/${caseId}/entities`);
+}
+
+export function listEvents(caseId: string): Promise<{ data: EventRead[] }> {
+  return request(`/cases/${caseId}/events`);
+}
+
+export function listMissingItemCandidates(caseId: string): Promise<{ data: MissingItemCandidateRead[] }> {
+  return request(`/cases/${caseId}/missing-item-candidates`);
+}
+
+export function listDetachedSourceItems(caseId: string): Promise<{ data: DetachedSourceItemRead[] }> {
+  return request(`/cases/${caseId}/detached-source-items`);
 }
 
 export function listDocumentPages(caseId: string, documentId: string): Promise<{ data: DocumentPageRead[] }> {
