@@ -16,14 +16,33 @@
 - Reduced the default local load profile for the current workstation: chat `eval_batch_size` is now `6144`, and the default embedding model is `text-embedding-qwen3-embedding-4b`.
 - Switched the default embedding model to `text-embedding-qwen3-embedding-4b@q6_k` for a lighter local LM Studio profile; chat model id remains `qwen/qwen3.5-9b`, with LM Studio expected to load the desired quantized variant behind that id.
 - Recorded the next retrieval hardening direction: hybrid ranking calibration, semantic/hybrid document/case source selection, and frontend visibility into selected source chunks.
+- Added the first calibrated hybrid ranking slice: hybrid retrieval now combines keyword score, semantic score, exact phrase evidence, and keyword/semantic overlap instead of sorting by a raw max score.
+- Extended retrieval-aware source selection into document and case analysis modes.
+- Documented the WSL/Codex frontend startup caveat: Vite can exit with `Hangup` after a plain background start, so Codex-started frontend sessions should use `setsid` and verify the `5173` listener.
 - Expanded frontend model status controls into a dedicated local model panel with separate chat and embedding load actions plus loaded-instance visibility.
 - Added configurable embedding index batching through `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE`; chunk embeddings are now requested and upserted in smaller batches to reduce LM Studio timeout and RAM spikes.
 - Added chunk index status API and frontend semantic index status panel; semantic/hybrid focused analysis is now blocked until the active source scope is indexed with the configured embedding model.
 - Added background chunk indexing through `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; the frontend starts the job, polls index status, and shows latest-run progress instead of waiting for one long indexing request.
+- Changed raw-chunk analysis source selection to require explicit focus text in focused-query, document, and case modes; missing/no-hit focus now fails clearly instead of falling back to first chunks.
+- Replaced the frontend analysis `Limit` control with `Szovegresz plafon` for raw-chunk modules; it defaults to 20, is capped at 30 in both frontend and backend validation, and focused-query mode now uses the same chunk-plafon plus batch-size workflow as document/case modes.
+- Kept chunk indexing separate from the analysis chunk plafon: frontend background index jobs request the selected source scope up to the indexing endpoint cap instead of indexing only the analysis-sized subset.
+- Added human-readable analysis run detail summaries: selected chunk inputs now expose document/page/chunk metadata, retrieval match type/score, batch position, and preview text, while output rows expose short object summaries.
+- Updated the page-local text chunker to `char_window_v2`: it now prefers paragraph breaks, then sentence-end breaks, then line breaks/spaces before hard character limits, without allowing chunks to span processed page boundaries.
+- Added backend OCR recommendation metadata to document responses and changed the frontend OCR action to follow that recommendation, distinguishing recommended OCR from optional OCR checks on suspicious native-text PDFs.
+- Fixed document detail page/chunk listing after OCR so the default API/UI view returns only current page and chunk versions; previous native versions remain audit/version history but no longer appear as duplicate current content.
+- Added Alembic migration `0017_text_review_status` and the `text_review_required` document status for explicit PDF text-layer review.
+- Changed native PDF import and OCR to create current pages without immediately creating chunks; users now explicitly create chunks afterward through `POST /api/v1/cases/{case_id}/documents/{document_id}/chunks`, which records a `chunk_document` analysis run.
+- Added frontend `Szovegreszek letrehozasa` action for `text_review_required` documents and localized the new status as `Szoveg ellenorzesre var`.
+- Removed the obsolete `focused_query` analysis source mode from frontend and backend; raw-chunk modules now choose only between whole-case (`case`) and selected-document (`document`) source scopes, with focus text handled as a separate required field.
+- Removed the legacy analysis-module request `limit` field. Raw-chunk modules use `max_chunks` for source selection, and contradiction detection uses the explicit `contradiction_candidate_limit` field.
+- Made contradiction candidate detection focus-required in both frontend and backend, exposed its separate candidate cap as `contradiction_candidate_limit`, and kept claim-focus matching accent-preserving with two-character minimum terms.
+- Kept analysis source-selection query variants accent-preserving and lowered their minimum term length to two characters, aligning raw-chunk retrieval fallback terms with Hungarian text.
+- Added analysis page-range filtering (`page_start`, `page_end`) inside the existing case/document source scopes. Keyword, semantic, and hybrid raw-chunk retrieval now constrain selected chunks by overlapping page range.
+- Refined raw-chunk analysis page ranges to selected-document scope only. Whole-case analysis no longer shows or requires page fields; selected-document analysis defaults `Oldaltol/Oldalig` to the document bounds, while the backend falls back to the full document when page fields are omitted and rejects out-of-document ranges.
 - Capped the effective `extract_events` batch size at 2 chunks to avoid local LM Studio chat timeouts on larger semantic result sets while preserving the requested batch size in analysis run input metadata.
 - Added `Design_documents/10_analysis_batch_processing_plan.md` for the next analysis architecture step: shared source selection, chunk batching, batch metadata, exact deduplication, and batch-capable `extract_claims` as the first target.
-- Added backward-compatible analysis module request fields for `source_mode`, `document_id`, `max_chunks`, and `batch_size`.
-- Added shared source chunk selection for focused query, document, and case source modes.
+- Added analysis module request fields for `source_mode`, `document_id`, `max_chunks`, and `batch_size`.
+- Added shared source chunk selection for focus-based retrieval, document, and case source modes. The obsolete `focused_query` source mode was later removed.
 - Added deterministic chunk batching and batch metadata for analysis run inputs.
 - Added batch-capable `extract_claims` execution with exact in-run deduplication and parent analysis run summary counts.
 - Added batch-capable `extract_events` execution with exact in-run deduplication and parent analysis run summary counts.
@@ -51,14 +70,14 @@
 - Added source-bound manual object creation from detached source items, marking the detached item handled by the newly created object.
 - Added manual contradiction candidate creation from two source-valid, non-rejected claims, with readonly claim/source previews in the frontend and `manual_entry` analysis run provenance in the backend.
 - Hardened LLM JSON handling for analysis modules by extracting a JSON object from otherwise valid responses with extra surrounding text, while still rejecting malformed JSON.
-- Added frontend source scope controls for batch-capable raw-chunk analysis modules, including focused query, selected document, whole case, optional focus text, max source chunks, and batch size.
-- Added frontend support for the contradiction claim-pair workflow: optional focus and claim review scope in the analysis panel, claim-selection metrics, selected pair display, claim pair membership display, claim-pair based analysis summary text, and conservative review notes for contradiction candidates.
+- Added frontend source scope controls for batch-capable raw-chunk analysis modules, including selected document, whole case, focus text, max source chunks, and batch size.
+- Added frontend support for the contradiction claim-pair workflow: required focus, claim review scope, and candidate cap in the analysis panel, claim-selection metrics, selected pair display, claim pair membership display, claim-pair based analysis summary text, and conservative review notes for contradiction candidates.
 - Changed frontend analysis focus input to start empty for every module; module-specific examples are placeholders only and are not submitted unless the user types text.
 - Removed redundant review report quick-filter buttons; review report filtering now uses the dropdown controls only.
 
 ### Changed
 
-- Updated handoff/session documentation to make the analysis batch foundation the next logical development direction while preserving the current focused query workflow.
+- Updated handoff/session documentation to make the analysis batch foundation the next logical development direction while preserving focus-based source selection.
 - Updated the verification baseline to `165 passed` and Alembic head `0016_manual_entry`.
 - Recorded live batch analysis smoke results for `extract_claims` in document and case source modes; both completed with `validation_status=passed`.
 - Recorded live batch analysis smoke results for `extract_events` in document and case source modes; both completed with `validation_status=passed`.

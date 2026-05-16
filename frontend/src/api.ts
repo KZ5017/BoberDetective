@@ -17,6 +17,11 @@ export type DocumentRead = {
   processing_status: string;
   page_count: number | null;
   imported_at: string;
+  ocr_recommendation: {
+    action: "hidden" | "recommended" | "optional";
+    reason_code: string;
+    message: string;
+  } | null;
 };
 
 export type DocumentPageRead = {
@@ -71,12 +76,28 @@ export type AnalysisRunDetail = {
     related_object_id: string | null;
     sequence_no: number;
     payload_json: Record<string, unknown> | null;
+    source_summary: {
+      document_filename: string | null;
+      page_start: number | null;
+      page_end: number | null;
+      chunk_index: number | null;
+      char_start: number | null;
+      char_end: number | null;
+      text_preview: string | null;
+    } | null;
   }>;
   outputs: Array<{
     id: string;
     output_type: string;
     output_object_id: string;
     output_position: number | null;
+    output_summary: {
+      title: string | null;
+      body_text: string | null;
+      review_status: string | null;
+      source_validation_status: string | null;
+      source_count: number | null;
+    } | null;
   }>;
 };
 
@@ -304,19 +325,21 @@ export type ManualContradictionCandidatePayload = {
   description: string;
 };
 
-export type AnalysisSourceMode = "focused_query" | "document" | "case";
+export type AnalysisSourceMode = "case" | "document";
 export type ClaimReviewScope = "reviewable" | "verified" | "needs_review" | "all_source_valid";
 export type RetrievalStrategy = "keyword" | "semantic" | "hybrid";
 
 export type AnalysisRunPayload = {
   query?: string | null;
-  limit: number;
   source_mode?: AnalysisSourceMode;
   document_id?: string | null;
+  page_start?: number | null;
+  page_end?: number | null;
   max_chunks?: number;
   batch_size?: number;
   claim_review_scope?: ClaimReviewScope;
   retrieval_strategy?: RetrievalStrategy;
+  contradiction_candidate_limit?: number;
 };
 
 export type ChunkIndexResponse = {
@@ -618,6 +641,14 @@ export function importDocument(caseId: string, file: File, documentType: string)
 
 export function runDocumentOcr(caseId: string, documentId: string, reason?: string): Promise<DocumentProcessResponse> {
   return request(`/cases/${caseId}/documents/${documentId}/ocr`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: reason || null })
+  });
+}
+
+export function createDocumentChunks(caseId: string, documentId: string, reason?: string): Promise<DocumentProcessResponse> {
+  return request(`/cases/${caseId}/documents/${documentId}/chunks`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason: reason || null })

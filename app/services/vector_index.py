@@ -73,6 +73,22 @@ class EmbeddingBatch:
     embeddings: list[list[float]]
 
 
+@dataclass(frozen=True)
+class HybridRankCandidate:
+    hit: KeywordSearchHit
+    keyword_score: float
+    semantic_score: float
+    keyword_rank: int | None
+    semantic_rank: int | None
+    exact_phrase_match: bool
+
+
+HYBRID_KEYWORD_WEIGHT = 0.35
+HYBRID_SEMANTIC_WEIGHT = 0.55
+HYBRID_OVERLAP_BONUS = 0.20
+HYBRID_EXACT_PHRASE_BONUS = 0.10
+
+
 class QdrantChunkIndex:
     def __init__(self, settings: Settings | None = None, client: httpx.Client | None = None) -> None:
         self._settings = settings or get_settings()
@@ -143,7 +159,26 @@ class QdrantChunkIndex:
             if close_client:
                 client.close()
 
-    def search(self, *, case_id: UUID, query_embedding: list[float], limit: int) -> list[SemanticChunkHit]:
+    def search(
+        self,
+        *,
+        case_id: UUID,
+        query_embedding: list[float],
+        limit: int,
+        document_id: UUID | None = None,
+        page_start: int | None = None,
+        page_end: int | None = None,
+    ) -> list[SemanticChunkHit]:
+        filter_must = [
+            {"key": "case_id", "match": {"value": str(case_id)}},
+            {"key": "is_current", "match": {"value": True}},
+        ]
+        if document_id is not None:
+            filter_must.append({"key": "document_id", "match": {"value": str(document_id)}})
+        if page_start is not None:
+            filter_must.append({"key": "page_end", "range": {"gte": page_start}})
+        if page_end is not None:
+            filter_must.append({"key": "page_start", "range": {"lte": page_end}})
         client = self._client or self._build_client()
         close_client = self._client is None
         try:
@@ -153,12 +188,7 @@ class QdrantChunkIndex:
                     "vector": query_embedding,
                     "limit": limit,
                     "with_payload": True,
-                    "filter": {
-                        "must": [
-                            {"key": "case_id", "match": {"value": str(case_id)}},
-                            {"key": "is_current", "match": {"value": True}},
-                        ]
-                    },
+                    "filter": {"must": filter_must},
                 },
             )
             response.raise_for_status()
@@ -308,11 +338,26 @@ def _process_chunk_index_run(
         raise VectorIndexError(str(exc)) from exc
 
 
-def semantic_chunk_search(db: Session, case_id: UUID, query: str, limit: int) -> list[KeywordSearchHit]:
+def semantic_chunk_search(
+    db: Session,
+    case_id: UUID,
+    query: str,
+    limit: int,
+    document_id: UUID | None = None,
+    page_start: int | None = None,
+    page_end: int | None = None,
+) -> list[KeywordSearchHit]:
     settings = get_settings()
-    ensure_semantic_index_ready(db, case_id)
+    ensure_semantic_index_ready(db, case_id, document_id)
     embedding_result = get_llm_provider(settings).embeddings(settings.llm_embedding_model, [query])
-    semantic_hits = QdrantChunkIndex(settings).search(case_id=case_id, query_embedding=embedding_result.embeddings[0], limit=limit)
+    semantic_hits = QdrantChunkIndex(settings).search(
+        case_id=case_id,
+        query_embedding=embedding_result.embeddings[0],
+        limit=limit,
+        document_id=document_id,
+        page_start=page_start,
+        page_end=page_end,
+    )
     hits: list[KeywordSearchHit] = []
     for semantic_hit in semantic_hits:
         chunk = db.get(DocumentChunkModel, semantic_hit.chunk_id)
@@ -338,27 +383,57 @@ def semantic_chunk_search(db: Session, case_id: UUID, query: str, limit: int) ->
     return hits
 
 
-def hybrid_chunk_search(db: Session, case_id: UUID, query: str, keyword_hits: list[KeywordSearchHit], limit: int) -> list[KeywordSearchHit]:
-    semantic_hits = semantic_chunk_search(db, case_id, query, limit)
-    merged: dict[UUID, KeywordSearchHit] = {}
-    for hit in keyword_hits:
+def hybrid_chunk_search(
+    db: Session,
+    case_id: UUID,
+    query: str,
+    keyword_hits: list[KeywordSearchHit],
+    limit: int,
+    document_id: UUID | None = None,
+    page_start: int | None = None,
+    page_end: int | None = None,
+) -> list[KeywordSearchHit]:
+    semantic_hits = semantic_chunk_search(db, case_id, query, limit, document_id, page_start, page_end)
+    max_keyword_score = max((hit.score for hit in keyword_hits if hit.chunk_id is not None), default=0.0)
+    candidates: dict[UUID, HybridRankCandidate] = {}
+    for rank, hit in enumerate(keyword_hits, start=1):
         if hit.chunk_id is not None:
-            merged[hit.chunk_id] = hit
-    for hit in semantic_hits:
+            candidates[hit.chunk_id] = HybridRankCandidate(
+                hit=hit,
+                keyword_score=_normalize_keyword_score(hit.score, max_keyword_score),
+                semantic_score=0.0,
+                keyword_rank=rank,
+                semantic_rank=None,
+                exact_phrase_match=_has_exact_phrase(query, hit.quote),
+            )
+    for rank, hit in enumerate(semantic_hits, start=1):
         if hit.chunk_id is None:
             continue
-        existing = merged.get(hit.chunk_id)
+        semantic_score = _normalize_semantic_score(hit.score)
+        existing = candidates.get(hit.chunk_id)
         if existing is None:
-            merged[hit.chunk_id] = KeywordSearchHit(**{**hit.__dict__, "match_type": "semantic"})
-        else:
-            merged[hit.chunk_id] = KeywordSearchHit(
-                **{
-                    **existing.__dict__,
-                    "score": max(existing.score, hit.score),
-                    "match_type": "hybrid",
-                }
+            candidates[hit.chunk_id] = HybridRankCandidate(
+                hit=KeywordSearchHit(**{**hit.__dict__, "match_type": "semantic"}),
+                keyword_score=0.0,
+                semantic_score=semantic_score,
+                keyword_rank=None,
+                semantic_rank=rank,
+                exact_phrase_match=False,
             )
-    return sorted(merged.values(), key=lambda item: (-item.score, item.document_name, item.page_start, item.chunk_index or 0))[:limit]
+        else:
+            candidates[hit.chunk_id] = HybridRankCandidate(
+                hit=KeywordSearchHit(**{**existing.hit.__dict__, "match_type": "hybrid"}),
+                keyword_score=existing.keyword_score,
+                semantic_score=semantic_score,
+                keyword_rank=existing.keyword_rank,
+                semantic_rank=rank,
+                exact_phrase_match=existing.exact_phrase_match,
+            )
+    ranked_hits = [_ranked_hybrid_hit(candidate) for candidate in candidates.values()]
+    return sorted(
+        ranked_hits,
+        key=lambda item: (-item.score, item.document_name, item.page_start, item.chunk_index or 0),
+    )[:limit]
 
 
 def get_chunk_index_status(db: Session, case_id: UUID, document_id: UUID | None = None) -> ChunkIndexStatus:
@@ -403,6 +478,42 @@ def ensure_semantic_index_ready(db: Session, case_id: UUID, document_id: UUID | 
             f"az aktuális embedding modellel ({index_status.embedding_model}). "
             f"Indexelve: {index_status.indexed_chunk_count}/{index_status.current_chunk_count}."
         )
+
+
+def _ranked_hybrid_hit(candidate: HybridRankCandidate) -> KeywordSearchHit:
+    overlap_bonus = HYBRID_OVERLAP_BONUS if candidate.keyword_rank is not None and candidate.semantic_rank is not None else 0.0
+    exact_phrase_bonus = HYBRID_EXACT_PHRASE_BONUS if candidate.exact_phrase_match else 0.0
+    score = (
+        (candidate.keyword_score * HYBRID_KEYWORD_WEIGHT)
+        + (candidate.semantic_score * HYBRID_SEMANTIC_WEIGHT)
+        + overlap_bonus
+        + exact_phrase_bonus
+    )
+    return KeywordSearchHit(**{**candidate.hit.__dict__, "score": round(score, 6)})
+
+
+def _normalize_keyword_score(score: float, max_score: float) -> float:
+    if max_score <= 0:
+        return 0.0
+    return _clamp_score(score / max_score)
+
+
+def _normalize_semantic_score(score: float) -> float:
+    return _clamp_score(score)
+
+
+def _clamp_score(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _has_exact_phrase(query: str, text: str | None) -> bool:
+    if not text:
+        return False
+    normalized_query = " ".join(query.casefold().split())
+    if not normalized_query:
+        return False
+    normalized_text = " ".join(text.casefold().split())
+    return normalized_query in normalized_text
 
 
 def embed_chunks_in_batches(settings: Settings, chunks: list[DocumentChunkModel]) -> Iterator[EmbeddingBatch]:

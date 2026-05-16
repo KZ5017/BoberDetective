@@ -77,6 +77,7 @@ def test_qdrant_chunk_index_creates_collection_and_upserts_points() -> None:
 
 def test_qdrant_chunk_index_search_filters_by_case_and_current_payload() -> None:
     case_id = uuid4()
+    document_id = uuid4()
     chunk_id = uuid4()
     captured_payload = {}
 
@@ -89,12 +90,22 @@ def test_qdrant_chunk_index_search_filters_by_case_and_current_payload() -> None
 
     client = httpx.Client(base_url="http://qdrant.local", transport=httpx.MockTransport(handler))
 
-    hits = QdrantChunkIndex(_settings(), client).search(case_id=case_id, query_embedding=[0.1, 0.2], limit=3)
+    hits = QdrantChunkIndex(_settings(), client).search(
+        case_id=case_id,
+        document_id=document_id,
+        query_embedding=[0.1, 0.2],
+        limit=3,
+        page_start=50,
+        page_end=120,
+    )
 
     assert hits[0].chunk_id == chunk_id
     assert hits[0].score == 0.91
     assert captured_payload["filter"]["must"][0]["match"]["value"] == str(case_id)
     assert captured_payload["filter"]["must"][1]["match"]["value"] is True
+    assert captured_payload["filter"]["must"][2]["match"]["value"] == str(document_id)
+    assert captured_payload["filter"]["must"][3]["range"]["gte"] == 50
+    assert captured_payload["filter"]["must"][4]["range"]["lte"] == 120
 
 
 def test_hybrid_chunk_search_merges_keyword_and_semantic_hits(monkeypatch) -> None:
@@ -128,8 +139,57 @@ def test_hybrid_chunk_search_merges_keyword_and_semantic_hits(monkeypatch) -> No
 
     assert len(hits) == 1
     assert hits[0].chunk_id == chunk_id
-    assert hits[0].score == 0.9
+    assert hits[0].score == 1.045
     assert hits[0].match_type == "hybrid"
+
+
+def test_hybrid_chunk_search_prioritizes_keyword_semantic_overlap(monkeypatch) -> None:
+    case_id = uuid4()
+    overlap_chunk_id = uuid4()
+    semantic_only_chunk_id = uuid4()
+    keyword_hit = KeywordSearchHit(
+        source_type="chunk",
+        document_id=uuid4(),
+        document_name="irat.txt",
+        page_start=2,
+        page_end=2,
+        score=0.1,
+        chunk_id=overlap_chunk_id,
+        chunk_index=2,
+        quote="gyilkossag helyszine",
+    )
+    semantic_hits = [
+        KeywordSearchHit(
+            source_type="chunk",
+            document_id=keyword_hit.document_id,
+            document_name="irat.txt",
+            page_start=3,
+            page_end=3,
+            score=0.95,
+            chunk_id=semantic_only_chunk_id,
+            chunk_index=3,
+            match_type="semantic",
+        ),
+        KeywordSearchHit(
+            source_type="chunk",
+            document_id=keyword_hit.document_id,
+            document_name="irat.txt",
+            page_start=2,
+            page_end=2,
+            score=0.5,
+            chunk_id=overlap_chunk_id,
+            chunk_index=2,
+            match_type="semantic",
+        ),
+    ]
+
+    monkeypatch.setattr("app.services.vector_index.semantic_chunk_search", lambda *args, **kwargs: semantic_hits)
+
+    hits = hybrid_chunk_search(object(), case_id, "gyilkossag helyszine", [keyword_hit], 5)
+
+    assert [hit.chunk_id for hit in hits] == [overlap_chunk_id, semantic_only_chunk_id]
+    assert hits[0].match_type == "hybrid"
+    assert hits[0].score > hits[1].score
 
 
 def test_embed_chunks_in_batches_splits_embedding_requests(monkeypatch) -> None:

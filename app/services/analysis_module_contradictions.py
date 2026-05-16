@@ -109,6 +109,8 @@ def run_detect_contradiction_candidates(
     payload: AnalysisModuleRunRequest,
 ) -> AnalysisModuleRunResponse:
     settings = get_settings()
+    if payload.query is None or payload.query.strip() == "":
+        raise AnalysisModuleError("Focus text is required for contradiction candidate detection")
     claim_review_statuses = claim_review_statuses_for_scope(payload.claim_review_scope)
     run = start_analysis_run(
         db,
@@ -118,7 +120,7 @@ def run_detect_contradiction_candidates(
         model_name=settings.llm_chat_model,
         input_parameters={
             "query": payload.query,
-            "limit": payload.limit,
+            "contradiction_candidate_limit": payload.contradiction_candidate_limit,
             "claim_scope": "case_source_valid_claims",
             "claim_review_scope": payload.claim_review_scope,
             "claim_review_statuses": list(claim_review_statuses),
@@ -133,10 +135,13 @@ def run_detect_contradiction_candidates(
     try:
         add_analysis_run_input(db, run.id, "query_text", 0, payload_json={"query": payload.query})
         claim_fetch_limit = min(
-            max(payload.limit * 4, MIN_CLAIMS_FOR_CONTRADICTION * 4),
+            max(payload.contradiction_candidate_limit * 4, MIN_CLAIMS_FOR_CONTRADICTION * 4),
             MAX_RETRIEVED_CLAIMS_FOR_CONTRADICTION,
         )
-        pair_limit = min(max(payload.limit * 2, MIN_CLAIMS_FOR_CONTRADICTION * 2), MAX_CLAIM_PAIRS_FOR_CONTRADICTION)
+        pair_limit = min(
+            max(payload.contradiction_candidate_limit * 2, MIN_CLAIMS_FOR_CONTRADICTION * 2),
+            MAX_CLAIM_PAIRS_FOR_CONTRADICTION,
+        )
         retrieved_claims = retrieve_claims_for_contradiction_detection(
             db,
             case_id,
@@ -162,7 +167,7 @@ def run_detect_contradiction_candidates(
                 "selected_claim_count": len(selected_claims),
                 "selected_pair_count": len(claim_pairs),
                 "required_min_claim_count": MIN_CLAIMS_FOR_CONTRADICTION,
-                "limit": payload.limit,
+                "contradiction_candidate_limit": payload.contradiction_candidate_limit,
                 "claim_fetch_limit": claim_fetch_limit,
                 "pair_limit": pair_limit,
                 "selected_pairs": [
@@ -237,7 +242,11 @@ def run_detect_contradiction_candidates(
                 LLMChatMessage(role="system", content=EXTRACT_CONTRADICTIONS_SYSTEM_PROMPT),
                 LLMChatMessage(
                     role="user",
-                    content=build_detect_contradictions_user_prompt(payload.query, claim_pairs, payload.limit),
+                    content=build_detect_contradictions_user_prompt(
+                        payload.query,
+                        claim_pairs,
+                        payload.contradiction_candidate_limit,
+                    ),
                 ),
             ],
             temperature=0.1,
@@ -279,7 +288,7 @@ def run_detect_contradiction_candidates(
             parsed,
             selected_claims,
             claim_pairs,
-            max_candidates=payload.limit,
+            max_candidates=payload.contradiction_candidate_limit,
         )
 
         response_candidates: list[AnalysisModuleContradictionCandidate] = []
@@ -619,11 +628,9 @@ def _claim_pair_score(claim_a: RetrievedClaim, claim_b: RetrievedClaim) -> int:
 def _claim_focus_terms(query: str | None) -> list[str]:
     if not isinstance(query, str) or not query.strip():
         return []
-    normalized = unicodedata.normalize("NFKD", query.casefold())
-    ascii_query = "".join(char for char in normalized if not unicodedata.combining(char))
     terms: list[str] = []
-    for term in re.findall(r"\w+", ascii_query):
-        if len(term) < 4 or term in CONTRADICTION_FOCUS_STOPWORDS:
+    for term in re.findall(r"\w+", query.casefold(), flags=re.UNICODE):
+        if len(term) < 2 or term in CONTRADICTION_FOCUS_STOPWORDS:
             continue
         if term not in terms:
             terms.append(term)
@@ -636,8 +643,7 @@ def _claim_matches_focus(retrieved: RetrievedClaim, focus_terms: list[str]) -> b
 
 
 def _normalized_text(value: str | None) -> str:
-    normalized = unicodedata.normalize("NFKD", (value or "").casefold())
-    return "".join(char for char in normalized if not unicodedata.combining(char))
+    return unicodedata.normalize("NFC", (value or "").casefold())
 
 
 def _contradiction_precondition_message(

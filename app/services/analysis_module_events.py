@@ -61,9 +61,10 @@ def run_extract_events(db: Session, case_id: UUID, payload: AnalysisModuleRunReq
     effective_batch_size = _effective_event_batch_size(payload.batch_size)
     input_parameters = {
         "query": payload.query,
-        "limit": payload.limit,
         "source_mode": payload.source_mode,
         "document_id": str(payload.document_id) if payload.document_id is not None else None,
+        "page_start": payload.page_start,
+        "page_end": payload.page_end,
         "max_chunks": payload.max_chunks,
         "batch_size": effective_batch_size,
         "requested_batch_size": payload.batch_size,

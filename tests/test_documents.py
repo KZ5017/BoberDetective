@@ -22,6 +22,7 @@ from app.services.documents import (
     _clean_original_filename,
     _decode_txt,
     _is_pdf_upload,
+    _ocr_recommendation_from_stats,
     parse_native_pdf_pages,
     _read_limited_upload,
     _validate_pdf_upload,
@@ -261,6 +262,30 @@ def test_text_chunker_preserves_offsets() -> None:
         assert chunk.text == chunk.text.strip()
 
 
+def test_text_chunker_prefers_paragraph_break_before_sentence_break() -> None:
+    paragraph = " ".join(["Elso bekezdes eleg hosszu"] * 9) + "."
+    second = "Masodik mondat mar a kovetkezo reszben folytatodik."
+    text = f"{paragraph}\n\n{second}"
+
+    chunks = _build_text_chunks(text, max_chars=260)
+
+    assert [chunk.text for chunk in chunks] == [
+        paragraph,
+        second,
+    ]
+
+
+def test_text_chunker_prefers_sentence_break_before_line_break() -> None:
+    first_sentence = " ".join(["Az elso mondat termeszetes hatara itt veget er"] * 5) + "."
+    rest = "Ez a masodik sorban folytatodik\nes meg mindig ugyanaz a gondolat."
+    text = f"{first_sentence} {rest}"
+
+    chunks = _build_text_chunks(text, max_chars=260)
+
+    assert chunks[0].text == first_sentence
+    assert chunks[1].text == rest
+
+
 def test_text_chunker_skips_whitespace_only_text() -> None:
     assert _build_text_chunks(" \n\n\t ", max_chars=10) == []
 
@@ -268,6 +293,91 @@ def test_text_chunker_skips_whitespace_only_text() -> None:
 def test_text_chunker_rejects_invalid_size() -> None:
     with pytest.raises(ValueError):
         _build_text_chunks("text", max_chars=0)
+
+
+def test_ocr_recommendation_is_recommended_when_no_text_exists() -> None:
+    page = DocumentPageModel(
+        case_id=uuid4(),
+        document_id=uuid4(),
+        page_number=1,
+        extracted_text="",
+        text_source="native",
+        ocr_used=False,
+        version_no=1,
+        is_current=True,
+        text_char_count=0,
+    )
+
+    recommendation = _ocr_recommendation_from_stats("processed", 1, [page], [])
+
+    assert recommendation.action == "recommended"
+    assert recommendation.reason_code == "no_text"
+
+
+def test_ocr_recommendation_hides_when_text_layer_awaits_chunking() -> None:
+    page = DocumentPageModel(
+        case_id=uuid4(),
+        document_id=uuid4(),
+        page_number=1,
+        extracted_text="Van elegendo nativ szoveg.",
+        text_source="native",
+        ocr_used=False,
+        version_no=1,
+        is_current=True,
+        text_char_count=500,
+    )
+
+    recommendation = _ocr_recommendation_from_stats("text_review_required", 1, [page], [])
+
+    assert recommendation.action == "hidden"
+    assert recommendation.reason_code == "text_layer_awaits_chunking"
+
+
+def test_ocr_recommendation_is_optional_for_empty_pages_with_native_text() -> None:
+    document_id = uuid4()
+    pages = [
+        DocumentPageModel(
+            case_id=uuid4(),
+            document_id=document_id,
+            page_number=1,
+            extracted_text="Van elegendo nativ szoveg.",
+            text_source="native",
+            ocr_used=False,
+            version_no=1,
+            is_current=True,
+            text_char_count=500,
+        ),
+        DocumentPageModel(
+            case_id=uuid4(),
+            document_id=document_id,
+            page_number=2,
+            extracted_text="",
+            text_source="native",
+            ocr_used=False,
+            version_no=1,
+            is_current=True,
+            text_char_count=0,
+        ),
+    ]
+    chunks = [
+        DocumentChunkModel(
+            case_id=uuid4(),
+            document_id=document_id,
+            page_start=1,
+            page_end=1,
+            chunk_index=0,
+            chunk_text="Van elegendo nativ szoveg.",
+            chunking_strategy="char_window_v2",
+            chunker_version="2",
+            version_no=1,
+            is_current=True,
+        )
+    ]
+
+    recommendation = _ocr_recommendation_from_stats("processed", 2, pages, chunks)
+
+    assert recommendation.action == "optional"
+    assert recommendation.reason_code == "empty_pages_with_text"
 
 
 def test_document_processing_validation_passes_for_current_page_and_chunk() -> None:

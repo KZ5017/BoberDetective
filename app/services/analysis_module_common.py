@@ -5,7 +5,7 @@ import json
 import re
 import unicodedata
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.document import DocumentChunkModel, DocumentModel
@@ -55,12 +55,21 @@ ANALYSIS_RETRIEVAL_STOPWORDS = {
 }
 
 HUNGARIAN_SUFFIXES = (
-    "ekrol",
-    "okrol",
-    "akrol",
+    "ekről",
+    "okról",
+    "akról",
     "ekre",
     "okra",
     "akra",
+    "ról",
+    "ről",
+    "ból",
+    "tól",
+    "höz",
+    "ért",
+    "ekrol",
+    "okrol",
+    "akrol",
     "rol",
     "bol",
     "tol",
@@ -73,7 +82,6 @@ HUNGARIAN_SUFFIXES = (
     "val",
     "vel",
     "ert",
-    "rol",
     "et",
     "ot",
     "at",
@@ -85,27 +93,72 @@ HUNGARIAN_SUFFIXES = (
 
 def retrieve_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunRequest) -> list[RetrievedChunk]:
     if payload.query is None or payload.query.strip() == "":
-        raise AnalysisModuleError("Query is required for focused query analysis")
+        raise AnalysisModuleError("Focus text is required for analysis")
 
+    retrieved_chunks = _retrieve_chunks_by_query(db, case_id, payload.query, payload.max_chunks, payload.retrieval_strategy)
+    if retrieved_chunks:
+        return retrieved_chunks
+    raise AnalysisModuleError("No source chunks matched the focus text")
+
+
+def retrieve_source_scope_chunks(
+    db: Session,
+    case_id: UUID,
+    payload: AnalysisModuleRunRequest,
+    *,
+    document_id: UUID | None = None,
+    page_start: int | None = None,
+    page_end: int | None = None,
+) -> list[RetrievedChunk]:
+    if payload.query is None or payload.query.strip() == "":
+        return []
+    return _retrieve_chunks_by_query(
+        db,
+        case_id,
+        payload.query,
+        payload.max_chunks,
+        payload.retrieval_strategy,
+        document_id=document_id,
+        page_start=page_start,
+        page_end=page_end,
+    )
+
+
+def _retrieve_chunks_by_query(
+    db: Session,
+    case_id: UUID,
+    query_text: str,
+    limit: int,
+    retrieval_strategy: str,
+    *,
+    document_id: UUID | None = None,
+    page_start: int | None = None,
+    page_end: int | None = None,
+) -> list[RetrievedChunk]:
     retrieved_chunks: list[RetrievedChunk] = []
     seen_chunk_ids: set[UUID] = set()
 
-    for query in analysis_retrieval_queries(payload.query):
+    for query in analysis_retrieval_queries(query_text):
+        filters = SearchFilters(
+            document_ids=[document_id] if document_id is not None else [],
+            page_start=page_start,
+            page_end=page_end,
+        )
         keyword_hits = keyword_search(
             db,
             case_id,
             KeywordSearchRequest(
                 query=query,
-                filters=SearchFilters(),
-                limit=payload.limit,
+                filters=filters,
+                limit=limit,
                 include_quotes=False,
                 target="chunks",
             )
         )
-        if payload.retrieval_strategy == "semantic":
-            hits = semantic_chunk_search(db, case_id, query, payload.limit)
-        elif payload.retrieval_strategy == "hybrid":
-            hits = hybrid_chunk_search(db, case_id, query, keyword_hits, payload.limit)
+        if retrieval_strategy == "semantic":
+            hits = semantic_chunk_search(db, case_id, query, limit, document_id, page_start, page_end)
+        elif retrieval_strategy == "hybrid":
+            hits = hybrid_chunk_search(db, case_id, query, keyword_hits, limit, document_id, page_start, page_end)
         else:
             hits = keyword_hits
         for hit in hits:
@@ -124,23 +177,66 @@ def retrieve_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunReques
                     match_type=hit.match_type,
                 )
             )
-            if len(retrieved_chunks) >= payload.limit:
+            if len(retrieved_chunks) >= limit:
                 return retrieved_chunks
     if retrieved_chunks:
         return retrieved_chunks
-    return _fallback_case_chunks(db, case_id, payload.limit)
+    return []
 
 
 def select_source_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunRequest) -> list[RetrievedChunk]:
-    if payload.source_mode == "focused_query":
-        return retrieve_chunks(db, case_id, payload)
+    if payload.query is None or payload.query.strip() == "":
+        raise AnalysisModuleError("Focus text is required for analysis source selection")
     if payload.source_mode == "document":
         if payload.document_id is None:
             raise AnalysisModuleError("document_id is required for document source mode")
-        return _document_chunks(db, case_id, payload.document_id, payload.max_chunks)
+        page_start, page_end = _document_page_range(db, case_id, payload.document_id, payload.page_start, payload.page_end)
+        retrieval_chunks = retrieve_source_scope_chunks(
+            db,
+            case_id,
+            payload,
+            document_id=payload.document_id,
+            page_start=page_start,
+            page_end=page_end,
+        )
+        if not retrieval_chunks:
+            raise AnalysisModuleError("No source chunks matched the focus text in the selected document")
+        return retrieval_chunks
     if payload.source_mode == "case":
-        return _fallback_case_chunks(db, case_id, payload.max_chunks)
+        retrieval_chunks = retrieve_source_scope_chunks(db, case_id, payload)
+        if not retrieval_chunks:
+            raise AnalysisModuleError("No source chunks matched the focus text in this case")
+        return retrieval_chunks
     raise AnalysisModuleError("Unsupported source_mode")
+
+
+def _document_page_range(
+    db: Session,
+    case_id: UUID,
+    document_id: UUID,
+    page_start: int | None,
+    page_end: int | None,
+) -> tuple[int, int]:
+    max_page = _source_scope_max_page(db, case_id, document_id)
+    if max_page is None:
+        raise AnalysisModuleError("No paged source document is available in the selected document scope")
+    effective_page_start = page_start if page_start is not None else 1
+    effective_page_end = page_end if page_end is not None else max_page
+    if effective_page_start > effective_page_end:
+        raise AnalysisModuleError("page_start must be less than or equal to page_end")
+    if effective_page_start < 1 or effective_page_end < 1 or effective_page_end > max_page:
+        raise AnalysisModuleError(f"Page range must be within the selected document page count (1-{max_page})")
+    return effective_page_start, effective_page_end
+
+
+def _source_scope_max_page(db: Session, case_id: UUID, document_id: UUID | None = None) -> int | None:
+    stmt = select(func.max(DocumentModel.page_count)).where(DocumentModel.case_id == case_id)
+    if document_id is not None:
+        stmt = stmt.where(DocumentModel.id == document_id)
+    value = db.execute(stmt).scalar_one_or_none()
+    if value is None or int(value) < 1:
+        return None
+    return int(value)
 
 
 def split_retrieved_chunks(retrieved_chunks: list[RetrievedChunk], batch_size: int) -> list[list[RetrievedChunk]]:
@@ -230,14 +326,13 @@ def analysis_retrieval_queries(query: str) -> list[str]:
 
 
 def _normalized_analysis_terms(query: str) -> list[str]:
-    normalized = unicodedata.normalize("NFKD", query.casefold())
-    ascii_query = "".join(char for char in normalized if not unicodedata.combining(char))
+    normalized = unicodedata.normalize("NFC", query.casefold())
     terms: list[str] = []
-    for raw_term in re.findall(r"\w+", ascii_query):
+    for raw_term in re.findall(r"\w+", normalized, flags=re.UNICODE):
         if raw_term in ANALYSIS_RETRIEVAL_STOPWORDS:
             continue
         term = _strip_hungarian_suffix(raw_term)
-        if len(term) < 4 or term in ANALYSIS_RETRIEVAL_STOPWORDS:
+        if len(term) < 2 or term in ANALYSIS_RETRIEVAL_STOPWORDS:
             continue
         if term not in terms:
             terms.append(term)
@@ -246,8 +341,16 @@ def _normalized_analysis_terms(query: str) -> list[str]:
 
 def _strip_hungarian_suffix(term: str) -> str:
     for suffix in HUNGARIAN_SUFFIXES:
-        if term.endswith(suffix) and len(term) - len(suffix) >= 4:
-            return term[: -len(suffix)]
+        if term.endswith(suffix) and len(term) - len(suffix) >= 2:
+            return _shorten_final_linking_vowel(term[: -len(suffix)])
+    return term
+
+
+def _shorten_final_linking_vowel(term: str) -> str:
+    if term.endswith("á"):
+        return f"{term[:-1]}a"
+    if term.endswith("é"):
+        return f"{term[:-1]}e"
     return term
 
 

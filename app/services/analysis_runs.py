@@ -1,12 +1,21 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.analysis import AnalysisRunInputModel, AnalysisRunModel, AnalysisRunOutputModel
 from app.models.case import CaseModel
+from app.models.claim import ClaimModel, ClaimSourceModel
+from app.models.contradiction import ContradictionCandidateModel, ContradictionCandidateSourceModel
+from app.models.document import DocumentChunkModel, DocumentModel
+from app.models.entity import EntityMentionModel, EntityModel
+from app.models.event import EventModel, EventSourceModel
+from app.models.missing_item import MissingItemCandidateModel, MissingItemCandidateSourceModel
+from app.models.source_reference import SourceReferenceModel
+from app.models.summary_item import SummaryItemModel, SummaryItemSourceModel
+from app.schemas.analysis import AnalysisRunOutputSummary, AnalysisRunSourceSummary
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.storage import StoragePaths
 from app.services.users import get_or_create_dev_user
@@ -59,6 +68,124 @@ def list_analysis_run_outputs(db: Session, analysis_run_id: UUID) -> list[Analys
             .order_by(AnalysisRunOutputModel.output_position.asc().nulls_last())
         ).scalars()
     )
+
+
+def analysis_input_source_summary(db: Session, item: AnalysisRunInputModel) -> AnalysisRunSourceSummary | None:
+    chunk = item.chunk if item.chunk_id is not None else None
+    document = item.document if item.document_id is not None else None
+    if chunk is not None and document is None:
+        document = db.get(DocumentModel, chunk.document_id)
+    if chunk is None and document is None:
+        return None
+    return AnalysisRunSourceSummary(
+        document_filename=document.original_filename if document is not None else None,
+        page_start=chunk.page_start if chunk is not None else None,
+        page_end=chunk.page_end if chunk is not None else None,
+        chunk_index=chunk.chunk_index if chunk is not None else None,
+        char_start=chunk.char_start if chunk is not None else None,
+        char_end=chunk.char_end if chunk is not None else None,
+        text_preview=_bounded_preview(chunk.chunk_text) if chunk is not None else None,
+    )
+
+
+def analysis_output_summary(db: Session, item: AnalysisRunOutputModel) -> AnalysisRunOutputSummary | None:
+    if item.output_type == "claim":
+        claim = db.get(ClaimModel, item.output_object_id)
+        if claim is None:
+            return None
+        return AnalysisRunOutputSummary(
+            title=claim.claim_text,
+            body_text=claim.claim_time_raw,
+            review_status=claim.review_status,
+            source_validation_status=claim.source_validation_status,
+            source_count=_count_sources(db, ClaimSourceModel.claim_id, claim.id),
+        )
+    if item.output_type == "event":
+        event = db.get(EventModel, item.output_object_id)
+        if event is None:
+            return None
+        return AnalysisRunOutputSummary(
+            title=event.event_title,
+            body_text=event.event_description,
+            review_status=event.review_status,
+            source_validation_status=event.source_validation_status,
+            source_count=_count_sources(db, EventSourceModel.event_id, event.id),
+        )
+    if item.output_type == "entity":
+        entity = db.get(EntityModel, item.output_object_id)
+        if entity is None:
+            return None
+        return AnalysisRunOutputSummary(
+            title=entity.canonical_name,
+            body_text=entity.description,
+            review_status=entity.review_status,
+            source_count=_count_sources(db, EntityMentionModel.entity_id, entity.id),
+        )
+    if item.output_type == "summary_item":
+        summary_item = db.get(SummaryItemModel, item.output_object_id)
+        if summary_item is None:
+            return None
+        return AnalysisRunOutputSummary(
+            title=summary_item.title,
+            body_text=summary_item.body_text,
+            review_status=summary_item.review_status,
+            source_validation_status=summary_item.source_validation_status,
+            source_count=_count_sources(db, SummaryItemSourceModel.summary_item_id, summary_item.id),
+        )
+    if item.output_type == "missing_item_candidate":
+        candidate = db.get(MissingItemCandidateModel, item.output_object_id)
+        if candidate is None:
+            return None
+        return AnalysisRunOutputSummary(
+            title=candidate.referenced_item_text,
+            body_text=candidate.description,
+            review_status=candidate.review_status,
+            source_validation_status=candidate.source_validation_status,
+            source_count=_count_sources(db, MissingItemCandidateSourceModel.missing_item_candidate_id, candidate.id),
+        )
+    if item.output_type == "contradiction_candidate":
+        candidate = db.get(ContradictionCandidateModel, item.output_object_id)
+        if candidate is None:
+            return None
+        return AnalysisRunOutputSummary(
+            title=candidate.title,
+            body_text=candidate.description,
+            review_status=candidate.review_status,
+            source_validation_status=candidate.source_validation_status,
+            source_count=_count_sources(db, ContradictionCandidateSourceModel.contradiction_candidate_id, candidate.id),
+        )
+    if item.output_type == "source_reference":
+        source = db.get(SourceReferenceModel, item.output_object_id)
+        if source is None:
+            return None
+        document = db.get(DocumentModel, source.document_id)
+        return AnalysisRunOutputSummary(
+            title=document.original_filename if document is not None else "Forrashivatkozas",
+            body_text=_bounded_preview(source.quote_text),
+        )
+    if item.output_type == "chunk":
+        chunk = db.get(DocumentChunkModel, item.output_object_id)
+        if chunk is None:
+            return None
+        document = db.get(DocumentModel, chunk.document_id)
+        return AnalysisRunOutputSummary(
+            title=document.original_filename if document is not None else "Szovegresz",
+            body_text=_bounded_preview(chunk.chunk_text),
+        )
+    return None
+
+
+def _count_sources(db: Session, column, object_id: UUID) -> int:
+    return int(db.execute(select(func.count()).where(column == object_id)).scalar_one())
+
+
+def _bounded_preview(text: str | None, limit: int = 360) -> str | None:
+    if text is None:
+        return None
+    normalized = " ".join(text.split())
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[:limit].rstrip()}..."
 
 
 def start_analysis_run(

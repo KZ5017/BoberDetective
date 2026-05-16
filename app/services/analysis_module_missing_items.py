@@ -59,9 +59,10 @@ def run_detect_missing_items(db: Session, case_id: UUID, payload: AnalysisModule
     settings = get_settings()
     input_parameters = {
         "query": payload.query,
-        "limit": payload.limit,
         "source_mode": payload.source_mode,
         "document_id": str(payload.document_id) if payload.document_id is not None else None,
+        "page_start": payload.page_start,
+        "page_end": payload.page_end,
         "max_chunks": payload.max_chunks,
         "batch_size": payload.batch_size,
         "retrieval_strategy": payload.retrieval_strategy,

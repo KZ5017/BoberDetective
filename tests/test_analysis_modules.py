@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from app.models.document import DocumentChunkModel
 from app.models.claim import ClaimModel
@@ -34,6 +35,17 @@ from app.services.analysis_module_entities import build_extract_entities_user_pr
 from app.services.analysis_module_summaries import build_summarize_case_user_prompt
 from app.services.analysis_module_missing_items import build_detect_missing_items_user_prompt
 from app.services.llm import LLMChatCompletion
+from app.services.search import KeywordSearchHit
+
+
+def test_analysis_module_request_rejects_legacy_limit_field() -> None:
+    with pytest.raises(ValidationError):
+        AnalysisModuleRunRequest(query="fokusz", limit=5)
+
+
+def test_analysis_module_request_rejects_invalid_page_range() -> None:
+    with pytest.raises(ValidationError):
+        AnalysisModuleRunRequest(query="fokusz", page_start=12, page_end=8)
 
 
 def _retrieved_chunk(label: str, text: str) -> RetrievedChunk:
@@ -167,86 +179,162 @@ def test_analysis_retrieval_queries_strips_common_hungarian_accusative_suffixes(
     assert "hivatkozott" not in queries
 
 
-def test_retrieve_chunks_falls_back_to_case_chunks_when_keyword_search_has_no_hits(monkeypatch) -> None:
+def test_analysis_retrieval_queries_keep_accents_and_two_letter_terms() -> None:
+    queries = analysis_retrieval_queries("Keress úr nő narrátor ügy témáról.")
+
+    assert "Keress úr nő narrátor ügy témáról." in queries
+    assert "úr" in queries
+    assert "nő" in queries
+    assert "narrátor" in queries
+    assert "ügy" in queries
+    assert "téma" in queries
+
+
+def test_retrieve_chunks_raises_when_focus_matches_no_source(monkeypatch) -> None:
+    monkeypatch.setattr(analysis_module_common, "keyword_search", lambda *args, **kwargs: [])
+
+    with pytest.raises(AnalysisModuleError, match="No source chunks matched"):
+        analysis_module_common.retrieve_chunks(
+            SimpleNamespace(),
+            uuid4(),
+            AnalysisModuleRunRequest(query="Keszits rovid ugyosszefoglalot.", max_chunks=5),
+        )
+
+
+def test_retrieve_chunks_requires_query() -> None:
+    with pytest.raises(AnalysisModuleError):
+        analysis_module_common.retrieve_chunks(
+            SimpleNamespace(),
+            uuid4(),
+            AnalysisModuleRunRequest(source_mode="case", query=None),
+        )
+
+
+def test_select_source_chunks_requires_focus_text_for_document_mode() -> None:
+    with pytest.raises(AnalysisModuleError, match="Focus text is required"):
+        analysis_module_common.select_source_chunks(
+            SimpleNamespace(),
+            uuid4(),
+            AnalysisModuleRunRequest(source_mode="document", document_id=uuid4(), query=None),
+        )
+
+
+def test_select_source_chunks_rejects_page_range_beyond_scope(monkeypatch) -> None:
+    monkeypatch.setattr(analysis_module_common, "_source_scope_max_page", lambda *args, **kwargs: 30)
+
+    with pytest.raises(AnalysisModuleError, match="Page range"):
+        analysis_module_common.select_source_chunks(
+            SimpleNamespace(),
+            uuid4(),
+            AnalysisModuleRunRequest(source_mode="document", document_id=uuid4(), query="fokusz", page_start=20, page_end=50),
+        )
+
+
+def test_select_source_chunks_document_mode_defaults_to_full_document_range(monkeypatch) -> None:
     case_id = uuid4()
+    document_id = uuid4()
+    captured_ranges = []
+
+    def fake_retrieve_source_scope_chunks(db, case_id_arg, payload, *, document_id=None, page_start=None, page_end=None):
+        captured_ranges.append((document_id, page_start, page_end))
+        return [_retrieved_chunk("chunk_1", "A teljes iratbol valasztott forras.")]
+
+    monkeypatch.setattr(analysis_module_common, "_source_scope_max_page", lambda *args, **kwargs: 42)
+    monkeypatch.setattr(analysis_module_common, "retrieve_source_scope_chunks", fake_retrieve_source_scope_chunks)
+
+    retrieved = analysis_module_common.select_source_chunks(
+        SimpleNamespace(),
+        case_id,
+        AnalysisModuleRunRequest(source_mode="document", document_id=document_id, query="fokusz"),
+    )
+
+    assert len(retrieved) == 1
+    assert captured_ranges == [(document_id, 1, 42)]
+
+
+def test_select_source_chunks_case_mode_ignores_page_range(monkeypatch) -> None:
+    captured_ranges = []
+
+    def fake_retrieve_source_scope_chunks(db, case_id_arg, payload, *, document_id=None, page_start=None, page_end=None):
+        captured_ranges.append((document_id, page_start, page_end))
+        return [_retrieved_chunk("chunk_1", "Ugy szintu forras.")]
+
+    monkeypatch.setattr(analysis_module_common, "_source_scope_max_page", lambda *args, **kwargs: 12)
+    monkeypatch.setattr(analysis_module_common, "retrieve_source_scope_chunks", fake_retrieve_source_scope_chunks)
+
+    retrieved = analysis_module_common.select_source_chunks(
+        SimpleNamespace(),
+        uuid4(),
+        AnalysisModuleRunRequest(source_mode="case", query="fokusz", page_start=2, page_end=4),
+    )
+
+    assert len(retrieved) == 1
+    assert captured_ranges == [(None, None, None)]
+
+
+def test_select_source_chunks_uses_retrieval_for_document_mode_with_focus(monkeypatch) -> None:
+    case_id = uuid4()
+    document_id = uuid4()
     chunk = DocumentChunkModel(
         id=uuid4(),
         case_id=case_id,
-        document_id=uuid4(),
-        page_start=1,
-        page_end=1,
-        chunk_index=0,
-        chunk_text="A forras szerint Kovacs Anna nyitotta ki az ajtot.",
+        document_id=document_id,
+        page_start=3,
+        page_end=3,
+        chunk_index=2,
+        chunk_text="A keresett esemeny itt szerepel.",
         char_start=0,
-        char_end=52,
-        token_count=8,
+        char_end=32,
+        token_count=6,
         chunking_strategy="char_window_v1",
         chunker_version="1",
         version_no=1,
         is_current=True,
     )
-    db = SimpleNamespace(execute=lambda stmt: [SimpleNamespace(DocumentChunkModel=chunk, original_filename="irat.txt")])
-    monkeypatch.setattr(analysis_module_common, "keyword_search", lambda *args, **kwargs: [])
+    captured_document_ids = []
+    captured_page_ranges = []
 
-    retrieved = analysis_module_common.retrieve_chunks(
-        db,
-        case_id,
-        AnalysisModuleRunRequest(query="Keszits rovid ugyosszefoglalot.", limit=5),
-    )
-
-    assert len(retrieved) == 1
-    assert retrieved[0].chunk == chunk
-    assert retrieved[0].document_name == "irat.txt"
-    assert retrieved[0].retrieval_score == 0.0
-
-
-def test_retrieve_chunks_requires_query_for_focused_mode() -> None:
-    with pytest.raises(AnalysisModuleError):
-        analysis_module_common.retrieve_chunks(
-            SimpleNamespace(),
-            uuid4(),
-            AnalysisModuleRunRequest(source_mode="focused_query", query=None),
-        )
-
-
-def test_select_source_chunks_supports_document_mode_without_query() -> None:
-    case_id = uuid4()
-    document_id = uuid4()
-    chunks = [
-        DocumentChunkModel(
-            id=uuid4(),
-            case_id=case_id,
-            document_id=document_id,
-            page_start=1,
-            page_end=1,
-            chunk_index=index,
-            chunk_text=f"A forras {index}. allitasa.",
-            char_start=0,
-            char_end=20,
-            token_count=5,
-            chunking_strategy="char_window_v1",
-            chunker_version="1",
-            version_no=1,
-            is_current=True,
-        )
-        for index in range(3)
-    ]
-    db = SimpleNamespace(
-        execute=lambda stmt: [
-            SimpleNamespace(DocumentChunkModel=chunk, original_filename="irat.pdf")
-            for chunk in chunks
+    def fake_keyword_search(db, case_id_arg, request):
+        captured_document_ids.extend(request.filters.document_ids)
+        captured_page_ranges.append((request.filters.page_start, request.filters.page_end))
+        return [
+            KeywordSearchHit(
+                source_type="chunk",
+                document_id=document_id,
+                document_name="irat.pdf",
+                page_start=3,
+                page_end=3,
+                score=0.7,
+                chunk_id=chunk.id,
+                chunk_index=2,
+            )
         ]
-    )
+
+    db = SimpleNamespace(get=lambda model, item_id: chunk if item_id == chunk.id else None)
+    monkeypatch.setattr(analysis_module_common, "keyword_search", fake_keyword_search)
+    monkeypatch.setattr(analysis_module_common, "_source_scope_max_page", lambda *args, **kwargs: 10)
 
     retrieved = analysis_module_common.select_source_chunks(
         db,
         case_id,
-        AnalysisModuleRunRequest(source_mode="document", document_id=document_id, query=None, max_chunks=50),
+        AnalysisModuleRunRequest(
+            source_mode="document",
+            document_id=document_id,
+            query="keresett esemeny",
+            page_start=2,
+            page_end=4,
+            max_chunks=10,
+        ),
     )
 
-    assert [item.label for item in retrieved] == ["chunk_1", "chunk_2", "chunk_3"]
-    assert [item.chunk.chunk_index for item in retrieved] == [0, 1, 2]
-    assert all(item.retrieval_score == 0.0 for item in retrieved)
+    assert captured_document_ids
+    assert set(captured_document_ids) == {document_id}
+    assert captured_page_ranges
+    assert set(captured_page_ranges) == {(2, 4)}
+    assert len(retrieved) == 1
+    assert retrieved[0].chunk == chunk
+    assert retrieved[0].match_type == "keyword"
+    assert retrieved[0].retrieval_score == 0.7
 
 
 def test_select_source_chunks_requires_document_id_for_document_mode() -> None:
@@ -368,7 +456,7 @@ def test_select_claim_pairs_applies_focus_filter_to_claim_and_quote_text() -> No
     claims = [
         _retrieved_claim("claim_1", "A hivas 18:42-kor tortent."),
         _retrieved_claim("claim_2", "Dupin a helyszinen volt."),
-        _retrieved_claim("claim_3", "A narrator Dupin mellett allt."),
+        _retrieved_claim("claim_3", "A narrátor Dupin mellett allt."),
     ]
 
     selected_claims, pairs, metadata = select_claim_pairs_for_contradiction_detection(
@@ -380,8 +468,23 @@ def test_select_claim_pairs_applies_focus_filter_to_claim_and_quote_text() -> No
     assert [claim.label for claim in selected_claims] == ["claim_2", "claim_3"]
     assert [(pair.claim_a.label, pair.claim_b.label) for pair in pairs] == [("claim_2", "claim_3")]
     assert metadata["focus_filter_applied"] is True
-    assert metadata["focus_terms"] == ["narrator", "dupin"]
+    assert metadata["focus_terms"] == ["narrátor", "dupin"]
     assert metadata["focus_matched_claim_count"] == 2
+
+
+def test_claim_focus_terms_keep_accents_and_allow_two_letter_terms() -> None:
+    terms = analysis_module_contradictions._claim_focus_terms("úr nő Dupin")
+
+    assert terms == ["úr", "nő", "dupin"]
+
+
+def test_detect_contradictions_requires_focus_text() -> None:
+    with pytest.raises(AnalysisModuleError, match="Focus text is required"):
+        analysis_module_contradictions.run_detect_contradiction_candidates(
+            SimpleNamespace(),
+            uuid4(),
+            AnalysisModuleRunRequest(query=None),
+        )
 
 
 def test_select_claim_pairs_ignores_generic_contradiction_prompt_terms() -> None:
@@ -437,7 +540,7 @@ def test_detect_contradictions_returns_warning_when_not_enough_claims(monkeypatc
     response = analysis_module_contradictions.run_detect_contradiction_candidates(
         SimpleNamespace(),
         uuid4(),
-        AnalysisModuleRunRequest(query="Keress ellentmondasokat.", limit=5),
+        AnalysisModuleRunRequest(query="Keress ellentmondasokat.", contradiction_candidate_limit=5),
     )
 
     assert response.validation_status == "warning"
@@ -487,7 +590,7 @@ def test_detect_contradictions_returns_warning_when_llm_json_is_invalid(monkeypa
     response = analysis_module_contradictions.run_detect_contradiction_candidates(
         SimpleNamespace(),
         uuid4(),
-        AnalysisModuleRunRequest(query=None, limit=5),
+        AnalysisModuleRunRequest(query="hivas idopont", contradiction_candidate_limit=5),
     )
 
     assert response.validation_status == "warning"

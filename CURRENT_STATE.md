@@ -23,8 +23,8 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 171 passed
-alembic: 0016_manual_entry (head)
+pytest: 186 passed
+alembic: 0017_text_review_status (head)
 ```
 
 ## What Works Now
@@ -33,12 +33,16 @@ alembic: 0016_manual_entry (head)
 - Minimal React/Vite frontend workbench scaffold under `frontend/`.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0016_manual_entry`.
+- Alembic migrations through `0017_text_review_status`.
 - Immutable TXT import with page/chunk persistence.
 - Explicit imported-document processing validation run flow.
-- Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile, page/chunk persistence, and `parse_document` analysis run provenance.
+- Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile, page persistence, and `parse_document` analysis run provenance.
+- Current chunking strategy is page-local `char_window_v2`: chunks do not span processed page boundaries, preserve source-location fidelity, and prefer paragraph breaks before sentence-end breaks, line breaks, spaces, and finally hard character limits.
 - Docling optional dependency is installed in `.venv`; explicit `BOBERDETECTIVE_PDF_PARSER=docling` PDF import smoke passed.
 - Explicit Tesseract OCR foundation for PDF documents with rendered page images, OCR page/chunk versioning, and `ocr_document` analysis run provenance.
+- Document list/detail responses include backend OCR recommendation metadata (`hidden`, `recommended`, `optional`) based on PDF status, current pages/chunks, text density, and empty-page signals; the frontend uses this instead of guessing when to show OCR actions.
+- Document page/chunk detail endpoints list only current versions by default, so an OCR run replaces the visible working text layer instead of showing old native and new OCR pages/chunks together.
+- Native PDF import and OCR now stop at an explicit text-review layer (`text_review_required`) after creating current pages. Users inspect pages, optionally run OCR, then explicitly create chunks through `POST /api/v1/cases/{case_id}/documents/{document_id}/chunks`; this records a `chunk_document` analysis run and changes the document to `processed` or `review_required` based on validation.
 - Image-only/scanned PDF imports without native text now remain as audit-tracked `review_required` documents so the explicit OCR path can process them.
 - OCR captures average Tesseract confidence on a 0..1 scale where available and flags low-confidence OCR pages with `low_ocr_confidence`.
 - Document page API returns OCR confidence as a numeric value; Decimal-backed DB values are covered by regression tests.
@@ -53,12 +57,12 @@ alembic: 0016_manual_entry (head)
 - Source-cited `summarize_case` module that persists summary items.
 - Analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity/summary services.
 - Analysis retrieval fallback strips common Hungarian suffixes, including short accusative forms such as `mellekletet` -> `melleklet`.
-- Analysis retrieval falls back to the first current case chunks when keyword search returns no hits, so broad UI prompts can still run against concrete sources.
+- Raw-chunk analysis modules now require explicit focus text for source selection. The backend no longer silently falls back to first document/case chunks when retrieval finds no matching source; this avoids blind processing on large cases while preserving `no source -> no claim`.
 - Local chunk indexing foundation exists: `POST /api/v1/cases/{case_id}/indexes/chunks` creates LM Studio/OpenAI-compatible embeddings for current chunks, upserts them into model-specific Qdrant collections, stores `embedding_provider`, `embedding_model`, `embedding_vector_id`, and `chunk_run_id` on `document_chunks`, and records an `embed_chunks` analysis run. Already indexed chunks are skipped only when the stored embedding model matches the configured embedding model; switching embedding model makes those chunks eligible for reindexing.
 - Background chunk indexing exists at `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; it returns immediately with the `embed_chunks` analysis run id, then processes embeddings through FastAPI `BackgroundTasks`. The frontend now starts this background job and polls index status instead of waiting for the full LM Studio/Qdrant operation in one HTTP request.
 - Embedding index creation is hardware-guarded with `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` defaulting to `8`; chunks are embedded and upserted to Qdrant batch-by-batch instead of one large request, reducing LM Studio timeout/RAM spikes on 32 GB systems.
 - Chunk index status endpoint exists at `GET /api/v1/cases/{case_id}/indexes/chunks/status`; it reports current/indexed/missing chunk counts for the configured embedding model, readiness, collection name, latest `embed_chunks` run metadata, and latest run input/output progress. Frontend shows this in a semantic index status panel, disables semantic/hybrid analysis runs when the current source scope is not fully indexed, and displays background indexing progress such as `8/16`.
-- Hybrid retrieval foundation exists: `POST /api/v1/cases/{case_id}/search/hybrid` supports `keyword`, `semantic`, and `hybrid` strategies. Batch-capable focused-query analysis modules can receive `retrieval_strategy`, and analysis run chunk inputs record `retrieval_match_type`.
+- Hybrid retrieval foundation exists: `POST /api/v1/cases/{case_id}/search/hybrid` supports `keyword`, `semantic`, and `hybrid` strategies. Batch-capable raw-chunk analysis modules can receive `retrieval_strategy`, and analysis run chunk inputs record `retrieval_match_type`.
 - Configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`. Embedding calls auto-ensure the configured embedding model is loaded through LM Studio native `/api/v1/models/load` before calling OpenAI-compatible `/v1/embeddings`. Embedding model loading uses `context_length=12288`; LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load. Chat model loading uses `context_length=12288`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
 - Latest Qwen3 8B embedding smoke loaded the embedding model, reindexed 49 chunks from the Morgue PDF into `boberdetective_chunks_text_embedding_qwen3_embedding_8b`, and returned semantic hits through hybrid search. The current configured embedding default is now the smaller `text-embedding-qwen3-embedding-4b@q6_k`; reindexing will use a separate model-specific Qdrant collection.
 - Latest local model-load smoke with empty LM Studio state succeeded: `text-embedding-qwen3-embedding-4b` loaded in 3.461s with `context_length=12288`, and `qwen/qwen3.5-9b` loaded in 16.942s with `context_length=12288`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
@@ -68,7 +72,14 @@ alembic: 0016_manual_entry (head)
 - Regression smoke for the query `elkövető személye` now passes with both `hybrid` and `semantic` retrieval after adding strict JSON repair for claim extraction responses with unescaped quote characters.
 - Claim extraction also has deterministic lenient field recovery for malformed `quote_text` values with internal quotes when both the original model response and JSON-repair response are invalid JSON; recovered candidates still require exact quote text in the selected source chunk.
 - User-side semantic/hybrid retrieval smoke after switching to the lighter local model profile found the selected sources broadly consistent with the current retrieval design, with no obvious quality regression observed yet. Remaining gaps are expected to be addressed by ranking calibration, broader source-mode integration, and clearer source-selection visibility.
-- Analysis batch processing is planned in `Design_documents/10_analysis_batch_processing_plan.md`; the first backend slices now support batch-capable `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` with shared source selection and chunk batching, while preserving focused query mode.
+- First hybrid ranking calibration slice is implemented: hybrid source retrieval now gives explicit scoring weight to keyword score, semantic score, exact phrase evidence, and keyword/semantic overlap. This keeps overlap hits from being pushed below purely semantic hits solely because of raw vector score.
+- Document and case source modes use retrieval-aware source selection from the required focus text. In document mode, retrieval is constrained to the selected document; in case mode, it can search the whole case.
+- Raw-chunk source-selection query variants keep Hungarian accents and accept non-stopword terms from two characters; the original focus text is still the first retrieval query.
+- Raw-chunk analysis source selection supports a bounded page-range filter (`page_start`, `page_end`) only inside selected-document source scope. The range uses overlap logic (`chunk.page_end >= page_start` and `chunk.page_start <= page_end`) and applies to keyword, semantic, and hybrid retrieval.
+- Whole-case raw-chunk analysis has no page-range fields or backend page-range requirement. Selected-document analysis defaults `Oldaltol` to 1 and `Oldalig` to the selected document page count; if API callers omit page fields for document scope, the backend uses the full document and rejects only out-of-document ranges.
+- Latest user-side retrieval/analysis smoke after selected-document page-range filtering produced the best and most precise analysis results observed so far; this is a positive quality signal for the combined focus text + source scope + retrieval strategy + page-range workflow.
+- Frontend source-search strategy selection is available for document/case modes too. `Szovegresz plafon` defaults to 20 and is capped at 30 for raw-chunk modules; the same cap is enforced by the backend. `Batch meret` controls how the selected source chunks are split into LLM calls. Semantic/hybrid index readiness is required before semantic/hybrid retrieval can run.
+- Analysis batch processing is planned in `Design_documents/10_analysis_batch_processing_plan.md`; the first backend slices now support batch-capable `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` with shared source selection and chunk batching.
 - Latest live batch analysis smoke passed:
   - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
   - `case` source mode selected 6 chunks across the smoke case, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
@@ -76,7 +87,7 @@ alembic: 0016_manual_entry (head)
 - Latest live batch `extract_events` smoke passed:
   - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
   - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, and returned `validation_status=passed`.
-- Focused semantic `extract_events` now caps its effective batch size at 2 chunks for local LLM stability. A live regression with query `gyilkossággal esettel kapcsolatos események`, `limit=10`, `retrieval_strategy=semantic`, and requested `batch_size=5` completed without timeout in about 262s; the run selected 10 chunks, processed smaller event batches, returned source-cited events, and finished with `validation_status=warning` because unsupported notes were also returned.
+- Semantic `extract_events` now caps its effective batch size at 2 chunks for local LLM stability. A live regression with query `gyilkossággal esettel kapcsolatos események`, `max_chunks=10`, `retrieval_strategy=semantic`, and requested `batch_size=5` completed without timeout in about 262s; the run selected 10 chunks, processed smaller event batches, returned source-cited events, and finished with `validation_status=warning` because unsupported notes were also returned.
 - Latest live batch `extract_entities` smoke passed:
   - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
   - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, and returned `validation_status=passed`.
@@ -101,6 +112,7 @@ alembic: 0016_manual_entry (head)
 - Manual contradiction candidate creation now exists as a separate claim-pair workflow: the UI lets the user select two source-valid, non-rejected claims, previews their readonly text and sources, and creates a `needs_review` contradiction candidate through a `manual_entry` provenance run.
 - If fewer than two source-valid claims exist, `detect_contradiction_candidates` now returns `validation_status=warning` with a clear unsupported item instead of a hard backend error or unnecessary LLM call.
 - `detect_contradiction_candidates` now builds deterministic backend-selected claim pairs before the LLM call, applies safe pair/fetch limits, optionally filters by meaningful focus terms in claim/source text, and rejects model candidates that reference claim pairs outside the selected pair set.
+- `detect_contradiction_candidates` now requires focus text. It uses `contradiction_candidate_limit` for its candidate cap, while raw-chunk modules use `max_chunks`. Its focus filter works on already extracted claim text/source quotes, keeps Hungarian accents, and accepts non-stopword terms from two characters.
 - Claim-pair selection is audit-visible through analysis run `filter` metadata, including `claim_fetch_limit`, `pair_limit`, `selected_pair_count`, `selected_pairs`, focus terms, and matched/selected claim counts.
 - Contradiction candidate validation now deduplicates same claim-pair/type candidates, caps most model-proposed `high` severities to `medium`, and replaces model-written titles/descriptions with conservative, pair-bound, source-claim-based Hungarian text.
 - `detect_contradiction_candidates` now supports `claim_review_scope`; the default `reviewable` scope uses source-valid claims with review status `new`, `needs_review`, `verified`, or `corrected`, excluding `rejected`.
@@ -127,16 +139,19 @@ alembic: 0016_manual_entry (head)
 - Frontend report items show source details, source excerpts, document hashes, and review history.
 - Frontend long-running operation feedback shows current operation, elapsed time, and last action summary.
 - Frontend shows document list and analysis run history for the selected case.
-- Frontend shows document page/chunk drill-down and analysis run input/output detail.
+- Frontend shows document page/chunk drill-down and analysis run input/output detail; analysis run detail now includes human-readable selected-source summaries with document/page/chunk, retrieval match type/score, batch position, and text preview, plus short output object summaries.
 - Frontend document import accepts TXT/PDF files.
-- Frontend shows an OCR action for PDF documents that need review or have no extracted pages; OCR completion refreshes document status, pages, chunks, and analysis run history.
-- Frontend analysis controls now support source scope for batch-capable `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items`: focused query, selected document, whole case, optional focus text, max source chunks, and batch size.
-- Frontend now reflects `detect_contradiction_candidates` as a claim-pair module: the analysis panel shows a claim-pair note, optional focus field, and claim review scope selector, analysis summaries show claim-pair based execution, analysis run details render claim-selection metrics and selected pairs instead of raw JSON, and contradiction report items include a conservative review note.
+- Frontend shows OCR actions from backend recommendation metadata and exposes `Szovegreszek letrehozasa` when a document is in `text_review_required`; chunk creation refreshes document status, chunks, and analysis run history.
+- Frontend analysis controls now support source scope for batch-capable `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items`: selected document, whole case, selected-document page range, required focus text, `Szovegresz plafon`, and batch size.
+- Frontend now reflects `detect_contradiction_candidates` as a claim-pair module: the analysis panel shows a claim-pair note, required focus field, claim review scope selector, and contradiction candidate cap, analysis summaries show claim-pair based execution, analysis run details render claim-selection metrics and selected pairs instead of raw JSON, and contradiction report items include a conservative review note.
 - Frontend analysis focus text starts empty for every module; module-specific helper text is a placeholder only and is never sent to processing unless the user types actual text.
 - Frontend review report supports object type, review status, and source validation filters plus object detail panel.
 - Frontend shows export history; review report filtering is handled through object/review/source dropdown filters.
 - Frontend visible labels are localized to Hungarian, including mapped labels for backend enum/internal values.
 - Frontend dev server is configured under `frontend/`; when running, it is available at `http://localhost:5173` and proxies `/api` to `http://127.0.0.1:8000`.
+- Codex background-start caveat: starting Vite via a plain backgrounded WSL shell command can log `ready` and then exit with `Hangup` when the shell is cleaned up. For a persistent Codex-started frontend, use:
+  `setsid sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1" < /dev/null &`
+  Verify with `ss -ltnp | grep 5173` or `sudo netstat -lntup`; the frontend should appear as `node` listening on `0.0.0.0:5173`.
 - Append-only human review history for claims, entities, events, and exports.
 - Shared review helper for claim/entity/event/export review mapping, listing, record creation, and audit writing.
 
@@ -302,7 +317,7 @@ Latest missing item retrieval/export smoke:
 Latest document-processing/PDF smoke:
 
 - TXT-backed `/documents/{document_id}/process` returned `succeeded`, `passed`, and `processed`, with document input and page/chunk outputs on the analysis run.
-- Native-text PDF import returned `201`, created 1 page and 1 chunk, and recorded a `parse_document` analysis run with `validation_status=passed`.
+- Native-text PDF import now returns current pages and `text_review_required`; explicit chunk creation records a separate `chunk_document` analysis run.
 - PDF parser selection is now abstracted behind `BOBERDETECTIVE_PDF_PARSER`; the default profile prefers Docling when available and falls back to local `pypdf`.
 - Explicit Docling API smoke returned `import 201`, `processed`, parser `docling`, and `parse_document` run `passed`.
 - PDF hardening smoke with a partially empty native-text PDF returned `review_required` and `parse_document` validation `warning`.
@@ -315,15 +330,13 @@ Latest document-processing/PDF smoke:
 
 Recommended order:
 
-1. Commit and push the retrieval/indexing foundation checkpoint if the current working tree is accepted.
-2. Continue retrieval hardening with hybrid ranking calibration: combine keyword score, semantic score, exact phrase evidence, document/chunk order, and overlap between keyword and semantic hits in a predictable way.
-3. Extend semantic/hybrid retrieval beyond focused-query mode into document/case source selection, so larger analysis scopes can use retrieval-aware source ordering instead of only document-order chunk batching.
-4. Add clearer frontend visibility for selected source chunks, including document, chunk index, match type, score, and why a source was selected.
-5. Consider persistent/background job supervision beyond FastAPI `BackgroundTasks` before very long multi-hundred-page indexing workloads.
+1. Decide and implement document parking/deletion/archive behavior for accidentally imported, badly processed, or intentionally excluded documents.
+2. Add clearer frontend visibility for selected source chunks, including document, chunk index, match type, score, and why a source was selected.
+3. Consider persistent/background job supervision beyond FastAPI `BackgroundTasks` before very long multi-hundred-page indexing workloads.
 
 Rationale:
 
-- The current focused query workflow remains valuable, but it should become one source selection mode in a shared pipeline.
+- Focus text remains valuable and required for analysis runs, while source scope stays cleanly separated as whole-case or selected-document.
 - The raw-chunk analysis modules are now batch-capable and live-smoke passed on document/case source modes.
 - Contradiction detection is downstream of source-cited claims, so it should remain claim-pair based and preserve `no source -> no claim` through claim/source-reference provenance.
 

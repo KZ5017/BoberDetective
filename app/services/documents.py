@@ -11,6 +11,7 @@ from app.models.analysis import AnalysisRunModel
 from app.models.case import CaseModel
 from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
 from app.schemas.document import DocumentImportMetadata
+from app.schemas.document import DocumentOcrRecommendation
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.analysis_runs import (
     add_analysis_run_input,
@@ -67,11 +68,16 @@ class UnsupportedOcrDocumentError(DocumentProcessingError):
     pass
 
 
-CHUNKING_STRATEGY = "char_window_v1"
-CHUNKER_VERSION = "1"
+class DocumentChunkingError(DocumentProcessingError):
+    pass
+
+
+CHUNKING_STRATEGY = "char_window_v2"
+CHUNKER_VERSION = "2"
 DEFAULT_CHUNK_MAX_CHARS = 2000
 MIN_SOFT_BREAK_CHARS = 200
 OCR_MIN_AVG_CONFIDENCE = 0.5
+OCR_MIN_TEXT_CHARS_PER_PAGE = 120
 
 
 def list_documents(db: Session, case_id: UUID) -> list[DocumentModel]:
@@ -88,8 +94,12 @@ def list_document_pages(db: Session, case_id: UUID, document_id: UUID) -> list[D
     return list(
         db.execute(
             select(DocumentPageModel)
-            .where(DocumentPageModel.case_id == case_id, DocumentPageModel.document_id == document_id)
-            .order_by(DocumentPageModel.page_number.asc(), DocumentPageModel.version_no.desc())
+            .where(
+                DocumentPageModel.case_id == case_id,
+                DocumentPageModel.document_id == document_id,
+                DocumentPageModel.is_current.is_(True),
+            )
+            .order_by(DocumentPageModel.page_number.asc())
         ).scalars()
     )
 
@@ -98,9 +108,79 @@ def list_document_chunks(db: Session, case_id: UUID, document_id: UUID) -> list[
     return list(
         db.execute(
             select(DocumentChunkModel)
-            .where(DocumentChunkModel.case_id == case_id, DocumentChunkModel.document_id == document_id)
-            .order_by(DocumentChunkModel.chunk_index.asc(), DocumentChunkModel.version_no.desc())
+            .where(
+                DocumentChunkModel.case_id == case_id,
+                DocumentChunkModel.document_id == document_id,
+                DocumentChunkModel.is_current.is_(True),
+            )
+            .order_by(DocumentChunkModel.chunk_index.asc())
         ).scalars()
+    )
+
+
+def document_ocr_recommendation(db: Session, document: DocumentModel) -> DocumentOcrRecommendation:
+    if document.file_extension != "pdf" or document.mime_type != "application/pdf":
+        return DocumentOcrRecommendation(action="hidden", reason_code="not_pdf", message="OCR csak PDF iratoknal ertelmezett.")
+    if document.processing_status == "processing":
+        return DocumentOcrRecommendation(action="hidden", reason_code="processing", message="Az irat feldolgozasa folyamatban van.")
+
+    pages = _list_current_pages(db, document.case_id, document.id)
+    chunks = _list_current_chunks(db, document.case_id, document.id)
+    return _ocr_recommendation_from_stats(document.processing_status, document.page_count, pages, chunks)
+
+
+def _ocr_recommendation_from_stats(
+    processing_status: str,
+    page_count: int | None,
+    pages: list[DocumentPageModel],
+    chunks: list[DocumentChunkModel],
+) -> DocumentOcrRecommendation:
+    if processing_status in {"review_required", "failed"} and not pages:
+        return DocumentOcrRecommendation(
+            action="recommended",
+            reason_code=f"status_{processing_status}",
+            message="Az irat allapota alapjan OCR ellenorzes javasolt.",
+        )
+    if page_count == 0 or not pages:
+        return DocumentOcrRecommendation(
+            action="recommended",
+            reason_code="no_pages",
+            message="Nem talalhato kinyert oldal, ezert OCR javasolt.",
+        )
+    total_text_chars = sum(page.text_char_count for page in pages)
+    if total_text_chars == 0:
+        return DocumentOcrRecommendation(
+            action="recommended",
+            reason_code="no_text",
+            message="Nem talalhato kinyert szoveg, ezert OCR javasolt.",
+        )
+
+    effective_page_count = page_count or len(pages)
+    if effective_page_count > 0 and total_text_chars / effective_page_count < OCR_MIN_TEXT_CHARS_PER_PAGE:
+        return DocumentOcrRecommendation(
+            action="recommended",
+            reason_code="very_low_text_density",
+            message="Nagyon keves kinyert szoveg jut egy oldalra, ezert OCR javasolt.",
+        )
+
+    empty_pages = [page for page in pages if page.text_char_count == 0]
+    if empty_pages:
+        return DocumentOcrRecommendation(
+            action="optional",
+            reason_code="empty_pages_with_text",
+            message="Van kinyert szoveg, de egyes oldalak uresek. Az OCR ellenorzes segithet, de duplikalt vagy zajos szoveget is eredmenyezhet.",
+        )
+    if not chunks:
+        return DocumentOcrRecommendation(
+            action="hidden",
+            reason_code="text_layer_awaits_chunking",
+            message="Van kinyert szoveg; ellenorzes utan hozd letre a szovegreszeket.",
+        )
+
+    return DocumentOcrRecommendation(
+        action="hidden",
+        reason_code="native_text_available",
+        message="Az iratnak van feldolgozott szovege es szovegresze; OCR alapbol nem szukseges.",
     )
 
 
@@ -159,6 +239,65 @@ def process_document(db: Session, case_id: UUID, document_id: UUID, *, reason: s
     )
 
 
+def create_document_chunks(db: Session, case_id: UUID, document_id: UUID, *, reason: str | None = None) -> AnalysisRunModel:
+    document = db.get(DocumentModel, document_id)
+    if document is None or document.case_id != case_id:
+        raise DocumentNotFoundError("Document not found")
+
+    current_pages = _list_current_pages(db, case_id, document_id)
+    current_chunks = _list_current_chunks(db, case_id, document_id)
+    if not current_pages:
+        raise DocumentChunkingError("No current text pages are available for chunking")
+    if current_chunks:
+        raise DocumentChunkingError("Current chunks already exist for this document")
+
+    run = start_analysis_run(
+        db,
+        case_id,
+        "chunk_document",
+        provider_type="local_pipeline",
+        model_name=CHUNKING_STRATEGY,
+        model_version=CHUNKER_VERSION,
+        input_parameters={
+            "document_id": str(document.id),
+            "reason": reason,
+            "chunking_strategy": CHUNKING_STRATEGY,
+            "chunker_version": CHUNKER_VERSION,
+            "source_text_layer": current_pages[0].text_source if current_pages else None,
+        },
+    )
+    add_analysis_run_input(db, run.id, "document", 0, document_id=document.id)
+    for index, page in enumerate(current_pages, start=1):
+        add_analysis_run_input(db, run.id, "page", index, document_id=document.id, page_id=page.id)
+
+    document.processing_status = "processing"
+    db.add(document)
+    db.flush()
+
+    chunk_count = _create_chunks_from_pages(db, case_id, document, current_pages, run.id)
+    current_chunks = _list_current_chunks(db, case_id, document_id)
+    validation = _validate_current_document_processing(document, current_pages, current_chunks)
+    document.processing_status = validation["document_status"]
+    db.add(document)
+    db.flush()
+
+    _write_document_processing_audit(db, run, document, validation)
+    return finish_analysis_run(
+        db,
+        run,
+        status=validation["run_status"],
+        validation_status=validation["validation_status"],
+        error_message=validation["error_message"],
+        output_summary={
+            "document_id": str(document.id),
+            "document_status": document.processing_status,
+            "page_count": len(current_pages),
+            "chunk_count": chunk_count,
+            "issues": validation["issues"],
+        },
+    )
+
+
 def ocr_document(
     db: Session,
     case_id: UUID,
@@ -207,12 +346,12 @@ def ocr_document(
         if run.input_parameters is not None:
             run.input_parameters = {**run.input_parameters, "tool_version": result.tool_version}
         db.add(run)
-        _persist_ocr_pages_and_chunks(db, case_id, document, result, run.id)
+        _persist_ocr_pages(db, case_id, document, result, run.id)
         quality_issues = _ocr_quality_issues(result)
         document.page_count = len(result.pages)
         document.parser_name = result.tool_name
         document.parser_version = result.tool_version
-        document.processing_status = "review_required" if quality_issues else "processed"
+        document.processing_status = "text_review_required"
         db.add(document)
         db.flush()
         _write_ocr_audit(db, user.id, document, run, result, True, quality_issues=quality_issues)
@@ -225,11 +364,12 @@ def ocr_document(
                 "document_id": str(document.id),
                 "document_status": document.processing_status,
                 "page_count": len(result.pages),
-                "chunk_count": len(_list_current_chunks(db, case_id, document.id)),
+                "chunk_count": 0,
                 "tool_name": result.tool_name,
                 "tool_version": result.tool_version,
                 "language": result.language,
                 "quality_issues": quality_issues,
+                "next_action": "review_text_layer_then_create_chunks",
             },
         )
     except OcrError as exc:
@@ -473,10 +613,10 @@ async def import_pdf_document(
                 "parser_profile_used": parse_result.parser_profile,
             }
         db.add(run)
-        _persist_parsed_pages_and_chunks(db, case_id, document, parse_result.pages, run.id, parse_result)
+        _persist_parsed_pages(db, case_id, document, parse_result.pages, run.id, parse_result)
         quality_issues = _pdf_parse_quality_issues(parse_result.pages)
         document.page_count = len(parse_result.pages)
-        document.processing_status = "review_required" if quality_issues else "processed"
+        document.processing_status = "text_review_required"
         db.add(document)
         db.flush()
         _write_pdf_import_audit(
@@ -497,11 +637,12 @@ async def import_pdf_document(
                 "document_id": str(document.id),
                 "document_status": document.processing_status,
                 "page_count": len(parse_result.pages),
-                "chunk_count": len(_list_current_chunks(db, case_id, document.id)),
+                "chunk_count": 0,
                 "parser_name": parse_result.parser_name,
                 "parser_version": parse_result.parser_version,
                 "parser_profile": parse_result.parser_profile,
                 "quality_issues": quality_issues,
+                "next_action": "review_text_layer_then_create_chunks",
             },
         )
     except NoExtractedTextError as exc:
@@ -559,7 +700,7 @@ def parse_native_pdf_pages(content: bytes) -> list[ParsedPdfPage]:
     return parse_pdf(content, "pypdf").pages
 
 
-def _persist_parsed_pages_and_chunks(
+def _persist_parsed_pages(
     db: Session,
     case_id: UUID,
     document: DocumentModel,
@@ -568,7 +709,6 @@ def _persist_parsed_pages_and_chunks(
     parse_result: PdfParseResult,
 ) -> None:
     output_position = 0
-    next_chunk_index = 0
     for page in pages:
         page_record = DocumentPageModel(
             case_id=case_id,
@@ -589,31 +729,8 @@ def _persist_parsed_pages_and_chunks(
         add_analysis_run_output(db, run_id, "page", page_record.id, output_position)
         output_position += 1
 
-        for chunk in _build_text_chunks(page.text):
-            chunk_record = DocumentChunkModel(
-                case_id=case_id,
-                document_id=document.id,
-                page_start=page.page_number,
-                page_end=page.page_number,
-                chunk_index=next_chunk_index,
-                chunk_text=chunk.text,
-                char_start=chunk.char_start,
-                char_end=chunk.char_end,
-                token_count=None,
-                chunking_strategy=CHUNKING_STRATEGY,
-                chunker_version=CHUNKER_VERSION,
-                chunk_run_id=run_id,
-                version_no=1,
-                is_current=True,
-            )
-            db.add(chunk_record)
-            db.flush()
-            add_analysis_run_output(db, run_id, "chunk", chunk_record.id, output_position)
-            output_position += 1
-            next_chunk_index += 1
 
-
-def _persist_ocr_pages_and_chunks(
+def _persist_ocr_pages(
     db: Session,
     case_id: UUID,
     document: DocumentModel,
@@ -623,9 +740,7 @@ def _persist_ocr_pages_and_chunks(
     previous_pages = _list_current_pages(db, case_id, document.id)
     previous_chunks = _list_current_chunks(db, case_id, document.id)
     previous_page_by_number = {page.page_number: page for page in previous_pages}
-    previous_chunk_by_index = {chunk.chunk_index: chunk for chunk in previous_chunks}
     next_page_version = _next_page_version(db, document.id)
-    next_chunk_version = _next_chunk_version(db, document.id)
 
     for page in previous_pages:
         page.is_current = False
@@ -636,9 +751,7 @@ def _persist_ocr_pages_and_chunks(
     db.flush()
 
     output_position = 0
-    next_chunk_index = 0
     new_page_by_number: dict[int, DocumentPageModel] = {}
-    new_chunk_by_index: dict[int, DocumentChunkModel] = {}
     for ocr_page in result.pages:
         page_record = DocumentPageModel(
             case_id=case_id,
@@ -661,12 +774,36 @@ def _persist_ocr_pages_and_chunks(
         add_analysis_run_output(db, run_id, "page", page_record.id, output_position)
         output_position += 1
 
-        for chunk in _build_text_chunks(ocr_page.text):
+    for page_number, previous_page in previous_page_by_number.items():
+        if page_number in new_page_by_number:
+            previous_page.superseded_by_id = new_page_by_number[page_number].id
+            db.add(previous_page)
+    db.flush()
+
+
+def _create_chunks_from_pages(
+    db: Session,
+    case_id: UUID,
+    document: DocumentModel,
+    pages: list[DocumentPageModel],
+    run_id: UUID,
+) -> int:
+    previous_chunks = _list_current_chunks(db, case_id, document.id)
+    for chunk in previous_chunks:
+        chunk.is_current = False
+        db.add(chunk)
+    db.flush()
+
+    next_chunk_version = _next_chunk_version(db, document.id)
+    output_position = 0
+    next_chunk_index = 0
+    for page in pages:
+        for chunk in _build_text_chunks(page.extracted_text):
             chunk_record = DocumentChunkModel(
                 case_id=case_id,
                 document_id=document.id,
-                page_start=ocr_page.page_number,
-                page_end=ocr_page.page_number,
+                page_start=page.page_number,
+                page_end=page.page_number,
                 chunk_index=next_chunk_index,
                 chunk_text=chunk.text,
                 char_start=chunk.char_start,
@@ -680,20 +817,10 @@ def _persist_ocr_pages_and_chunks(
             )
             db.add(chunk_record)
             db.flush()
-            new_chunk_by_index[next_chunk_index] = chunk_record
             add_analysis_run_output(db, run_id, "chunk", chunk_record.id, output_position)
             output_position += 1
             next_chunk_index += 1
-
-    for page_number, previous_page in previous_page_by_number.items():
-        if page_number in new_page_by_number:
-            previous_page.superseded_by_id = new_page_by_number[page_number].id
-            db.add(previous_page)
-    for chunk_index, previous_chunk in previous_chunk_by_index.items():
-        if chunk_index in new_chunk_by_index:
-            previous_chunk.superseded_by_id = new_chunk_by_index[chunk_index].id
-            db.add(previous_chunk)
-    db.flush()
+    return next_chunk_index
 
 
 def _pdf_parse_quality_issues(pages: list[ParsedPdfPage]) -> list[dict]:
@@ -1069,11 +1196,35 @@ def _build_text_chunks(text: str, max_chars: int = DEFAULT_CHUNK_MAX_CHARS) -> l
 
 def _find_chunk_break(text: str, start: int, hard_end: int, max_chars: int) -> int:
     min_soft_break = start + min(MIN_SOFT_BREAK_CHARS, max_chars)
-    for separator in ("\n\n", "\n", " "):
+    for separator in ("\n\n",):
+        break_at = text.rfind(separator, start, hard_end)
+        if break_at >= min_soft_break:
+            return break_at + len(separator)
+    sentence_break = _find_sentence_break(text, start, hard_end, min_soft_break)
+    if sentence_break is not None:
+        return sentence_break
+    for separator in ("\n", " "):
         break_at = text.rfind(separator, start, hard_end)
         if break_at >= min_soft_break:
             return break_at + len(separator)
     return hard_end
+
+
+def _find_sentence_break(text: str, start: int, hard_end: int, min_soft_break: int) -> int | None:
+    break_chars = {".", "!", "?", ":", ";", "…"}
+    trailing_chars = {'"', "'", "”", "’", ")", "]", "}"}
+    index = hard_end - 1
+    while index >= min_soft_break:
+        if text[index] in break_chars:
+            break_at = index + 1
+            while break_at < hard_end and text[break_at] in trailing_chars:
+                break_at += 1
+            if break_at < len(text) and not text[break_at].isspace():
+                index -= 1
+                continue
+            return break_at
+        index -= 1
+    return None
 
 
 def _trim_chunk_span(text: str, start: int, end: int) -> tuple[int, int]:

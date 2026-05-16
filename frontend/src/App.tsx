@@ -44,6 +44,7 @@ import {
   RetrievalStrategy,
   attachDetachedSourceItem,
   createCase,
+  createDocumentChunks,
   createExport,
   createManualObject,
   createManualContradictionCandidate,
@@ -98,7 +99,7 @@ const objectTypes = [
 
 const reviewStatuses = ["", "needs_review", "verified", "rejected", "corrected", "new"];
 const sourceValidationStatuses = ["", "source_valid", "source_invalid", "pending_source_validation"];
-const analysisSourceModes: AnalysisSourceMode[] = ["focused_query", "document", "case"];
+const analysisSourceModes: AnalysisSourceMode[] = ["case", "document"];
 const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
 const retrievalStrategies: RetrievalStrategy[] = ["keyword", "semantic", "hybrid"];
 
@@ -107,6 +108,7 @@ const busyLabels: Record<string, string> = {
   "case-create": "Ugy letrehozasa",
   "case-data": "Ugyadatok betoltese",
   "document-detail": "Iratreszletek betoltese",
+  "document-chunks": "Szovegreszek letrehozasa",
   "document-ocr": "OCR futtatasa",
   "run-detail": "Elemzesi futas reszleteinek betoltese",
   exports: "Export elozmenyek betoltese",
@@ -145,7 +147,6 @@ const moduleLabels: Record<string, string> = {
 };
 
 const analysisSourceModeLabels: Record<AnalysisSourceMode, string> = {
-  focused_query: "Fokuszalt kereses",
   document: "Kivalasztott irat",
   case: "Teljes ugy"
 };
@@ -257,12 +258,14 @@ export function App() {
   const [documentType, setDocumentType] = useState("jegyzokonyv");
   const [moduleKey, setModuleKey] = useState("detect_missing_items");
   const [query, setQuery] = useState("");
-  const [limit, setLimit] = useState(5);
-  const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("focused_query");
+  const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("case");
   const [analysisDocumentId, setAnalysisDocumentId] = useState("");
-  const [maxChunks, setMaxChunks] = useState(50);
+  const [analysisPageStart, setAnalysisPageStart] = useState("");
+  const [analysisPageEnd, setAnalysisPageEnd] = useState("");
+  const [maxChunks, setMaxChunks] = useState(20);
   const [batchSize, setBatchSize] = useState(5);
   const [claimReviewScope, setClaimReviewScope] = useState<ClaimReviewScope>("reviewable");
+  const [contradictionCandidateLimit, setContradictionCandidateLimit] = useState(5);
   const [retrievalStrategy, setRetrievalStrategy] = useState<RetrievalStrategy>("keyword");
   const [forceReindex, setForceReindex] = useState(false);
   const [activeIndexJobId, setActiveIndexJobId] = useState<string | null>(null);
@@ -335,10 +338,30 @@ export function App() {
     moduleKey === "summarize_case" ||
     moduleKey === "detect_missing_items";
   const isContradictionModule = moduleKey === "detect_contradiction_candidates";
-  const effectiveAnalysisSourceMode: AnalysisSourceMode = canUseBatchScope ? analysisSourceMode : "focused_query";
-  const requiresFocusText = effectiveAnalysisSourceMode === "focused_query" && !isContradictionModule;
-  const usesSemanticIndex = canUseBatchScope && effectiveAnalysisSourceMode === "focused_query" && retrievalStrategy !== "keyword";
+  const effectiveAnalysisSourceMode: AnalysisSourceMode = canUseBatchScope ? analysisSourceMode : "case";
+  const showAnalysisPageRange = canUseBatchScope && effectiveAnalysisSourceMode === "document" && Boolean(analysisDocumentId);
+  const sourceScopeMaxPage = useMemo(() => {
+    if (effectiveAnalysisSourceMode === "document") {
+      return Math.max(1, selectedAnalysisDocument?.page_count ?? 1);
+    }
+    return Math.max(1, ...documents.map((item) => item.page_count ?? 0));
+  }, [documents, effectiveAnalysisSourceMode, selectedAnalysisDocument]);
+  const requiresFocusText = true;
+  const usesSemanticIndex = canUseBatchScope && retrievalStrategy !== "keyword" && query.trim().length > 0;
   const semanticIndexReady = !usesSemanticIndex || Boolean(chunkIndexStatus?.is_ready);
+  const parsedAnalysisPageStart = analysisPageStart.trim() ? Number(analysisPageStart) : null;
+  const parsedAnalysisPageEnd = analysisPageEnd.trim() ? Number(analysisPageEnd) : null;
+  const analysisPageRangeValid =
+    (!showAnalysisPageRange || (
+      parsedAnalysisPageStart !== null &&
+      parsedAnalysisPageEnd !== null &&
+      Number.isInteger(parsedAnalysisPageStart) &&
+      Number.isInteger(parsedAnalysisPageEnd) &&
+      parsedAnalysisPageStart >= 1 &&
+      parsedAnalysisPageEnd >= 1 &&
+      parsedAnalysisPageStart <= parsedAnalysisPageEnd &&
+      parsedAnalysisPageEnd <= sourceScopeMaxPage
+    ));
   const indexJobIsRunning = chunkIndexStatus?.latest_run_status === "running";
   const busyLabel = busy ? (busyLabels[busy] ?? busy) : "Keszenlet";
   const canRunAnalysis =
@@ -346,7 +369,8 @@ export function App() {
     !busy &&
     (!requiresFocusText || query.trim().length > 0) &&
     (effectiveAnalysisSourceMode !== "document" || Boolean(analysisDocumentId)) &&
-    semanticIndexReady;
+    semanticIndexReady &&
+    analysisPageRangeValid;
   const reportFilters = useMemo<ReviewReportFilterValues>(
     () => ({
       objectType: objectType || undefined,
@@ -389,10 +413,12 @@ export function App() {
   }, [analysisDocumentId, documents]);
 
   useEffect(() => {
-    if (!canUseBatchScope && analysisSourceMode !== "focused_query") {
-      setAnalysisSourceMode("focused_query");
+    if (!showAnalysisPageRange) {
+      return;
     }
-  }, [analysisSourceMode, canUseBatchScope]);
+    setAnalysisPageStart("1");
+    setAnalysisPageEnd(String(sourceScopeMaxPage));
+  }, [showAnalysisPageRange, analysisDocumentId, sourceScopeMaxPage]);
 
   useEffect(() => {
     if (!selectedCaseId || !canUseBatchScope) {
@@ -405,7 +431,7 @@ export function App() {
       return;
     }
     void refreshChunkIndexStatus(documentId).catch(() => setChunkIndexStatus(null));
-  }, [selectedCaseId, canUseBatchScope, effectiveAnalysisSourceMode, analysisDocumentId]);
+  }, [selectedCaseId, canUseBatchScope, effectiveAnalysisSourceMode, analysisDocumentId, retrievalStrategy, query]);
 
   useEffect(() => {
     if (!selectedCaseId || !activeIndexJobId) {
@@ -583,6 +609,27 @@ export function App() {
     });
   }
 
+  async function handleCreateDocumentChunks(document: DocumentRead) {
+    if (!selectedCaseId) return;
+    await perform("document-chunks", async () => {
+      const response = await createDocumentChunks(selectedCaseId, document.id, "Felhasznaloi jovahagyas utan szovegreszek letrehozasa");
+      const [documentsResponse, runsResponse, chunksResponse] = await Promise.all([
+        listDocuments(selectedCaseId),
+        listAnalysisRuns(selectedCaseId),
+        listDocumentChunks(selectedCaseId, document.id)
+      ]);
+      const refreshedDocument = documentsResponse.data.find((item) => item.id === document.id) ?? response.document;
+      setDocuments(documentsResponse.data);
+      setAnalysisRuns(runsResponse.data);
+      setSelectedDocument(refreshedDocument);
+      setDocumentChunks(chunksResponse.data);
+      setNotice("Szovegreszek letrehozva, az irat feldolgozasi alapja kesz.");
+      setLastActionSummary(
+        `${document.original_filename}: ${labelRunStatus(response.analysis_run.status)}, ${chunksResponse.data.length} szovegresz`
+      );
+    });
+  }
+
   async function handleAnalysisRunDetail(run: AnalysisRunRead) {
     if (!selectedCaseId) return;
     await perform("run-detail", async () => {
@@ -625,13 +672,14 @@ export function App() {
     await perform("analysis", async () => {
       const payload = {
         query: query.trim() ? query.trim() : null,
-        limit,
         source_mode: effectiveAnalysisSourceMode,
         document_id: effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null,
         max_chunks: maxChunks,
         batch_size: batchSize,
         claim_review_scope: claimReviewScope,
-        retrieval_strategy: retrievalStrategy
+        retrieval_strategy: retrievalStrategy,
+        ...(showAnalysisPageRange ? { page_start: parsedAnalysisPageStart, page_end: parsedAnalysisPageEnd } : {}),
+        ...(isContradictionModule ? { contradiction_candidate_limit: contradictionCandidateLimit } : {})
       };
       const response = await runAnalysis(selectedCaseId, moduleKey, payload);
       setAnalysis(response);
@@ -671,7 +719,7 @@ export function App() {
     await perform("chunk-index", async () => {
       const response = await startChunkIndexJob(selectedCaseId, {
         document_id: effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null,
-        limit: maxChunks,
+        limit: 1000,
         force_reindex: forceReindex
       });
       const [runsResponse, documentsResponse] = await Promise.all([
@@ -1527,8 +1575,16 @@ export function App() {
                       Reszletek
                     </button>
                     {canRunOcr(document) && (
-                      <button onClick={() => handleDocumentOcr(document)} disabled={Boolean(busy)}>
-                        <Play size={18} /> OCR inditasa
+                      <>
+                        <button onClick={() => handleDocumentOcr(document)} disabled={Boolean(busy)}>
+                          <Play size={18} /> {labelOcrAction(document)}
+                        </button>
+                        <span>{document.ocr_recommendation?.message}</span>
+                      </>
+                    )}
+                    {canCreateChunks(document) && (
+                      <button onClick={() => handleCreateDocumentChunks(document)} disabled={Boolean(busy)}>
+                        Szovegreszek letrehozasa
                       </button>
                     )}
                   </div>
@@ -1552,9 +1608,20 @@ export function App() {
                   <span>{labelProcessingStatus(selectedDocument.processing_status)}</span>
                 </div>
                 {canRunOcr(selectedDocument) && (
-                  <button onClick={() => handleDocumentOcr(selectedDocument)} disabled={Boolean(busy)}>
-                    <Play size={18} /> OCR inditasa
-                  </button>
+                  <div className="ocr-action-box">
+                    <button onClick={() => handleDocumentOcr(selectedDocument)} disabled={Boolean(busy)}>
+                      <Play size={18} /> {labelOcrAction(selectedDocument)}
+                    </button>
+                    <p>{selectedDocument.ocr_recommendation?.message}</p>
+                  </div>
+                )}
+                {canCreateChunks(selectedDocument) && (
+                  <div className="ocr-action-box">
+                    <button onClick={() => handleCreateDocumentChunks(selectedDocument)} disabled={Boolean(busy)}>
+                      Szovegreszek letrehozasa
+                    </button>
+                    <p>Ellenorizd az oldalak szoveget, majd ezzel hozd letre a tovabbi kereseshez es elemzeshez szukseges szovegreszeket.</p>
+                  </div>
                 )}
                 <details open>
                   <summary>Oldalak</summary>
@@ -1753,10 +1820,6 @@ export function App() {
                   {modules.map((item) => <option key={item} value={item}>{labelModule(item)}</option>)}
                 </select>
               </label>
-              <label>
-                Limit
-                <input type="number" min={1} max={20} value={limit} onChange={(event) => setLimit(Number(event.target.value))} />
-              </label>
             </div>
             <div className="form-row">
               <label>
@@ -1783,16 +1846,54 @@ export function App() {
                 </select>
               </label>
             </div>
-            {canUseBatchScope && effectiveAnalysisSourceMode !== "focused_query" && (
+            {showAnalysisPageRange && (
+              <div className="form-row">
+                <label>
+                  Oldaltol
+                  <input
+                    type="number"
+                    min={1}
+                    max={sourceScopeMaxPage}
+                    value={analysisPageStart}
+                    onChange={(event) => setAnalysisPageStart(event.target.value)}
+                    onBlur={() => {
+                      const value = clampNumberInput(analysisPageStart, 1, sourceScopeMaxPage, 1);
+                      setAnalysisPageStart(String(value));
+                      if (parsedAnalysisPageEnd !== null && value > parsedAnalysisPageEnd) {
+                        setAnalysisPageEnd(String(value));
+                      }
+                    }}
+                  />
+                </label>
+                <label>
+                  Oldalig
+                  <input
+                    type="number"
+                    min={1}
+                    max={sourceScopeMaxPage}
+                    value={analysisPageEnd}
+                    onChange={(event) => setAnalysisPageEnd(event.target.value)}
+                    onBlur={() => {
+                      const value = clampNumberInput(analysisPageEnd, 1, sourceScopeMaxPage, sourceScopeMaxPage);
+                      setAnalysisPageEnd(String(value));
+                      if (parsedAnalysisPageStart !== null && parsedAnalysisPageStart > value) {
+                        setAnalysisPageStart(String(value));
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+            {canUseBatchScope && (
               <div className="form-row">
                 <label>
                   Szovegresz plafon
                   <input
                     type="number"
                     min={1}
-                    max={200}
+                    max={30}
                     value={maxChunks}
-                    onChange={(event) => setMaxChunks(clampNumberInput(event.target.value, 1, 200, 50))}
+                    onChange={(event) => setMaxChunks(clampNumberInput(event.target.value, 1, 30, 20))}
                   />
                 </label>
                 <label>
@@ -1807,6 +1908,9 @@ export function App() {
                 </label>
               </div>
             )}
+            {showAnalysisPageRange && !analysisPageRangeValid && (
+              <p className="error-text">Az oldaltartomany kotelezo, csak 1 es {sourceScopeMaxPage} kozotti egesz szam lehet, es az elso oldal nem lehet nagyobb az utolsonal.</p>
+            )}
             {canUseBatchScope && (
               <>
                 <div className="form-row">
@@ -1815,11 +1919,10 @@ export function App() {
                     <select
                       value={retrievalStrategy}
                       onChange={(event) => setRetrievalStrategy(event.target.value as RetrievalStrategy)}
-                      disabled={effectiveAnalysisSourceMode !== "focused_query"}
                     >
                       {retrievalStrategies.map((item) => <option key={item} value={item}>{labelRetrievalStrategy(item)}</option>)}
                     </select>
-                    <span className="field-hint">Szemantikus vagy hybrid modhoz elobb indexeld a szovegreszeket.</span>
+                    <span className="field-hint">A keresesi mod a fokusz alapjan valasztja ki a feldolgozando szovegreszeket. Szemantikus vagy hybrid modhoz elobb indexeld a szovegreszeket.</span>
                   </label>
                 </div>
               </>
@@ -1833,21 +1936,39 @@ export function App() {
                       {claimReviewScopes.map((item) => <option key={item} value={item}>{labelClaimReviewScope(item)}</option>)}
                     </select>
                   </label>
+                  <label>
+                    Ellentmondasjelolt plafon
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={contradictionCandidateLimit}
+                      onChange={(event) => setContradictionCandidateLimit(clampNumberInput(event.target.value, 1, 10, 5))}
+                    />
+                  </label>
                 </div>
                 <div className="module-note">
-                  Claim-par alapu modul: a rendszer a mar kinyert, forrasolt allitasok kozott valaszt ellenorizendo parokat. Az alapertelmezett allitaskor nem veszi figyelembe az elutasitott allitasokat. A fokusz opcionális.
+                  Claim-par alapu modul: a rendszer a mar kinyert, forrasolt allitasok kozott valaszt ellenorizendo parokat. Az alapertelmezett allitaskor nem veszi figyelembe az elutasitott allitasokat. A fokusz kotelezo, es a claim szovegeben vagy forrasidezeteiben szur.
                 </div>
               </>
             )}
             <label>
-              {isContradictionModule ? "Fokusz (opcionalis)" : "Fokusz"}
+              Fokusz
               <textarea
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 rows={3}
                 placeholder={analysisFocusPlaceholder(moduleKey, isContradictionModule)}
               />
+              <span className="field-hint">
+                {isContradictionModule
+                  ? "Kotelezo: ez szuri a mar kinyert allitasokat es forrasidezeteiket."
+                  : "Kotelezo: ez valasztja ki a relevans szovegreszeket a megadott forraskorben."}
+              </span>
             </label>
+            {requiresFocusText && query.trim().length === 0 && (
+              <p className="error-text">A feldolgozashoz adj meg fokuszt; enelkul nagy ugyeknel nem inditunk vak feldolgozast.</p>
+            )}
             <button onClick={handleRunAnalysis} disabled={!canRunAnalysis}>
               <Play size={18} /> Futtatas
             </button>
@@ -2020,6 +2141,7 @@ export function App() {
                       <article key={input.id} className="compact-item">
                         <strong>{input.sequence_no}. {labelAnalysisInputType(input.input_type)}</strong>
                         <span>{input.related_object_type ? labelObjectType(input.related_object_type) : "Forras"} {input.related_object_id ?? input.chunk_id ?? input.document_id ?? ""}</span>
+                        {renderAnalysisSourceSummary(input.source_summary, input.payload_json)}
                         {input.payload_json && renderAnalysisInputPayload(input.payload_json)}
                       </article>
                     ))}
@@ -2031,6 +2153,7 @@ export function App() {
                     {analysisRunDetail.outputs.map((output) => (
                       <article key={output.id} className="compact-item">
                         <strong>{output.output_position ?? 0}. {labelAnalysisOutputType(output.output_type)}</strong>
+                        {renderAnalysisOutputSummary(output.output_summary)}
                         <code>{output.output_object_id}</code>
                       </article>
                     ))}
@@ -2384,7 +2507,7 @@ function analysisSourceMetric(response: AnalysisResponse) {
 
 function analysisFocusPlaceholder(moduleKey: string, isContradictionModule: boolean) {
   if (isContradictionModule) {
-    return "Opcionális: nev, tema vagy idoszak. Uresen hagyva az ugy forrasolt allitasai kozott keres parokat.";
+    return "Add meg, milyen temaju allitasok kozott keressen ellentmondasjelolteket.";
   }
   const placeholders: Record<string, string> = {
     extract_claims: "Add meg, milyen allitasokat keressen a forrasokban.",
@@ -2500,6 +2623,7 @@ function labelProcessingStatus(value: string) {
     pending: "Varakozik",
     processing: "Feldolgozas alatt",
     processed: "Feldolgozva",
+    text_review_required: "Szoveg ellenorzesre var",
     review_required: "Ellenorzest igenyel",
     failed: "Sikertelen"
   };
@@ -2518,11 +2642,18 @@ function labelTextSource(value: string) {
 }
 
 function canRunOcr(document: DocumentRead) {
-  const needsOcrAction =
-    document.processing_status === "review_required" ||
-    document.processing_status === "failed" ||
-    document.page_count === 0;
-  return document.original_filename.toLowerCase().endsWith(".pdf") && document.processing_status !== "processing" && needsOcrAction;
+  return document.ocr_recommendation?.action === "recommended" || document.ocr_recommendation?.action === "optional";
+}
+
+function canCreateChunks(document: DocumentRead) {
+  return document.processing_status === "text_review_required";
+}
+
+function labelOcrAction(document: DocumentRead) {
+  if (document.ocr_recommendation?.action === "optional") {
+    return "OCR futtatasa ellenorzeskent";
+  }
+  return "OCR inditasa";
 }
 
 function labelSupportType(value: string) {
@@ -2544,6 +2675,59 @@ function labelAnalysisInputType(value: string) {
     source_reference: "Forrashivatkozas"
   };
   return labels[value] ?? value;
+}
+
+function renderAnalysisSourceSummary(
+  summary: AnalysisRunDetail["inputs"][number]["source_summary"],
+  payload: Record<string, unknown> | null
+) {
+  if (!summary) return null;
+  const pageLabel =
+    summary.page_start && summary.page_end && summary.page_start !== summary.page_end
+      ? `${summary.page_start}-${summary.page_end}. oldal`
+      : summary.page_start
+        ? `${summary.page_start}. oldal`
+        : "oldal ismeretlen";
+  return (
+    <div className="analysis-readable-card">
+      <strong>{summary.document_filename ?? "Ismeretlen irat"}</strong>
+      <div className="source-meta">
+        <span>{pageLabel}</span>
+        {summary.chunk_index !== null && <span>{summary.chunk_index}. szovegresz</span>}
+        {payload?.source_label !== undefined && payload.source_label !== null && (
+          <span>{formatAnalysisSourceLabel(payload.source_label)}</span>
+        )}
+        {payload?.retrieval_match_type !== undefined && payload.retrieval_match_type !== null && (
+          <span>{labelRetrievalMatchType(payload.retrieval_match_type)}</span>
+        )}
+        {payload?.retrieval_score !== undefined && payload.retrieval_score !== null && (
+          <span>relevancia {formatScore(payload.retrieval_score)}</span>
+        )}
+        {payload?.batch_index !== undefined && payload.batch_index !== null && payload?.batch_count !== undefined && payload.batch_count !== null && (
+          <span>batch {String(payload.batch_index)} / {String(payload.batch_count)}</span>
+        )}
+        {(summary.char_start !== null || summary.char_end !== null) && (
+          <span>karakter {formatRange(summary.char_start, summary.char_end)}</span>
+        )}
+      </div>
+      {summary.text_preview && <p className="analysis-source-preview">{summary.text_preview}</p>}
+    </div>
+  );
+}
+
+function renderAnalysisOutputSummary(summary: AnalysisRunDetail["outputs"][number]["output_summary"]) {
+  if (!summary) return null;
+  return (
+    <div className="analysis-readable-card">
+      {summary.title && <strong>{summary.title}</strong>}
+      <div className="source-meta">
+        {summary.review_status && <span>{labelReviewStatus(summary.review_status)}</span>}
+        {summary.source_validation_status && <span>{labelSourceValidationStatus(summary.source_validation_status)}</span>}
+        {summary.source_count !== null && summary.source_count !== undefined && <span>{summary.source_count} forras</span>}
+      </div>
+      {summary.body_text && <p className="analysis-source-preview">{summary.body_text}</p>}
+    </div>
+  );
 }
 
 function renderAnalysisInputPayload(payload: Record<string, unknown>) {
@@ -2586,6 +2770,30 @@ function renderAnalysisInputPayload(payload: Record<string, unknown>) {
   }
 
   return <pre>{JSON.stringify(payload, null, 2)}</pre>;
+}
+
+function labelRetrievalMatchType(value: unknown) {
+  const labels: Record<string, string> = {
+    keyword: "kulcsszavas talalat",
+    semantic: "szemantikus talalat",
+    hybrid: "hybrid talalat"
+  };
+  return labels[String(value)] ?? String(value);
+}
+
+function formatAnalysisSourceLabel(value: unknown) {
+  const rawValue = String(value);
+  const match = rawValue.match(/^chunk_(\d+)$/);
+  if (match) {
+    return `elemzesi forras: ${match[1]}`;
+  }
+  return `elemzesi forras: ${rawValue}`;
+}
+
+function formatScore(value: unknown) {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  if (Number.isNaN(numberValue)) return String(value);
+  return numberValue.toFixed(3);
 }
 
 function labelPayloadClaimReviewScope(value: unknown) {

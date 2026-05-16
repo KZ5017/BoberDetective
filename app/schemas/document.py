@@ -1,9 +1,16 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.analysis import AnalysisRunRead
+
+
+class DocumentOcrRecommendation(BaseModel):
+    action: Literal["hidden", "recommended", "optional"]
+    reason_code: str
+    message: str
 
 
 class DocumentRead(BaseModel):
@@ -25,6 +32,7 @@ class DocumentRead(BaseModel):
     parser_name: str | None
     parser_version: str | None
     notes: str | None
+    ocr_recommendation: DocumentOcrRecommendation | None = None
 
 
 class DocumentList(BaseModel):
@@ -38,6 +46,10 @@ class DocumentImportMetadata(BaseModel):
 
 
 class DocumentProcessRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class DocumentChunkRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 

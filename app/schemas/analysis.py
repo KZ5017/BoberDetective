@@ -32,6 +32,16 @@ class AnalysisRunList(BaseModel):
     data: list[AnalysisRunRead]
 
 
+class AnalysisRunSourceSummary(BaseModel):
+    document_filename: str | None = None
+    page_start: int | None = None
+    page_end: int | None = None
+    chunk_index: int | None = None
+    char_start: int | None = None
+    char_end: int | None = None
+    text_preview: str | None = None
+
+
 class AnalysisRunInputRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -45,7 +55,16 @@ class AnalysisRunInputRead(BaseModel):
     related_object_id: UUID | None
     sequence_no: int
     payload_json: dict | None
+    source_summary: AnalysisRunSourceSummary | None = None
     created_at: datetime
+
+
+class AnalysisRunOutputSummary(BaseModel):
+    title: str | None = None
+    body_text: str | None = None
+    review_status: str | None = None
+    source_validation_status: str | None = None
+    source_count: int | None = None
 
 
 class AnalysisRunOutputRead(BaseModel):
@@ -56,6 +75,7 @@ class AnalysisRunOutputRead(BaseModel):
     output_type: str
     output_object_id: UUID
     output_position: int | None
+    output_summary: AnalysisRunOutputSummary | None = None
     created_at: datetime
 
 

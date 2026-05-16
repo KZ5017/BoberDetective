@@ -7,6 +7,8 @@ from app.db.session import get_db
 from app.schemas.analysis import AnalysisRunDetail, AnalysisRunInputRead, AnalysisRunList, AnalysisRunOutputRead, AnalysisRunRead
 from app.services.analysis_runs import (
     AnalysisRunNotFoundError,
+    analysis_input_source_summary,
+    analysis_output_summary,
     get_analysis_run,
     list_analysis_run_inputs,
     list_analysis_run_outputs,
@@ -33,6 +35,16 @@ def get_case_analysis_run(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return AnalysisRunDetail(
         run=AnalysisRunRead.model_validate(run),
-        inputs=[AnalysisRunInputRead.model_validate(item) for item in list_analysis_run_inputs(db, analysis_run_id)],
-        outputs=[AnalysisRunOutputRead.model_validate(item) for item in list_analysis_run_outputs(db, analysis_run_id)],
+        inputs=[
+            AnalysisRunInputRead.model_validate(item).model_copy(
+                update={"source_summary": analysis_input_source_summary(db, item)}
+            )
+            for item in list_analysis_run_inputs(db, analysis_run_id)
+        ],
+        outputs=[
+            AnalysisRunOutputRead.model_validate(item).model_copy(
+                update={"output_summary": analysis_output_summary(db, item)}
+            )
+            for item in list_analysis_run_outputs(db, analysis_run_id)
+        ],
     )

@@ -30,14 +30,17 @@ Completed:
 - Immutable TXT import API
 - Explicit document processing validation run API
 - Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile
+- Page-local `char_window_v2` chunking that preserves processed page boundaries and prefers paragraph/sentence breaks before hard limits
 - Explicit Docling parser smoke passed; Docling is installed in the local `.venv`
 - Explicit Tesseract OCR foundation for PDF documents
+- Backend OCR recommendation metadata so the frontend can distinguish recommended OCR from optional OCR checks
+- Explicit PDF text-review workflow: native PDF import and OCR create current pages first, then users create analysis-ready chunks with `Szovegreszek letrehozasa`
 - Image-only/scanned PDFs without native text remain importable as `review_required` documents for explicit OCR processing
 - OCR captures average Tesseract confidence on a 0..1 scale and flags low-confidence pages
 - Document page API returns OCR confidence as a numeric value
 - Generated local PDF samples and parser/OCR evaluation scripts under `samples/` and `scripts/`
 - Default upload limit is 50 MiB and can be changed with `BOBERDETECTIVE_MAX_UPLOAD_BYTES`
-- Batch-capable raw-chunk analysis modules with focused query, document, and case source modes
+- Batch-capable raw-chunk analysis modules with whole-case and selected-document source scopes plus required focus text
 - TXT chunk creation
 - Keyword search
 - Source-reference foundation
@@ -95,20 +98,20 @@ Completed:
 - Live `detect_missing_items` smoke passed on referenced attachment/photo documentation sample
 - Missing item candidate JSON/HTML export smoke coverage
 - Analysis retrieval fallback improved for short/inflected Hungarian queries such as `mellekletet`
-- Analysis modules now fall back to the first current case chunks when keyword retrieval has no hits, preserving source-bound execution for broad UI queries
+- Raw-chunk analysis modules now require explicit focus text and fail clearly when retrieval finds no matching source chunk, avoiding blind processing on large cases
 - Local chunk indexing through LM Studio/OpenAI-compatible embeddings and Qdrant, with `embed_chunks` analysis run provenance
 - Explicit LM Studio embedding model load workflow; the default local embedding model is `text-embedding-qwen3-embedding-4b@q6_k`
 - Model-specific Qdrant chunk collections, so switching embedding models does not mix vector dimensions
 - Batched embedding index creation through `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` to avoid oversized LM Studio embedding requests
 - Background chunk indexing with frontend progress polling, so larger LM Studio/Qdrant indexing work does not depend on one long HTTP request
 - Chunk index readiness and latest-run progress status for the configured embedding model, surfaced in the frontend before semantic/hybrid analysis runs
-- Hybrid focused-query retrieval for batch-capable raw-chunk analysis modules using `keyword`, `semantic`, or `hybrid` strategies
+- Keyword/semantic/hybrid retrieval for batch-capable raw-chunk analysis modules across selected-document and whole-case source scopes
 - Minimal React/Vite workbench frontend scaffold
 - Frontend review actions for review report items
 - Frontend source detail and review history display for report items
 - Frontend long-running operation feedback with elapsed time and last action summary
 - Frontend document list and analysis run history views
-- Frontend document page/chunk and analysis run input/output drill-down
+- Frontend document page/chunk and analysis run input/output drill-down with human-readable selected-source and output summaries
 - Frontend TXT/PDF import selection and OCR action for review-required/no-page PDF documents
 - Frontend source scope controls for batch-capable raw-chunk analysis modules
 - Frontend optional-focus and claim-review-scope claim-pair display for contradiction analysis, contradiction analysis run details, and conservative contradiction review notes
@@ -126,15 +129,17 @@ PDF/OCR sample checks:
 
 Next:
 
-- Commit and push the batch/contradiction/deduplication/source-correction/manual-entry checkpoint
-- Commit and push the retrieval/indexing foundation checkpoint after review
-- Continue retrieval/indexing hardening with hybrid ranking calibration, document/case source-mode semantic/hybrid selection, and clearer visibility into selected source chunks
+- Decide and implement document parking/deletion/archive behavior for accidentally imported, badly processed, or intentionally excluded documents
+- Continue retrieval/indexing hardening with clearer frontend visibility into selected source chunks and their retrieval scores/match types
 
 Frontend dev URL:
 
 - Start backend from the repo root: `.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000`
 - Start frontend from `frontend/`: `npm run dev`
 - When running, open `http://localhost:5173`; Vite proxies `/api` to `http://127.0.0.1:8000`.
+- When Codex starts the frontend as a background process from a non-interactive WSL command, use `setsid` so Vite survives shell cleanup:
+  `setsid sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1" < /dev/null &`
+  If `localhost:5173` is unreachable, first check inside WSL with `ss -ltnp | grep 5173`; a previous failure mode was Vite logging `ready`, then exiting with `Hangup`.
 
 ## Design documents
 
@@ -193,7 +198,7 @@ Initial backend scaffold exists under `app/` with:
 - `claims` and `claim_sources` persistence with source reference linkage
 - `human_reviews` append-only review history for claims
 - generalized `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}` endpoint, currently supporting `extract_claims`, `extract_events`, `extract_entities`, and `summarize_case`
-- batch-capable raw-chunk analysis modules with `focused_query`, `document`, and `case` source modes plus chunk batch metadata
+- batch-capable raw-chunk analysis modules with `case` and `document` source modes plus required focus text and chunk batch metadata
 - module-specific analysis services under `app/services/analysis_module_*.py`
 - entity list/detail API
 - entity review API with append-only human review history
@@ -220,6 +225,6 @@ Frontend:
 - React/Vite scaffold under `frontend/`
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
-- Current UI workflows: case create/list, TXT/PDF import, document list, page/chunk drill-down, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
-- Raw-chunk analysis module UI supports focused query, selected-document, and whole-case source scopes with optional focus text and batch controls
-- Focused-query raw-chunk analysis can choose keyword, semantic, or hybrid source retrieval after chunk indexing
+- Current UI workflows: case create/list, TXT/PDF import, document list, page/chunk drill-down, OCR recommendation, explicit PDF text review and chunk creation, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
+- Raw-chunk analysis module UI supports selected-document and whole-case source scopes with required focus text, selected-document page range, `Szovegresz plafon` capped at 30, and batch controls
+- Raw-chunk analysis can choose keyword, semantic, or hybrid source retrieval after chunk indexing

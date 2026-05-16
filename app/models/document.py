@@ -16,7 +16,7 @@ class DocumentModel(Base):
         CheckConstraint("sha256_hash ~ '^[0-9a-f]{64}$'", name="ck_documents_sha256_hash_hex"),
         CheckConstraint("page_count is null or page_count >= 0", name="ck_documents_page_count_non_negative"),
         CheckConstraint(
-            "processing_status in ('pending', 'processing', 'processed', 'failed', 'review_required')",
+            "processing_status in ('pending', 'processing', 'processed', 'failed', 'review_required', 'text_review_required')",
             name="ck_documents_processing_status",
         ),
         UniqueConstraint("case_id", "sha256_hash", name="uq_documents_case_sha256_hash"),

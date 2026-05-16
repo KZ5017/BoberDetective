@@ -1,18 +1,28 @@
 from uuid import UUID
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AnalysisModuleRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     query: str | None = Field(default=None, max_length=500)
-    limit: int = Field(default=5, ge=1, le=20)
-    source_mode: Literal["focused_query", "document", "case"] = "focused_query"
+    source_mode: Literal["case", "document"] = "case"
     document_id: UUID | None = None
-    max_chunks: int = Field(default=50, ge=1, le=200)
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
+    max_chunks: int = Field(default=20, ge=1, le=30)
     batch_size: int = Field(default=5, ge=1, le=10)
     claim_review_scope: Literal["reviewable", "verified", "needs_review", "all_source_valid"] = "reviewable"
     retrieval_strategy: Literal["keyword", "semantic", "hybrid"] = "keyword"
+    contradiction_candidate_limit: int = Field(default=5, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def validate_page_range(self) -> "AnalysisModuleRunRequest":
+        if self.page_start is not None and self.page_end is not None and self.page_start > self.page_end:
+            raise ValueError("page_start must be less than or equal to page_end")
+        return self
 
 
 class AnalysisModuleClaim(BaseModel):
