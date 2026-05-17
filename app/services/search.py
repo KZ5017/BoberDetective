@@ -119,8 +119,10 @@ def _search_pages(
 def _apply_common_filters(stmt, request: KeywordSearchRequest, document_model, page_start_column, page_end_column):
     if request.filters.document_ids:
         stmt = stmt.where(document_model.id.in_(request.filters.document_ids))
-    if request.filters.document_type is not None:
-        stmt = stmt.where(document_model.document_type == request.filters.document_type)
+    if request.filters.document_group_code is not None:
+        stmt = stmt.where(document_model.document_group_code == request.filters.document_group_code)
+    if request.filters.document_type_code is not None:
+        stmt = stmt.where(document_model.document_type_code == request.filters.document_type_code)
     if request.filters.page_start is not None:
         stmt = stmt.where(page_end_column >= request.filters.page_start)
     if request.filters.page_end is not None:

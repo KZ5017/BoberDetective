@@ -108,6 +108,27 @@ def test_qdrant_chunk_index_search_filters_by_case_and_current_payload() -> None
     assert captured_payload["filter"]["must"][4]["range"]["lte"] == 120
 
 
+def test_qdrant_chunk_index_search_filters_by_multiple_documents() -> None:
+    case_id = uuid4()
+    document_ids = [uuid4(), uuid4()]
+    captured_payload = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_payload.update(json.loads(request.content))
+        return httpx.Response(200, json={"result": []})
+
+    client = httpx.Client(base_url="http://qdrant.local", transport=httpx.MockTransport(handler))
+
+    QdrantChunkIndex(_settings(), client).search(
+        case_id=case_id,
+        document_ids=document_ids,
+        query_embedding=[0.1, 0.2],
+        limit=3,
+    )
+
+    assert captured_payload["filter"]["must"][2]["match"]["any"] == [str(item) for item in document_ids]
+
+
 def test_hybrid_chunk_search_merges_keyword_and_semantic_hits(monkeypatch) -> None:
     case_id = uuid4()
     chunk_id = uuid4()

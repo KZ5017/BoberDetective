@@ -1,9 +1,11 @@
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.document import DocumentModel
 from app.schemas.search import (
     ChunkIndexJobResponse,
     ChunkIndexRequest,
@@ -49,15 +51,30 @@ def post_hybrid_search(
     if payload.retrieval_strategy == "keyword":
         hits = keyword_hits
     else:
+        document_ids = _semantic_filter_document_ids(db, case_id, payload)
         try:
             hits = (
-                semantic_chunk_search(db, case_id, payload.query, payload.limit)
+                semantic_chunk_search(db, case_id, payload.query, payload.limit, document_ids=document_ids)
                 if payload.retrieval_strategy == "semantic"
-                else hybrid_chunk_search(db, case_id, payload.query, keyword_hits, payload.limit)
+                else hybrid_chunk_search(db, case_id, payload.query, keyword_hits, payload.limit, document_ids=document_ids)
             )
         except VectorIndexError as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return HybridSearchResponse(data=[KeywordSearchResult(**hit.__dict__) for hit in hits])
+
+
+def _semantic_filter_document_ids(db: Session, case_id: UUID, payload: HybridSearchRequest) -> list[UUID] | None:
+    filters = payload.filters
+    if not filters.document_ids and filters.document_group_code is None and filters.document_type_code is None:
+        return None
+    stmt = select(DocumentModel.id).where(DocumentModel.case_id == case_id)
+    if filters.document_ids:
+        stmt = stmt.where(DocumentModel.id.in_(filters.document_ids))
+    if filters.document_group_code is not None:
+        stmt = stmt.where(DocumentModel.document_group_code == filters.document_group_code)
+    if filters.document_type_code is not None:
+        stmt = stmt.where(DocumentModel.document_type_code == filters.document_type_code)
+    return list(db.execute(stmt).scalars().all())
 
 
 @router.post("/cases/{case_id}/indexes/chunks", response_model=ChunkIndexResponse)
@@ -103,7 +120,19 @@ def post_chunk_index_job(
 def get_chunk_index_status_endpoint(
     case_id: UUID,
     document_id: UUID | None = None,
+    document_ids: list[UUID] = Query(default_factory=list),
+    document_group_code: str | None = None,
+    document_type_code: str | None = None,
     db: Session = Depends(get_db),
 ) -> ChunkIndexStatusResponse:
-    result = get_chunk_index_status(db, case_id, document_id)
+    try:
+        request = ChunkIndexRequest(
+            document_id=document_id,
+            document_ids=document_ids,
+            document_group_code=document_group_code,
+            document_type_code=document_type_code,
+        )
+        result = get_chunk_index_status(db, case_id, request)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return ChunkIndexStatusResponse(**result.__dict__)

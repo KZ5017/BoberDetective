@@ -2,11 +2,15 @@ from uuid import UUID
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+from pydantic import model_validator
+
+from app.core.document_taxonomy import validate_document_taxonomy
 
 
 class SearchFilters(BaseModel):
     document_ids: list[UUID] = Field(default_factory=list)
-    document_type: str | None = Field(default=None, max_length=200)
+    document_group_code: str | None = Field(default=None, max_length=100)
+    document_type_code: str | None = Field(default=None, max_length=100)
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
 
@@ -39,8 +43,21 @@ class KeywordSearchResponse(BaseModel):
 
 class ChunkIndexRequest(BaseModel):
     document_id: UUID | None = None
+    document_ids: list[UUID] = Field(default_factory=list)
+    document_group_code: str | None = Field(default=None, max_length=100)
+    document_type_code: str | None = Field(default=None, max_length=100)
     limit: int = Field(default=200, ge=1, le=1000)
     force_reindex: bool = False
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> "ChunkIndexRequest":
+        if self.document_id is not None and (self.document_ids or self.document_group_code or self.document_type_code):
+            raise ValueError("document_id cannot be combined with document_ids or taxonomy filters")
+        if self.document_type_code is not None and self.document_group_code is None:
+            raise ValueError("document_group_code is required when document_type_code is provided")
+        if self.document_group_code is not None and self.document_type_code is not None:
+            validate_document_taxonomy(self.document_group_code, self.document_type_code)
+        return self
 
 
 class ChunkIndexResponse(BaseModel):
@@ -61,6 +78,9 @@ class ChunkIndexJobResponse(BaseModel):
 class ChunkIndexStatusResponse(BaseModel):
     case_id: UUID
     document_id: UUID | None = None
+    document_ids: list[UUID] = Field(default_factory=list)
+    document_group_code: str | None = None
+    document_type_code: str | None = None
     collection_name: str
     embedding_model: str
     current_chunk_count: int

@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.core.document_taxonomy import validate_document_taxonomy
+
 
 class AnalysisModuleRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -10,6 +12,9 @@ class AnalysisModuleRunRequest(BaseModel):
     query: str | None = Field(default=None, max_length=500)
     source_mode: Literal["case", "document"] = "case"
     document_id: UUID | None = None
+    document_ids: list[UUID] = Field(default_factory=list)
+    document_group_code: str | None = Field(default=None, max_length=100)
+    document_type_code: str | None = Field(default=None, max_length=100)
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
     max_chunks: int = Field(default=20, ge=1, le=30)
@@ -22,6 +27,14 @@ class AnalysisModuleRunRequest(BaseModel):
     def validate_page_range(self) -> "AnalysisModuleRunRequest":
         if self.page_start is not None and self.page_end is not None and self.page_start > self.page_end:
             raise ValueError("page_start must be less than or equal to page_end")
+        if self.document_type_code is not None and self.document_group_code is None:
+            raise ValueError("document_group_code is required when document_type_code is provided")
+        if self.document_group_code is not None and self.document_type_code is not None:
+            validate_document_taxonomy(self.document_group_code, self.document_type_code)
+        if self.source_mode == "document" and (self.document_ids or self.document_group_code or self.document_type_code):
+            raise ValueError("document_ids and taxonomy filters are only supported in case source mode")
+        if self.source_mode == "case" and (self.page_start is not None or self.page_end is not None):
+            raise ValueError("page_start and page_end are only supported in document source mode")
         return self
 
 

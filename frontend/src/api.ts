@@ -10,7 +10,10 @@ export type CaseRead = {
 export type DocumentRead = {
   id: string;
   original_filename: string;
-  document_type: string | null;
+  document_group_code: string;
+  document_group_label: string | null;
+  document_type_code: string;
+  document_type_label: string | null;
   language_code: string | null;
   file_size_bytes: number;
   sha256_hash: string;
@@ -22,6 +25,19 @@ export type DocumentRead = {
     reason_code: string;
     message: string;
   } | null;
+};
+
+export type DocumentTaxonomyTypeRead = {
+  code: string;
+  label: string;
+  description: string;
+};
+
+export type DocumentTaxonomyGroupRead = {
+  code: string;
+  label: string;
+  description: string;
+  types: DocumentTaxonomyTypeRead[];
 };
 
 export type DocumentPageRead = {
@@ -333,6 +349,9 @@ export type AnalysisRunPayload = {
   query?: string | null;
   source_mode?: AnalysisSourceMode;
   document_id?: string | null;
+  document_ids?: string[];
+  document_group_code?: string | null;
+  document_type_code?: string | null;
   page_start?: number | null;
   page_end?: number | null;
   max_chunks?: number;
@@ -360,6 +379,9 @@ export type ChunkIndexJobResponse = {
 export type ChunkIndexStatusResponse = {
   case_id: string;
   document_id: string | null;
+  document_ids: string[];
+  document_group_code: string | null;
+  document_type_code: string | null;
   collection_name: string;
   embedding_model: string;
   current_chunk_count: number;
@@ -595,6 +617,10 @@ export function listDocuments(caseId: string): Promise<{ data: DocumentRead[] }>
   return request(`/cases/${caseId}/documents`);
 }
 
+export function listDocumentTaxonomy(): Promise<{ data: DocumentTaxonomyGroupRead[] }> {
+  return request("/document-taxonomy");
+}
+
 export function listEntities(caseId: string): Promise<{ data: EntityRead[] }> {
   return request(`/cases/${caseId}/entities`);
 }
@@ -631,12 +657,30 @@ export function listExports(caseId: string): Promise<{ data: ExportRead[] }> {
   return request(`/cases/${caseId}/exports`);
 }
 
-export function importDocument(caseId: string, file: File, documentType: string): Promise<unknown> {
+export function importDocument(
+  caseId: string,
+  file: File,
+  documentGroupCode: string,
+  documentTypeCode: string
+): Promise<unknown> {
   const body = new FormData();
   body.append("file", file);
-  body.append("document_type", documentType);
+  body.append("document_group_code", documentGroupCode);
+  body.append("document_type_code", documentTypeCode);
   body.append("language_code", "hu");
   return request(`/cases/${caseId}/documents`, { method: "POST", body });
+}
+
+export function updateDocumentTaxonomy(
+  caseId: string,
+  documentId: string,
+  payload: { document_group_code: string; document_type_code: string; comment?: string | null }
+): Promise<DocumentRead> {
+  return request(`/cases/${caseId}/documents/${documentId}/taxonomy`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
 }
 
 export function runDocumentOcr(caseId: string, documentId: string, reason?: string): Promise<DocumentProcessResponse> {
@@ -676,7 +720,14 @@ export function indexChunks(
 
 export function startChunkIndexJob(
   caseId: string,
-  payload: { document_id?: string | null; limit?: number; force_reindex?: boolean }
+  payload: {
+    document_id?: string | null;
+    document_ids?: string[];
+    document_group_code?: string | null;
+    document_type_code?: string | null;
+    limit?: number;
+    force_reindex?: boolean;
+  }
 ): Promise<ChunkIndexJobResponse> {
   return request(`/cases/${caseId}/indexes/chunks/jobs`, {
     method: "POST",
@@ -685,10 +736,27 @@ export function startChunkIndexJob(
   });
 }
 
-export function getChunkIndexStatus(caseId: string, documentId?: string | null): Promise<ChunkIndexStatusResponse> {
+export function getChunkIndexStatus(
+  caseId: string,
+  filters?: {
+    document_id?: string | null;
+    document_ids?: string[];
+    document_group_code?: string | null;
+    document_type_code?: string | null;
+  } | null
+): Promise<ChunkIndexStatusResponse> {
   const params = new URLSearchParams();
-  if (documentId) {
-    params.set("document_id", documentId);
+  if (filters?.document_id) {
+    params.set("document_id", filters.document_id);
+  }
+  for (const documentId of filters?.document_ids ?? []) {
+    params.append("document_ids", documentId);
+  }
+  if (filters?.document_group_code) {
+    params.set("document_group_code", filters.document_group_code);
+  }
+  if (filters?.document_type_code) {
+    params.set("document_type_code", filters.document_type_code);
   }
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   return request(`/cases/${caseId}/indexes/chunks/status${suffix}`);

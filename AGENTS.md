@@ -148,6 +148,7 @@ Read these before making plans or edits:
 - `Design_documents/08_mvp_backlog_and_implementation_sequence.md`
 - `Design_documents/09_environment_verification_and_security_baseline.md`
 - `Design_documents/10_analysis_batch_processing_plan.md`
+- `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`
 
 ## Editing Guidance
 
@@ -184,7 +185,7 @@ As of the latest handoff:
   - secure storage path resolver,
   - SQLAlchemy/psycopg DB layer,
   - Alembic migration foundation,
-  - migrations through `0017_text_review_status`,
+  - migrations through `0019_drop_legacy_document_type`,
   - users/cases/case_users/audit_events tables,
   - documents/pages/chunks/source references,
   - analysis runs and source-cited analysis modules,
@@ -204,8 +205,8 @@ Current implementation caveats:
 - Configured chat-model load profile is `context_length=12288`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; chat model loading uses `POST /api/v1/system/llm/load-chat-model`.
 - Configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`; embedding model loading uses `POST /api/v1/system/llm/load-embedding-model` with `context_length=12288`, and embedding calls auto-ensure the configured model is loaded before `/v1/embeddings`. LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load.
 - LM Studio native chat calls auto-ensure the configured chat model is loaded; they reuse a matching loaded instance id or load the model with the configured profile when missing.
-- Latest test run: `186 passed`.
-- Latest Alembic state: `0017_text_review_status (head)`.
+- Latest test run: `200 passed`.
+- Latest Alembic state: `0019_drop_legacy_document_type (head)`.
 - Native-text PDF import uses configurable `BOBERDETECTIVE_PDF_PARSER`; the default `docling_then_pypdf` profile prefers Docling and falls back to local `pypdf`.
 - Current chunking strategy is page-local `char_window_v2`: it preserves processed page boundaries for source-location fidelity and prefers paragraph breaks before sentence-end breaks, line breaks, spaces, and hard character limits.
 - Docling is installed in `.venv`; explicit `BOBERDETECTIVE_PDF_PARSER=docling` import smoke passed with parser `docling` and `parse_document` validation `passed`.
@@ -259,7 +260,7 @@ Strategic next direction:
 - Retrieval/indexing foundation has started: chunk indexing uses local LM Studio/OpenAI-compatible embeddings plus model-specific Qdrant collections, skips only chunks indexed with the currently configured embedding model, and raw-chunk analysis modules can request `keyword`, `semantic`, or `hybrid` retrieval.
 - Embedding index creation uses `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` defaulting to `8`; keep it conservative on the current 32 GB workstation to avoid LM Studio timeout/RAM spikes.
 - Background chunk indexing is exposed through `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; it creates an `embed_chunks` analysis run and returns immediately while FastAPI `BackgroundTasks` performs the embedding/Qdrant work.
-- Chunk index readiness is exposed through `GET /api/v1/cases/{case_id}/indexes/chunks/status`; frontend semantic/hybrid runs are blocked until the active source scope is fully indexed with the configured embedding model, and the same status response exposes latest-run input/output progress.
+- Chunk index readiness is exposed through `GET /api/v1/cases/{case_id}/indexes/chunks/status`; frontend semantic/hybrid runs are blocked until the active source scope is fully indexed with the configured embedding model, and the same status response exposes latest-run input/output progress. The status endpoint and background index job support the same structured source-subset fields as case-scope analysis: `document_ids`, `document_group_code`, and `document_type_code`.
 - Latest Qwen3 embedding smoke loaded `text-embedding-qwen3-embedding-8b`, reindexed 49 chunks from the Morgue PDF into `boberdetective_chunks_text_embedding_qwen3_embedding_8b`, returned semantic hybrid-search hits, and a focused `extract_claims` run recorded hybrid/semantic retrieval provenance. The current configured embedding default has since been reduced to `text-embedding-qwen3-embedding-4b@q6_k`; reindex before comparing new retrieval results.
 - Latest empty-state model-load smoke accepted the current reduced profile: `text-embedding-qwen3-embedding-4b` loaded in 3.461s and `qwen/qwen3.5-9b` loaded in 16.942s with `eval_batch_size=6144`.
 - Latest 4B embedding reindex smoke succeeded with `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE=8`: 49 Morgue PDF chunks were indexed into `boberdetective_chunks_text_embedding_qwen3_embedding_4b` in about 120s.
@@ -272,7 +273,13 @@ Strategic next direction:
 - Raw-chunk analysis source selection supports `page_start` / `page_end` filters only inside selected-document source scope. Page filtering uses overlap logic and applies to keyword, semantic, and hybrid retrieval; it is not a separate source mode.
 - Whole-case raw-chunk analysis has no page-range fields or backend page-range requirement. Selected-document analysis defaults to document page bounds in the frontend; if API callers omit page fields for document scope, the backend uses the full document and rejects only out-of-document ranges.
 - Latest user-side retrieval/analysis smoke after selected-document page-range filtering produced especially precise results, so keep this workflow central for large documents when the user knows the approximate page interval.
+- Document taxonomy/source-filtering planning is captured in `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`: introduce stable document group/type codes, migrate existing/free-form types to `uncategorized`, validate imports through a central taxonomy registry/API, then use group/type/document filters to narrow analysis source scope for large cases.
+- First taxonomy backend slice is implemented: central registry in `app/core/document_taxonomy.py`, `GET /api/v1/document-taxonomy`, document table fields `document_group_code` and `document_type_code`, import-time taxonomy validation, default `uncategorized / uncategorized`, migration `0018_document_taxonomy`, and legacy free-text `documents.document_type` removal through `0019_drop_legacy_document_type`.
+- Frontend import/list support for fixed document taxonomy is implemented: the import panel loads `GET /api/v1/document-taxonomy`, shows dependent Hungarian group/type dropdowns, posts `document_group_code` and `document_type_code`, and the document list/detail views show structured taxonomy labels. Document detail also has `Besorolas modositasa`, backed by audit-tracked `PATCH /api/v1/cases/{case_id}/documents/{document_id}/taxonomy`; it changes only document metadata, not pages/chunks/sources/analysis/review objects.
+- Backend analysis source filtering now accepts structured case-scope filters: `document_group_code`, `document_type_code`, and `document_ids`. The filter resolves to a concrete document set and is applied consistently to keyword, semantic, hybrid raw-chunk retrieval, semantic/hybrid index readiness checks, and background chunk indexing; selected-document scope remains the only mode with page ranges.
+- Frontend analysis source filtering now exposes those case-scope structured filters: optional document group, optional dependent document type, and concrete document checkbox selection. Selected-document scope remains the only mode with page ranges.
 - Next target should be document parking/deletion/archive behavior for accidentally imported, badly processed, or intentionally excluded documents, especially before chunk creation. Keep source provenance and `no source -> no claim` central.
+- Another near-term target is a dedicated `Audit naplo` API/panel backed by `audit_events`. Do not confuse it with the current frontend `Elemzesi elozmenyek` panel, which lists `analysis_runs`; import/OCR/chunking show there because they create provenance runs, while pure audit events such as `document_reclassified` should surface in the future audit log.
 - Frontend work in this phase should only support the backend workflow: source scope, required focus for raw-chunk modules, batch limits, Hungarian labels, and clear status/error feedback.
 - Rationale: raw-chunk modules can now process document/case scopes, while contradiction detection should operate downstream from source-cited claims and keep `no source -> no claim` intact.
 

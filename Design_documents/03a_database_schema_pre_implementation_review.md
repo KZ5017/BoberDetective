@@ -108,6 +108,8 @@ Az első migrációban ne csak AI-futásokra használjuk, hanem dokumentumfeldol
 
 ## 3.4 Újrafeldolgozásnál legyen explicit verziózás
 
+> **Aktualis megjegyzes, 2026-05-17:** a page/chunk verziozas es current-reteg irany megvalosult, es PDF import/OCR utan explicit `text_review_required` workflow kapcsolodik hozza. Az aktualis feldolgozasi reszletek: `Design_documents/06_document_processing_pipeline_v1.md`; a statusz/DB allapot: `CURRENT_STATE.md`.
+
 ### Probléma
 
 A jelenlegi séma jelzi, hogy újrafeldolgozáskor inkább új rekordok keletkezzenek, de a page/chunk aktuális verziójának kiválasztása még nincs teljesen tisztázva.

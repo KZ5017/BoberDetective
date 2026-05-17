@@ -24,6 +24,8 @@ Alapelv:
 
 ## 2. Pipeline szerepe az architektúrában
 
+> **Aktualis megjegyzes, 2026-05-17:** a megvalositott PDF pipeline tudatosan ketlepcsos lett. Native parse vagy OCR utan current page text reteg keletkezik `text_review_required` allapotban, es csak felhasznaloi jovahagyas utan keszulnek current chunkok. Ez csokkenti az OCR/native duplikacio es a rossz text layerbol indulo elemzes kockazatat. A friss operationalis allapotot `CURRENT_STATE.md`, az API iranyt pedig `Design_documents/05_api_design_v1.md` jelzi.
+
 Magas szintű folyamat:
 
 ```text
@@ -214,6 +216,8 @@ Frissülhet:
 
 ## 6.3 Parsing
 
+> **Aktualis megjegyzes, 2026-05-17:** a jelenlegi default PDF parser profil `docling_then_pypdf`: Docling az elsodleges, lokalis `pypdf` fallbackkel. Explicit `BOBERDETECTIVE_PDF_PARSER=docling` smoke sikeres volt. A parser kimenete tovabbra sem forrasigazsag onmagaban; page/chunk/source validacio es emberi review szukseges.
+
 ### Cél
 
 Natív szöveget tartalmazó dokumentumokból oldalszintű szöveg kinyerése.
@@ -254,6 +258,8 @@ Oldalanként jelölni kell:
 - OCR-re javasolt oldal.
 
 ## 6.4 OCR
+
+> **Aktualis megjegyzes, 2026-05-17:** az OCR explicit felhasznaloi muvelet PDF dokumentumokra, backend OCR-ajanlas metadata alapjan (`hidden`, `recommended`, `optional`). OCR utan current page reteg frissul, de chunkolas kulon lepes marad. Optional OCR szoveges PDF-en zajt/duplikaciot okozhat, ezert UI-ban OCR ellenorzeskent kell kezelni.
 
 ### Cél
 
@@ -321,6 +327,8 @@ Alacsony minőségű oldal esetén a dokumentum maradhat feldolgozott, de `revie
 
 ## 6.6 Chunking
 
+> **Aktualis megjegyzes, 2026-05-17:** a jelenlegi chunking strategia page-local `char_window_v2`: nem lep at feldolgozott oldalhataron, es paragraph breaket preferal sentence-end, line break, space, majd hard karakterlimit elott. A dokumentumszintu, oldalakon ativelo chunkolas tudatosan nincs bevezetve, mert a forrashely-huseg fontosabb.
+
 ### Cél
 
 Oldalszintű szövegből kereshető, embeddingelhető, forráshivatkozható egységek létrehozása.
@@ -362,6 +370,8 @@ A chunknak mindig visszavezethetőnek kell lennie:
 - chunker verzióra.
 
 ## 6.7 Embedding
+
+> **Aktualis megjegyzes, 2026-05-17:** a chunk indexing mar hatterjobkent is elerheto, LM Studio/OpenAI-compatible embeddinggel es Qdrant model-specifikus collectionokkel. A jelenlegi default embedding modell `text-embedding-qwen3-embedding-4b@q6_k`; index batching default `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE=8`. A friss operationalis reszleteket `CURRENT_STATE.md` es `AI_NOTES.md` tartalmazza.
 
 ### Cél
 

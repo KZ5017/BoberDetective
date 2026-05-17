@@ -197,6 +197,8 @@ A jogosultságváltozások audit eseményt írnak.
 
 ## 6.3 Documents
 
+> **Aktualis megjegyzes, 2026-05-17:** a dokumentum API eredeti tervehez kepest a PDF feldolgozas explicit text-review/chunkolas workflow-ra valtott. Import/OCR utan current oldalak jonnek letre, de chunkok csak kulon `POST /api/v1/cases/{case_id}/documents/{document_id}/chunks` hivassal keszulnek. Az import oldalon a szabad szoveges `document_type` kivezetesre kerult; helyette strukturalt `document_group_code` / `document_type_code` mezok vannak. Reszletek: `Design_documents/06_document_processing_pipeline_v1.md` es `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`.
+
 ### Endpoints
 
 ```text
@@ -215,7 +217,8 @@ POST   /api/v1/cases/{case_id}/documents/{document_id}/process
 
 ```text
 file
-document_type
+document_group_code
+document_type_code
 language_code
 notes
 ```
@@ -260,13 +263,17 @@ POST /api/v1/cases/{case_id}/search/hybrid
 
 ### Hybrid search request
 
+> **Aktualis megjegyzes, 2026-05-17:** a `document_type` filter kivezetesre kerult. A jelenlegi irany a strukturalt dokumentumcsoport/tipus/dokumentumlista alapu szures. Oldaltartomany csak pontosan egy kivalasztott dokumentumnal ertelmezheto. Reszletek: `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`.
+
 ```json
 {
   "query": "2024. március 12 telefonhívás",
   "filters": {
     "document_ids": [],
-    "document_type": null,
-    "page_range": null
+    "document_group_code": null,
+    "document_type_code": null,
+    "page_start": null,
+    "page_end": null
   },
   "limit": 20,
   "include_quotes": true
@@ -367,6 +374,8 @@ POST /api/v1/cases/{case_id}/analysis/answer-with-citations
 ```
 
 ### Common analysis request
+
+> **Aktualis megjegyzes, 2026-05-17:** ez az eredeti altalanos contract. A raw-chunk modulok jelenlegi request modellje mar `source_mode = case | document`, kotelezo fokuszszoveg, `max_chunks` es `batch_size` mezokkel dolgozik; a regi `limit` es `focused_query` forraskor megszunt. Az ellentmondas modul kulon `contradiction_candidate_limit` mezot hasznal es claim-parokon dolgozik, nem nyers chunkokon. Reszletek: `Design_documents/10_analysis_batch_processing_plan.md`.
 
 ```json
 {

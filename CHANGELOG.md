@@ -4,6 +4,16 @@
 
 ### Added
 
+- Added `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`, which defines the planned document group/type taxonomy, `uncategorized` migration strategy, import validation direction, and later analysis source-filtering path for large multi-document cases.
+- Added explicit cross-reference notes to the older design documents where the current implementation intentionally differs from the original plan, pointing to the newer pipeline, batch-processing, runtime, and taxonomy documents instead of rewriting the historical design text.
+- Added the first structured document taxonomy backend slice: central taxonomy registry, `GET /api/v1/document-taxonomy`, `document_group_code` / `document_type_code` document fields, import-time taxonomy validation, default `uncategorized / uncategorized`, and Alembic migration `0018_document_taxonomy`.
+- Added frontend taxonomy support for document import and document lists: dependent Hungarian document group/type dropdowns are loaded from `GET /api/v1/document-taxonomy`, imports submit structured taxonomy codes, and document cards/details show the structured labels.
+- Added backend analysis source filtering by structured document taxonomy and explicit document list: `document_group_code`, `document_type_code`, and `document_ids` are now accepted for case-scope raw-chunk modules and applied consistently to keyword, semantic, and hybrid retrieval.
+- Added frontend analysis source-filter controls for whole-case raw-chunk modules: optional document group filter, dependent document type filter, and concrete document checkbox selection. The filters are sent as `document_group_code`, `document_type_code`, and `document_ids`.
+- Extended semantic index status and background chunk indexing to the same structured source subset: `document_ids`, `document_group_code`, and `document_type_code` now affect index readiness checks and index jobs, and semantic/hybrid execution checks the resolved document subset instead of the whole case.
+- Removed the legacy free-text `documents.document_type` path from backend models, import/search schemas, frontend document types/list display, and the database through Alembic migration `0019_drop_legacy_document_type`; structured taxonomy codes are now the only document classification path.
+- Added audit-tracked document reclassification through `PATCH /api/v1/cases/{case_id}/documents/{document_id}/taxonomy` plus a frontend `Besorolas modositasa` block in the document detail panel.
+- Updated the verification baseline to `200 passed` and Alembic head `0019_drop_legacy_document_type`.
 - Added local chunk indexing foundation: `POST /api/v1/cases/{case_id}/indexes/chunks` embeds current chunks with the configured local embedding model, upserts vectors into Qdrant, stores chunk embedding metadata, and records `embed_chunks` analysis run provenance.
 - Added hybrid chunk search foundation: `POST /api/v1/cases/{case_id}/search/hybrid` supports `keyword`, `semantic`, and `hybrid` strategies over source chunks.
 - Added `retrieval_strategy` to batch-capable focused-query analysis requests, with analysis run chunk inputs recording `retrieval_match_type`.

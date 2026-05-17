@@ -56,6 +56,8 @@ The system must not:
 
 ## MVP-1 scope
 
+> **Aktualis megjegyzes, 2026-05-17:** az alabbi lista eredeti celallapot. A tenyleges implementacio nehany ponton tudatosan finomodott: a PDF text layer mar explicit emberi ellenorzesi/chunkolas lepesen megy at, az elemzesi moduloknal a `focused_query` forraskor megszunt, a nagyobb ugyekhez pedig strukturalt irattaxonomia/forrasszures keszul. Reszletek: `Design_documents/06_document_processing_pipeline_v1.md`, `Design_documents/10_analysis_batch_processing_plan.md`, `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`.
+
 The first MVP should focus on the investigative document processing core:
 
 1. Case creation.

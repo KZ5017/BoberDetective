@@ -104,7 +104,7 @@ Completed:
 - Model-specific Qdrant chunk collections, so switching embedding models does not mix vector dimensions
 - Batched embedding index creation through `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` to avoid oversized LM Studio embedding requests
 - Background chunk indexing with frontend progress polling, so larger LM Studio/Qdrant indexing work does not depend on one long HTTP request
-- Chunk index readiness and latest-run progress status for the configured embedding model, surfaced in the frontend before semantic/hybrid analysis runs
+- Chunk index readiness and latest-run progress status for the configured embedding model, surfaced in the frontend before semantic/hybrid analysis runs and scoped to the current selected document or structured case-scope document subset
 - Keyword/semantic/hybrid retrieval for batch-capable raw-chunk analysis modules across selected-document and whole-case source scopes
 - Minimal React/Vite workbench frontend scaffold
 - Frontend review actions for review report items
@@ -114,6 +114,7 @@ Completed:
 - Frontend document page/chunk and analysis run input/output drill-down with human-readable selected-source and output summaries
 - Frontend TXT/PDF import selection and OCR action for review-required/no-page PDF documents
 - Frontend source scope controls for batch-capable raw-chunk analysis modules
+- Frontend structured document taxonomy controls for import/list display and whole-case analysis source filtering by document group, document type, and selected document list
 - Frontend optional-focus and claim-review-scope claim-pair display for contradiction analysis, contradiction analysis run details, and conservative contradiction review notes
 - Frontend analysis focus input starts empty; examples are placeholders only and are not processed unless the user types text
 - Frontend review status/source validation filters and object detail panel
@@ -130,7 +131,8 @@ PDF/OCR sample checks:
 Next:
 
 - Decide and implement document parking/deletion/archive behavior for accidentally imported, badly processed, or intentionally excluded documents
-- Continue retrieval/indexing hardening with clearer frontend visibility into selected source chunks and their retrieval scores/match types
+- Design an `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
+- Consider durable job supervision if indexing grows beyond FastAPI background tasks
 
 Frontend dev URL:
 
@@ -157,6 +159,7 @@ See:
 - `Design_documents/08_mvp_backlog_and_implementation_sequence.md`
 - `Design_documents/09_environment_verification_and_security_baseline.md`
 - `Design_documents/10_analysis_batch_processing_plan.md`
+- `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`
 
 ## Handoff notes
 

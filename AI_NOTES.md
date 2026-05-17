@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 186 passed`, `alembic: 0017_text_review_status (head)`.
+- Current verification baseline: `pytest: 200 passed`, `alembic: 0019_drop_legacy_document_type (head)`.
 
 Initial implementation exists:
 
@@ -76,7 +76,7 @@ Initial implementation exists:
 - local chunk indexing foundation through LM Studio/OpenAI-compatible embeddings and model-specific Qdrant collections, with `embed_chunks` analysis run provenance and chunk-level embedding metadata; model switches make chunks eligible for reindexing instead of incorrectly treating an old-model vector id as current,
 - background chunk indexing through `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; the endpoint creates an `embed_chunks` analysis run and returns immediately, while FastAPI `BackgroundTasks` performs the LM Studio/Qdrant work,
 - embedding index creation uses `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` defaulting to `8`, so large documents are embedded and upserted in smaller LM Studio/Qdrant batches instead of one memory-heavy request,
-- chunk index status is available through `GET /api/v1/cases/{case_id}/indexes/chunks/status`; the frontend uses it to show semantic index readiness, latest run progress, and block semantic/hybrid focused analysis until the active source scope is indexed with the configured embedding model,
+- chunk index status is available through `GET /api/v1/cases/{case_id}/indexes/chunks/status`; it supports whole-case, selected-document, and structured case-scope subsets (`document_ids`, `document_group_code`, `document_type_code`), and the frontend uses it to show semantic index readiness, latest run progress, and block semantic/hybrid focused analysis until the active source scope is indexed with the configured embedding model,
 - hybrid retrieval foundation through keyword, semantic, and hybrid strategies; batch-capable raw-chunk analysis modules can receive `retrieval_strategy`, and analysis run chunk inputs record `retrieval_match_type`,
 - configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`; embedding calls auto-ensure this model is loaded through LM Studio before `/v1/embeddings`; the previous 8B smoke loaded with `context_length=12288`, reindexed 49 Morgue PDF chunks into `boberdetective_chunks_text_embedding_qwen3_embedding_8b`, returned semantic hybrid-search hits, and a focused `extract_claims` smoke recorded `retrieval_strategy=hybrid` plus `retrieval_match_type=semantic` in analysis run provenance,
 - live `summarize_case` smoke passed with the original broad query after retrieval fallback,
@@ -134,6 +134,7 @@ Completed design documents:
 - `Design_documents/08_mvp_backlog_and_implementation_sequence.md`
 - `Design_documents/09_environment_verification_and_security_baseline.md`
 - `Design_documents/10_analysis_batch_processing_plan.md`
+- `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`
 
 ## Project Summary
 
@@ -262,8 +263,8 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Decide and implement document parking/deletion/archive behavior for accidentally imported, badly processed, or intentionally excluded documents.
-3. Add frontend source-selection visibility for analysis runs: document, chunk index, match type, score, and selected-source preview.
+2. Plan and implement document delete / exclude / archive behavior for accidentally imported, badly processed, or intentionally parked documents.
+3. Design and implement an `Audit naplo` API/panel backed by `audit_events`; it should include events such as `document_reclassified` with its optional comment.
 4. Consider durable job supervision if indexing grows beyond FastAPI background tasks.
 
 Strategic rationale:
@@ -271,6 +272,11 @@ Strategic rationale:
 - The frontend is currently usable enough for the MVP workflow and now has Hungarian visible labels.
 - The document ingestion foundation now handles native PDF parsing, explicit OCR, review-required states, confidence metadata, and medium scanned PDF uploads well enough to move forward.
 - The raw-chunk analysis modules are now batch-capable and live-smoke passed on document/case source modes.
+- Large-case usability now uses structured document metadata for import/list display and analysis source filtering. The old free-text `documents.document_type` column/API field has been removed through `0019_drop_legacy_document_type`; do not reintroduce uncontrolled free-text document classification.
+- Document reclassification is available as an audit-tracked metadata-only operation: `PATCH /api/v1/cases/{case_id}/documents/{document_id}/taxonomy` validates the taxonomy pair, records `document_reclassified`, and intentionally leaves pages, chunks, source references, analysis runs, and review objects untouched.
+- The current `Elemzesi elozmenyek` panel lists `analysis_runs` only. Import/OCR/chunking appear there because they create provenance runs; pure audit events such as `document_reclassified` belong in a future separate `Audit naplo` panel backed by `audit_events`.
+- The structured metadata foundation is visible in the frontend import/list workflow, and the analysis panel now exposes whole-case source filters for document group, dependent document type, and concrete document checkbox selection.
+- Backend analysis source selection uses the structured metadata for case-scope filtering and applies the resolved document set consistently to keyword, semantic, hybrid retrieval, semantic/hybrid readiness checks, and background chunk indexing.
 - Contradiction detection is downstream of source-cited claims, so it should remain claim-pair based and preserve `no source -> no claim` through claim/source-reference provenance.
 
 Environment verification notes:
@@ -292,7 +298,7 @@ Implementation status:
 - Initial FastAPI scaffold exists under `app/`.
 - Health endpoint works.
 - SQLAlchemy/psycopg DB layer exists.
-- Alembic migrations through `0017_text_review_status` are applied.
+- Alembic migrations through `0018_document_taxonomy` are applied.
 - `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, `export_items`, `summary_items`, `summary_item_sources`, `contradiction_candidates`, `contradiction_candidate_sources`, `missing_item_candidates`, and `missing_item_candidate_sources` tables exist.
 - Case create/list API works.
 - Case creation writes DB audit event and JSONL audit event.
@@ -469,7 +475,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `186 passed`.
+- Latest test run: `200 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

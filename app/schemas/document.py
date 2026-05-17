@@ -2,7 +2,13 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.core.document_taxonomy import (
+    default_document_taxonomy_codes,
+    document_taxonomy_labels,
+    validate_document_taxonomy,
+)
 
 from app.schemas.analysis import AnalysisRunRead
 
@@ -23,7 +29,10 @@ class DocumentRead(BaseModel):
     file_extension: str | None
     file_size_bytes: int
     sha256_hash: str
-    document_type: str | None
+    document_group_code: str
+    document_group_label: str | None = None
+    document_type_code: str
+    document_type_label: str | None = None
     language_code: str | None
     imported_by_user_id: UUID
     imported_at: datetime
@@ -40,9 +49,37 @@ class DocumentList(BaseModel):
 
 
 class DocumentImportMetadata(BaseModel):
-    document_type: str | None = Field(default=None, max_length=200)
+    document_group_code: str | None = Field(default=None, max_length=100)
+    document_type_code: str | None = Field(default=None, max_length=100)
     language_code: str | None = Field(default="hu", max_length=16)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def validate_taxonomy(self) -> "DocumentImportMetadata":
+        default_group, default_type = default_document_taxonomy_codes()
+        group_code = self.document_group_code or default_group
+        type_code = self.document_type_code or default_type
+        validate_document_taxonomy(group_code, type_code)
+        self.document_group_code = group_code
+        self.document_type_code = type_code
+        return self
+
+
+class DocumentTaxonomyUpdateRequest(BaseModel):
+    document_group_code: str = Field(max_length=100)
+    document_type_code: str = Field(max_length=100)
+    comment: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_taxonomy(self) -> "DocumentTaxonomyUpdateRequest":
+        validate_document_taxonomy(self.document_group_code, self.document_type_code)
+        return self
+
+
+def document_read_with_labels(document: object) -> DocumentRead:
+    read = DocumentRead.model_validate(document)
+    group_label, type_label = document_taxonomy_labels(read.document_group_code, read.document_type_code)
+    return read.model_copy(update={"document_group_label": group_label, "document_type_label": type_label})
 
 
 class DocumentProcessRequest(BaseModel):

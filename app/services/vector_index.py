@@ -43,6 +43,9 @@ class ChunkIndexJobResult:
 class ChunkIndexStatus:
     case_id: UUID
     document_id: UUID | None
+    document_ids: list[UUID]
+    document_group_code: str | None
+    document_type_code: str | None
     collection_name: str
     embedding_model: str
     current_chunk_count: int
@@ -166,6 +169,7 @@ class QdrantChunkIndex:
         query_embedding: list[float],
         limit: int,
         document_id: UUID | None = None,
+        document_ids: list[UUID] | None = None,
         page_start: int | None = None,
         page_end: int | None = None,
     ) -> list[SemanticChunkHit]:
@@ -175,6 +179,8 @@ class QdrantChunkIndex:
         ]
         if document_id is not None:
             filter_must.append({"key": "document_id", "match": {"value": str(document_id)}})
+        if document_ids:
+            filter_must.append({"key": "document_id", "match": {"any": [str(item) for item in document_ids]}})
         if page_start is not None:
             filter_must.append({"key": "page_end", "range": {"gte": page_start}})
         if page_end is not None:
@@ -258,6 +264,9 @@ def _start_chunk_index_run(
         model_name=settings.llm_embedding_model,
         input_parameters={
             "document_id": str(request.document_id) if request.document_id is not None else None,
+            "document_ids": [str(document_id) for document_id in request.document_ids],
+            "document_group_code": request.document_group_code,
+            "document_type_code": request.document_type_code,
             "limit": request.limit,
             "force_reindex": request.force_reindex,
             "collection_name": chunk_collection_name(settings),
@@ -279,7 +288,7 @@ def _process_chunk_index_run(
 ) -> ChunkIndexResult:
     try:
         chunks = _chunks_to_index(db, case_id, request)
-        skipped_count = max(0, _current_chunk_count(db, case_id, request.document_id) - len(chunks))
+        skipped_count = max(0, _current_chunk_count(db, case_id, request) - len(chunks))
         if not chunks:
             finish_analysis_run(
                 db,
@@ -346,15 +355,17 @@ def semantic_chunk_search(
     document_id: UUID | None = None,
     page_start: int | None = None,
     page_end: int | None = None,
+    document_ids: list[UUID] | None = None,
 ) -> list[KeywordSearchHit]:
     settings = get_settings()
-    ensure_semantic_index_ready(db, case_id, document_id)
+    ensure_semantic_index_ready(db, case_id, document_id=document_id, document_ids=document_ids)
     embedding_result = get_llm_provider(settings).embeddings(settings.llm_embedding_model, [query])
     semantic_hits = QdrantChunkIndex(settings).search(
         case_id=case_id,
         query_embedding=embedding_result.embeddings[0],
         limit=limit,
         document_id=document_id,
+        document_ids=document_ids,
         page_start=page_start,
         page_end=page_end,
     )
@@ -392,8 +403,18 @@ def hybrid_chunk_search(
     document_id: UUID | None = None,
     page_start: int | None = None,
     page_end: int | None = None,
+    document_ids: list[UUID] | None = None,
 ) -> list[KeywordSearchHit]:
-    semantic_hits = semantic_chunk_search(db, case_id, query, limit, document_id, page_start, page_end)
+    semantic_hits = semantic_chunk_search(
+        db,
+        case_id,
+        query,
+        limit,
+        document_id=document_id,
+        page_start=page_start,
+        page_end=page_end,
+        document_ids=document_ids,
+    )
     max_keyword_score = max((hit.score for hit in keyword_hits if hit.chunk_id is not None), default=0.0)
     candidates: dict[UUID, HybridRankCandidate] = {}
     for rank, hit in enumerate(keyword_hits, start=1):
@@ -436,10 +457,19 @@ def hybrid_chunk_search(
     )[:limit]
 
 
-def get_chunk_index_status(db: Session, case_id: UUID, document_id: UUID | None = None) -> ChunkIndexStatus:
+def get_chunk_index_status(
+    db: Session,
+    case_id: UUID,
+    request_or_document_id: ChunkIndexRequest | UUID | None = None,
+) -> ChunkIndexStatus:
+    request = (
+        request_or_document_id
+        if isinstance(request_or_document_id, ChunkIndexRequest)
+        else ChunkIndexRequest(document_id=request_or_document_id)
+    )
     settings = get_settings()
-    current_chunk_count = _current_chunk_count(db, case_id, document_id)
-    indexed_chunk_count = _indexed_chunk_count(db, case_id, document_id, settings.llm_embedding_model)
+    current_chunk_count = _current_chunk_count(db, case_id, request)
+    indexed_chunk_count = _indexed_chunk_count(db, case_id, request, settings.llm_embedding_model)
     missing_chunk_count = max(0, current_chunk_count - indexed_chunk_count)
     latest_run = _latest_chunk_index_run(db, case_id)
     latest_run_input_count = _run_chunk_input_count(db, latest_run.id) if latest_run is not None else 0
@@ -449,7 +479,10 @@ def get_chunk_index_status(db: Session, case_id: UUID, document_id: UUID | None 
     )
     return ChunkIndexStatus(
         case_id=case_id,
-        document_id=document_id,
+        document_id=request.document_id,
+        document_ids=request.document_ids,
+        document_group_code=request.document_group_code,
+        document_type_code=request.document_type_code,
         collection_name=chunk_collection_name(settings),
         embedding_model=settings.llm_embedding_model,
         current_chunk_count=current_chunk_count,
@@ -468,8 +501,14 @@ def get_chunk_index_status(db: Session, case_id: UUID, document_id: UUID | None 
     )
 
 
-def ensure_semantic_index_ready(db: Session, case_id: UUID, document_id: UUID | None = None) -> None:
-    index_status = get_chunk_index_status(db, case_id, document_id)
+def ensure_semantic_index_ready(
+    db: Session,
+    case_id: UUID,
+    *,
+    document_id: UUID | None = None,
+    document_ids: list[UUID] | None = None,
+) -> None:
+    index_status = get_chunk_index_status(db, case_id, ChunkIndexRequest(document_id=document_id, document_ids=document_ids or []))
     if index_status.current_chunk_count == 0:
         raise VectorIndexError("Nincs indexelheto aktualis szovegresz ebben a forraskorben.")
     if not index_status.is_ready:
@@ -526,14 +565,17 @@ def embed_chunks_in_batches(settings: Settings, chunks: list[DocumentChunkModel]
 
 
 def _chunks_to_index(db: Session, case_id: UUID, request: ChunkIndexRequest) -> list[DocumentChunkModel]:
+    scope_document_ids = _scope_document_ids(db, case_id, request)
     stmt = (
         select(DocumentChunkModel)
         .where(DocumentChunkModel.case_id == case_id, DocumentChunkModel.is_current.is_(True))
         .order_by(DocumentChunkModel.document_id.asc(), DocumentChunkModel.chunk_index.asc())
         .limit(request.limit)
     )
-    if request.document_id is not None:
-        stmt = stmt.where(DocumentChunkModel.document_id == request.document_id)
+    if scope_document_ids is not None:
+        if not scope_document_ids:
+            return []
+        stmt = stmt.where(DocumentChunkModel.document_id.in_(scope_document_ids))
     if not request.force_reindex:
         stmt = stmt.where(
             or_(
@@ -545,14 +587,20 @@ def _chunks_to_index(db: Session, case_id: UUID, request: ChunkIndexRequest) -> 
     return list(db.execute(stmt).scalars())
 
 
-def _current_chunk_count(db: Session, case_id: UUID, document_id: UUID | None) -> int:
+def _current_chunk_count(db: Session, case_id: UUID, request: ChunkIndexRequest) -> int:
+    scope_document_ids = _scope_document_ids(db, case_id, request)
+    if scope_document_ids == []:
+        return 0
     stmt = select(func.count()).select_from(DocumentChunkModel).where(DocumentChunkModel.case_id == case_id, DocumentChunkModel.is_current.is_(True))
-    if document_id is not None:
-        stmt = stmt.where(DocumentChunkModel.document_id == document_id)
+    if scope_document_ids is not None:
+        stmt = stmt.where(DocumentChunkModel.document_id.in_(scope_document_ids))
     return int(db.execute(stmt).scalar_one())
 
 
-def _indexed_chunk_count(db: Session, case_id: UUID, document_id: UUID | None, embedding_model: str) -> int:
+def _indexed_chunk_count(db: Session, case_id: UUID, request: ChunkIndexRequest, embedding_model: str) -> int:
+    scope_document_ids = _scope_document_ids(db, case_id, request)
+    if scope_document_ids == []:
+        return 0
     stmt = (
         select(func.count())
         .select_from(DocumentChunkModel)
@@ -563,9 +611,25 @@ def _indexed_chunk_count(db: Session, case_id: UUID, document_id: UUID | None, e
             DocumentChunkModel.embedding_vector_id.is_not(None),
         )
     )
-    if document_id is not None:
-        stmt = stmt.where(DocumentChunkModel.document_id == document_id)
+    if scope_document_ids is not None:
+        stmt = stmt.where(DocumentChunkModel.document_id.in_(scope_document_ids))
     return int(db.execute(stmt).scalar_one())
+
+
+def _scope_document_ids(db: Session, case_id: UUID, request: ChunkIndexRequest) -> list[UUID] | None:
+    if request.document_id is not None:
+        return [request.document_id]
+    if not request.document_ids and request.document_group_code is None and request.document_type_code is None:
+        return None
+    stmt = select(DocumentModel.id).where(DocumentModel.case_id == case_id)
+    requested_ids = list(dict.fromkeys(request.document_ids))
+    if requested_ids:
+        stmt = stmt.where(DocumentModel.id.in_(requested_ids))
+    if request.document_group_code is not None:
+        stmt = stmt.where(DocumentModel.document_group_code == request.document_group_code)
+    if request.document_type_code is not None:
+        stmt = stmt.where(DocumentModel.document_type_code == request.document_type_code)
+    return list(db.execute(stmt).scalars().all())
 
 
 def _latest_chunk_index_run(db: Session, case_id: UUID) -> AnalysisRunModel | None:

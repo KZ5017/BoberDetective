@@ -107,6 +107,7 @@ def retrieve_source_scope_chunks(
     payload: AnalysisModuleRunRequest,
     *,
     document_id: UUID | None = None,
+    document_ids: list[UUID] | None = None,
     page_start: int | None = None,
     page_end: int | None = None,
 ) -> list[RetrievedChunk]:
@@ -119,8 +120,11 @@ def retrieve_source_scope_chunks(
         payload.max_chunks,
         payload.retrieval_strategy,
         document_id=document_id,
+        document_ids=document_ids,
         page_start=page_start,
         page_end=page_end,
+        document_group_code=payload.document_group_code,
+        document_type_code=payload.document_type_code,
     )
 
 
@@ -132,15 +136,30 @@ def _retrieve_chunks_by_query(
     retrieval_strategy: str,
     *,
     document_id: UUID | None = None,
+    document_ids: list[UUID] | None = None,
     page_start: int | None = None,
     page_end: int | None = None,
+    document_group_code: str | None = None,
+    document_type_code: str | None = None,
 ) -> list[RetrievedChunk]:
     retrieved_chunks: list[RetrievedChunk] = []
     seen_chunk_ids: set[UUID] = set()
+    effective_document_ids = _effective_document_ids(
+        db,
+        case_id,
+        document_id=document_id,
+        document_ids=document_ids,
+        document_group_code=document_group_code,
+        document_type_code=document_type_code,
+    )
+    if effective_document_ids == [] and (document_ids or document_group_code or document_type_code):
+        return []
 
     for query in analysis_retrieval_queries(query_text):
         filters = SearchFilters(
-            document_ids=[document_id] if document_id is not None else [],
+            document_ids=effective_document_ids,
+            document_group_code=document_group_code,
+            document_type_code=document_type_code,
             page_start=page_start,
             page_end=page_end,
         )
@@ -156,9 +175,28 @@ def _retrieve_chunks_by_query(
             )
         )
         if retrieval_strategy == "semantic":
-            hits = semantic_chunk_search(db, case_id, query, limit, document_id, page_start, page_end)
+            hits = semantic_chunk_search(
+                db,
+                case_id,
+                query,
+                limit,
+                document_id=document_id,
+                page_start=page_start,
+                page_end=page_end,
+                document_ids=effective_document_ids if document_id is None else None,
+            )
         elif retrieval_strategy == "hybrid":
-            hits = hybrid_chunk_search(db, case_id, query, keyword_hits, limit, document_id, page_start, page_end)
+            hits = hybrid_chunk_search(
+                db,
+                case_id,
+                query,
+                keyword_hits,
+                limit,
+                document_id=document_id,
+                page_start=page_start,
+                page_end=page_end,
+                document_ids=effective_document_ids if document_id is None else None,
+            )
         else:
             hits = keyword_hits
         for hit in hits:
@@ -203,7 +241,7 @@ def select_source_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunR
             raise AnalysisModuleError("No source chunks matched the focus text in the selected document")
         return retrieval_chunks
     if payload.source_mode == "case":
-        retrieval_chunks = retrieve_source_scope_chunks(db, case_id, payload)
+        retrieval_chunks = retrieve_source_scope_chunks(db, case_id, payload, document_ids=payload.document_ids)
         if not retrieval_chunks:
             raise AnalysisModuleError("No source chunks matched the focus text in this case")
         return retrieval_chunks
@@ -237,6 +275,30 @@ def _source_scope_max_page(db: Session, case_id: UUID, document_id: UUID | None 
     if value is None or int(value) < 1:
         return None
     return int(value)
+
+
+def _effective_document_ids(
+    db: Session,
+    case_id: UUID,
+    *,
+    document_id: UUID | None = None,
+    document_ids: list[UUID] | None = None,
+    document_group_code: str | None = None,
+    document_type_code: str | None = None,
+) -> list[UUID]:
+    if document_id is not None:
+        return [document_id]
+    requested_ids = list(dict.fromkeys(document_ids or []))
+    if not requested_ids and document_group_code is None and document_type_code is None:
+        return []
+    stmt = select(DocumentModel.id).where(DocumentModel.case_id == case_id)
+    if requested_ids:
+        stmt = stmt.where(DocumentModel.id.in_(requested_ids))
+    if document_group_code is not None:
+        stmt = stmt.where(DocumentModel.document_group_code == document_group_code)
+    if document_type_code is not None:
+        stmt = stmt.where(DocumentModel.document_type_code == document_type_code)
+    return list(db.execute(stmt).scalars().all())
 
 
 def split_retrieved_chunks(retrieved_chunks: list[RetrievedChunk], batch_size: int) -> list[list[RetrievedChunk]]:

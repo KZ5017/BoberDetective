@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -18,6 +19,8 @@ from app.schemas.document import (
     DocumentProcessRequest,
     DocumentProcessResponse,
     DocumentRead,
+    DocumentTaxonomyUpdateRequest,
+    document_read_with_labels,
 )
 from app.services.documents import (
     CaseNotFoundError,
@@ -37,6 +40,7 @@ from app.services.documents import (
     list_documents,
     ocr_document,
     process_document,
+    update_document_taxonomy,
 )
 
 router = APIRouter()
@@ -51,12 +55,21 @@ def get_documents(case_id: UUID, db: Session = Depends(get_db)) -> DocumentList:
 async def post_document(
     case_id: UUID,
     file: UploadFile = File(...),
-    document_type: str | None = Form(default=None, max_length=200),
+    document_group_code: str | None = Form(default=None, max_length=100),
+    document_type_code: str | None = Form(default=None, max_length=100),
     language_code: str | None = Form(default="hu", max_length=16),
     notes: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> DocumentRead:
-    metadata = DocumentImportMetadata(document_type=document_type, language_code=language_code, notes=notes)
+    try:
+        metadata = DocumentImportMetadata(
+            document_group_code=document_group_code,
+            document_type_code=document_type_code,
+            language_code=language_code,
+            notes=notes,
+        )
+    except (ValueError, ValidationError) as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     try:
         document = await import_document(db, case_id, file, metadata)
     except CaseNotFoundError as exc:
@@ -73,6 +86,20 @@ async def post_document(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except DocumentImportError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _document_read(db, document)
+
+
+@router.patch("/cases/{case_id}/documents/{document_id}/taxonomy", response_model=DocumentRead)
+def patch_document_taxonomy(
+    case_id: UUID,
+    document_id: UUID,
+    payload: DocumentTaxonomyUpdateRequest,
+    db: Session = Depends(get_db),
+) -> DocumentRead:
+    try:
+        document = update_document_taxonomy(db, case_id, document_id, payload)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return _document_read(db, document)
 
 
@@ -160,6 +187,6 @@ def get_document_chunks(case_id: UUID, document_id: UUID, db: Session = Depends(
 
 
 def _document_read(db: Session, document: DocumentModel) -> DocumentRead:
-    return DocumentRead.model_validate(document).model_copy(
+    return document_read_with_labels(document).model_copy(
         update={"ocr_recommendation": document_ocr_recommendation(db, document)}
     )

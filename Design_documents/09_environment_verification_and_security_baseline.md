@@ -3,6 +3,8 @@
 
 ## 1. Ellenőrzés dátuma
 
+> **Aktualis megjegyzes, 2026-05-17:** ez a dokumentum torteneti baseline is. A friss runtime es implementacios allapotot a `CURRENT_STATE.md` es `AI_NOTES.md` tartalmazza. Kulonosen valtozott: LM Studio modellprofilok, embedding modell, background indexing, frontend `setsid` inditasi caveat, migracio allapot es pytest darabszam.
+
 ```text
 2026-05-11
 ```

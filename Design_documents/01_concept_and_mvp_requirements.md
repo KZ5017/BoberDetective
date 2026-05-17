@@ -226,6 +226,8 @@ Minden importált fájlhoz rögzíteni kell:
 
 ### 7.2 OCR és szövegkinyerés
 
+> **Aktualis megjegyzes, 2026-05-17:** a kovetelmeny tovabbra is ervenyes, de a megvalositott workflow explicit text-review pontot vezetett be. Native PDF parse vagy OCR utan oldalszintu text layer jon letre, majd csak felhasznaloi jovahagyas utan keszulnek chunkok. Reszletek: `Design_documents/06_document_processing_pipeline_v1.md`.
+
 A rendszernek különbséget kell tennie:
 
 - natív szöveget tartalmazó dokumentum,
@@ -241,6 +243,8 @@ OCR után meg kell őrizni:
 - az OCR confidence értékeket, ha rendelkezésre állnak.
 
 ### 7.3 Darabolás / chunkolás
+
+> **Aktualis megjegyzes, 2026-05-17:** a jelenlegi chunkolas page-local `char_window_v2`, paragraph/sentence/line/space/hard-limit hatarpreferenciakkal. A chunkok nem nyulnak at oldalhataron a forrashely-huseg miatt. Reszletek: `Design_documents/06_document_processing_pipeline_v1.md`.
 
 A dokumentumokat olyan egységekre kell bontani, amelyek visszakereshetők és forráshivatkozhatók.
 
@@ -523,4 +527,3 @@ A rendszer első verziójának legfontosabb értéke:
 - emberi ellenőrzés támogatása.
 
 A projekt hosszú távú célja egy olyan döntéstámogató rendszer kialakítása, amely a nyomozati és igazságszolgáltatási munkát hatékonyabbá, átláthatóbbá és ellenőrizhetőbbé teszi anélkül, hogy emberi döntéseket helyettesítene.
-

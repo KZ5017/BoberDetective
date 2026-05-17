@@ -27,6 +27,7 @@ import {
   DocumentChunkRead,
   DocumentPageRead,
   DocumentRead,
+  DocumentTaxonomyGroupRead,
   EntityRead,
   EventRead,
   ExportDetail,
@@ -59,6 +60,7 @@ import {
   listDetachedSourceItems,
   listDocumentChunks,
   listDocumentPages,
+  listDocumentTaxonomy,
   listAnalysisRuns,
   listCases,
   listDocuments,
@@ -75,7 +77,8 @@ import {
   reviewObject,
   runAnalysis,
   runDocumentOcr,
-  startChunkIndexJob
+  startChunkIndexJob,
+  updateDocumentTaxonomy
 } from "./api";
 
 const modules = [
@@ -108,6 +111,7 @@ const busyLabels: Record<string, string> = {
   "case-create": "Ugy letrehozasa",
   "case-data": "Ugyadatok betoltese",
   "document-detail": "Iratreszletek betoltese",
+  "document-taxonomy": "Iratbesorolas mentese",
   "document-chunks": "Szovegreszek letrehozasa",
   "document-ocr": "OCR futtatasa",
   "run-detail": "Elemzesi futas reszleteinek betoltese",
@@ -248,6 +252,9 @@ export function App() {
   const [detachedSourceItems, setDetachedSourceItems] = useState<DetachedSourceItemRead[]>([]);
   const [manualContradictionClaims, setManualContradictionClaims] = useState<ReviewReportItem[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<DocumentRead | null>(null);
+  const [taxonomyEditGroupCode, setTaxonomyEditGroupCode] = useState("uncategorized");
+  const [taxonomyEditTypeCode, setTaxonomyEditTypeCode] = useState("uncategorized");
+  const [taxonomyEditComment, setTaxonomyEditComment] = useState("");
   const [documentPages, setDocumentPages] = useState<DocumentPageRead[]>([]);
   const [documentChunks, setDocumentChunks] = useState<DocumentChunkRead[]>([]);
   const [analysisRunDetail, setAnalysisRunDetail] = useState<AnalysisRunDetail | null>(null);
@@ -255,11 +262,18 @@ export function App() {
   const [caseName, setCaseName] = useState("");
   const [caseReference, setCaseReference] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [documentType, setDocumentType] = useState("jegyzokonyv");
+  const [documentTaxonomy, setDocumentTaxonomy] = useState<DocumentTaxonomyGroupRead[]>([]);
+  const [documentGroupCode, setDocumentGroupCode] = useState("uncategorized");
+  const [documentTypeCode, setDocumentTypeCode] = useState("uncategorized");
+  const [documentListSearch, setDocumentListSearch] = useState("");
   const [moduleKey, setModuleKey] = useState("detect_missing_items");
   const [query, setQuery] = useState("");
   const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("case");
   const [analysisDocumentId, setAnalysisDocumentId] = useState("");
+  const [analysisDocumentGroupCode, setAnalysisDocumentGroupCode] = useState("");
+  const [analysisDocumentTypeCode, setAnalysisDocumentTypeCode] = useState("");
+  const [analysisDocumentIds, setAnalysisDocumentIds] = useState<string[]>([]);
+  const [analysisDocumentSearch, setAnalysisDocumentSearch] = useState("");
   const [analysisPageStart, setAnalysisPageStart] = useState("");
   const [analysisPageEnd, setAnalysisPageEnd] = useState("");
   const [maxChunks, setMaxChunks] = useState(20);
@@ -312,9 +326,51 @@ export function App() {
   const [lastActionSummary, setLastActionSummary] = useState("");
 
   const selectedCase = useMemo(() => cases.find((item) => item.id === selectedCaseId), [cases, selectedCaseId]);
+  const selectedImportGroup = useMemo(
+    () => documentTaxonomy.find((group) => group.code === documentGroupCode) ?? null,
+    [documentTaxonomy, documentGroupCode]
+  );
+  const selectedImportType = useMemo(
+    () => selectedImportGroup?.types.find((documentType) => documentType.code === documentTypeCode) ?? null,
+    [selectedImportGroup, documentTypeCode]
+  );
+  const selectedTaxonomyEditGroup = useMemo(
+    () => documentTaxonomy.find((group) => group.code === taxonomyEditGroupCode) ?? null,
+    [documentTaxonomy, taxonomyEditGroupCode]
+  );
+  const taxonomyEditChanged =
+    Boolean(selectedDocument) &&
+    (selectedDocument?.document_group_code !== taxonomyEditGroupCode ||
+      selectedDocument?.document_type_code !== taxonomyEditTypeCode);
   const selectedAnalysisDocument = useMemo(
     () => documents.find((item) => item.id === analysisDocumentId) ?? null,
     [analysisDocumentId, documents]
+  );
+  const filteredDocuments = useMemo(
+    () => filterDocumentsByName(documents, documentListSearch),
+    [documents, documentListSearch]
+  );
+  const selectedAnalysisGroup = useMemo(
+    () => documentTaxonomy.find((group) => group.code === analysisDocumentGroupCode) ?? null,
+    [documentTaxonomy, analysisDocumentGroupCode]
+  );
+  const analysisTypeOptions = selectedAnalysisGroup?.types ?? [];
+  const analysisDocumentFilterOptions = useMemo(
+    () =>
+      documents.filter((document) => {
+        if (analysisDocumentGroupCode && document.document_group_code !== analysisDocumentGroupCode) return false;
+        if (analysisDocumentTypeCode && document.document_type_code !== analysisDocumentTypeCode) return false;
+        return true;
+      }),
+    [documents, analysisDocumentGroupCode, analysisDocumentTypeCode]
+  );
+  const filteredCaseAnalysisDocuments = useMemo(
+    () => filterDocumentsByName(analysisDocumentFilterOptions, analysisDocumentSearch),
+    [analysisDocumentFilterOptions, analysisDocumentSearch]
+  );
+  const filteredDocumentAnalysisDocuments = useMemo(
+    () => filterDocumentsByName(documents, analysisDocumentSearch),
+    [documents, analysisDocumentSearch]
   );
   const manualContradictionClaimOptions = useMemo(
     () =>
@@ -339,6 +395,7 @@ export function App() {
     moduleKey === "detect_missing_items";
   const isContradictionModule = moduleKey === "detect_contradiction_candidates";
   const effectiveAnalysisSourceMode: AnalysisSourceMode = canUseBatchScope ? analysisSourceMode : "case";
+  const showStructuredAnalysisFilters = canUseBatchScope && effectiveAnalysisSourceMode === "case";
   const showAnalysisPageRange = canUseBatchScope && effectiveAnalysisSourceMode === "document" && Boolean(analysisDocumentId);
   const sourceScopeMaxPage = useMemo(() => {
     if (effectiveAnalysisSourceMode === "document") {
@@ -382,7 +439,26 @@ export function App() {
 
   useEffect(() => {
     void refreshCases();
+    void refreshDocumentTaxonomy();
   }, []);
+
+  useEffect(() => {
+    if (documentTaxonomy.length === 0) return;
+    const group = documentTaxonomy.find((item) => item.code === documentGroupCode) ?? documentTaxonomy[0];
+    if (group.code !== documentGroupCode) {
+      setDocumentGroupCode(group.code);
+    }
+    if (!group.types.some((documentType) => documentType.code === documentTypeCode)) {
+      setDocumentTypeCode(group.types[0]?.code ?? "uncategorized");
+    }
+  }, [documentTaxonomy, documentGroupCode, documentTypeCode]);
+
+  useEffect(() => {
+    if (!selectedDocument) return;
+    setTaxonomyEditGroupCode(selectedDocument.document_group_code);
+    setTaxonomyEditTypeCode(selectedDocument.document_type_code);
+    setTaxonomyEditComment("");
+  }, [selectedDocument]);
 
   useEffect(() => {
     if (selectedCaseId) {
@@ -413,6 +489,26 @@ export function App() {
   }, [analysisDocumentId, documents]);
 
   useEffect(() => {
+    if (!analysisDocumentGroupCode) {
+      if (analysisDocumentTypeCode) setAnalysisDocumentTypeCode("");
+      return;
+    }
+    if (!selectedAnalysisGroup) {
+      setAnalysisDocumentGroupCode("");
+      setAnalysisDocumentTypeCode("");
+      return;
+    }
+    if (analysisDocumentTypeCode && !selectedAnalysisGroup.types.some((documentType) => documentType.code === analysisDocumentTypeCode)) {
+      setAnalysisDocumentTypeCode("");
+    }
+  }, [analysisDocumentGroupCode, analysisDocumentTypeCode, selectedAnalysisGroup]);
+
+  useEffect(() => {
+    const allowedIds = new Set(analysisDocumentFilterOptions.map((document) => document.id));
+    setAnalysisDocumentIds((current) => current.filter((documentId) => allowedIds.has(documentId)));
+  }, [analysisDocumentFilterOptions]);
+
+  useEffect(() => {
     if (!showAnalysisPageRange) {
       return;
     }
@@ -425,23 +521,21 @@ export function App() {
       setChunkIndexStatus(null);
       return;
     }
-    const documentId = effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null;
-    if (effectiveAnalysisSourceMode === "document" && !documentId) {
+    if (effectiveAnalysisSourceMode === "document" && !analysisDocumentId) {
       setChunkIndexStatus(null);
       return;
     }
-    void refreshChunkIndexStatus(documentId).catch(() => setChunkIndexStatus(null));
-  }, [selectedCaseId, canUseBatchScope, effectiveAnalysisSourceMode, analysisDocumentId, retrievalStrategy, query]);
+    void refreshChunkIndexStatus().catch(() => setChunkIndexStatus(null));
+  }, [selectedCaseId, canUseBatchScope, effectiveAnalysisSourceMode, analysisDocumentId, analysisDocumentGroupCode, analysisDocumentTypeCode, analysisDocumentIds, retrievalStrategy, query]);
 
   useEffect(() => {
     if (!selectedCaseId || !activeIndexJobId) {
       return;
     }
-    const documentId = effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null;
     let cancelled = false;
     const poll = async () => {
       try {
-        const response = await refreshChunkIndexStatus(documentId);
+        const response = await refreshChunkIndexStatus();
         const runsResponse = await listAnalysisRuns(selectedCaseId);
         if (cancelled) return;
         setAnalysisRuns(runsResponse.data);
@@ -464,7 +558,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [selectedCaseId, activeIndexJobId, effectiveAnalysisSourceMode, analysisDocumentId]);
+  }, [selectedCaseId, activeIndexJobId, effectiveAnalysisSourceMode, analysisDocumentId, analysisDocumentGroupCode, analysisDocumentTypeCode, analysisDocumentIds]);
 
   useEffect(() => {
     if (busyStartedAt === null) {
@@ -501,6 +595,20 @@ export function App() {
         setSelectedCaseId(response.data[0].id);
       }
     });
+  }
+
+  async function refreshDocumentTaxonomy() {
+    try {
+      const response = await listDocumentTaxonomy();
+      setDocumentTaxonomy(response.data);
+      const uncategorized = response.data.find((group) => group.code === "uncategorized") ?? response.data[0];
+      if (uncategorized) {
+        setDocumentGroupCode(uncategorized.code);
+        setDocumentTypeCode(uncategorized.types[0]?.code ?? "uncategorized");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Az irattaxonomia betoltese sikertelen.");
+    }
   }
 
   async function refreshCaseData(showNotice = true) {
@@ -556,6 +664,24 @@ export function App() {
       setManualSource(null);
       setNotice("Irat reszletek betoltve.");
       setLastActionSummary(`${document.original_filename}: ${pagesResponse.data.length} oldal, ${chunksResponse.data.length} szovegresz.`);
+    });
+  }
+
+  async function handleDocumentTaxonomySave() {
+    if (!selectedCaseId || !selectedDocument) return;
+    await perform("document-taxonomy", async () => {
+      const response = await updateDocumentTaxonomy(selectedCaseId, selectedDocument.id, {
+        document_group_code: taxonomyEditGroupCode,
+        document_type_code: taxonomyEditTypeCode,
+        comment: taxonomyEditComment.trim() || null
+      });
+      const documentsResponse = await listDocuments(selectedCaseId);
+      const refreshedDocument = documentsResponse.data.find((item) => item.id === selectedDocument.id) ?? response;
+      setDocuments(documentsResponse.data);
+      setSelectedDocument(refreshedDocument);
+      setTaxonomyEditComment("");
+      setNotice("Iratbesorolas mentve.");
+      setLastActionSummary(`${refreshedDocument.original_filename}: ${labelDocumentTaxonomy(refreshedDocument)}`);
     });
   }
 
@@ -658,7 +784,7 @@ export function App() {
   async function handleImport() {
     if (!selectedCaseId || !file) return;
     await perform("import", async () => {
-      await importDocument(selectedCaseId, file, documentType);
+      await importDocument(selectedCaseId, file, documentGroupCode, documentTypeCode);
       setFile(null);
       const documentsResponse = await listDocuments(selectedCaseId);
       setDocuments(documentsResponse.data);
@@ -674,6 +800,9 @@ export function App() {
         query: query.trim() ? query.trim() : null,
         source_mode: effectiveAnalysisSourceMode,
         document_id: effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null,
+        ...(showStructuredAnalysisFilters && analysisDocumentGroupCode ? { document_group_code: analysisDocumentGroupCode } : {}),
+        ...(showStructuredAnalysisFilters && analysisDocumentTypeCode ? { document_type_code: analysisDocumentTypeCode } : {}),
+        ...(showStructuredAnalysisFilters && analysisDocumentIds.length > 0 ? { document_ids: analysisDocumentIds } : {}),
         max_chunks: maxChunks,
         batch_size: batchSize,
         claim_review_scope: claimReviewScope,
@@ -701,15 +830,37 @@ export function App() {
       setManualContradictionClaims(manualClaimsResponse.items);
       setNotice("Elemzes lefutott, jelentés frissitve.");
       setLastActionSummary(
-        `${labelModule(response.module_key)}: ${labelAnalysisSourceMode(effectiveAnalysisSourceMode)}, ${labelValidationStatus(response.validation_status)}, ${analysisSourceMetric(response)}, ${analysisOutputCount(response)} kimenet`
+        `${labelModule(response.module_key)}: ${analysisSourceSummaryLabel(effectiveAnalysisSourceMode, analysisDocumentIds.length)}, ${labelValidationStatus(response.validation_status)}, ${analysisSourceMetric(response)}, ${analysisOutputCount(response)} kimenet`
       );
     });
   }
 
+  function toggleAnalysisDocumentFilter(documentId: string) {
+    setAnalysisDocumentIds((current) =>
+      current.includes(documentId)
+        ? current.filter((item) => item !== documentId)
+        : [...current, documentId]
+    );
+  }
+
+  function chunkIndexScopePayload() {
+    if (effectiveAnalysisSourceMode === "document") {
+      return { document_id: analysisDocumentId || null };
+    }
+    return {
+      document_id: null,
+      ...(analysisDocumentGroupCode ? { document_group_code: analysisDocumentGroupCode } : {}),
+      ...(analysisDocumentTypeCode ? { document_type_code: analysisDocumentTypeCode } : {}),
+      ...(analysisDocumentIds.length > 0 ? { document_ids: analysisDocumentIds } : {})
+    };
+  }
+
   async function refreshChunkIndexStatus(documentIdOverride?: string | null): Promise<ChunkIndexStatusResponse | null> {
     if (!selectedCaseId) return null;
-    const documentId = documentIdOverride !== undefined ? documentIdOverride : effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null;
-    const response = await getChunkIndexStatus(selectedCaseId, documentId || null);
+    const response = await getChunkIndexStatus(
+      selectedCaseId,
+      documentIdOverride !== undefined ? { document_id: documentIdOverride || null } : chunkIndexScopePayload()
+    );
     setChunkIndexStatus(response);
     return response;
   }
@@ -718,7 +869,7 @@ export function App() {
     if (!selectedCaseId) return;
     await perform("chunk-index", async () => {
       const response = await startChunkIndexJob(selectedCaseId, {
-        document_id: effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null,
+        ...chunkIndexScopePayload(),
         limit: 1000,
         force_reindex: forceReindex
       });
@@ -1496,40 +1647,42 @@ export function App() {
       {notice && <div className="notice success">{notice}</div>}
 
       <section className="workspace">
-        <aside className="sidebar">
+        <section className="case-strip">
           <div className="section-heading">
             <h2>Ugyek</h2>
             <button className="icon-button" onClick={refreshCases} title="Frissites" disabled={Boolean(busy)}>
               <RefreshCw size={18} />
             </button>
           </div>
-          <label>
-            Aktiv ugy
-            <select value={selectedCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>
-              <option value="">Nincs kivalasztva</option>
-              {cases.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.case_reference ? `${item.case_reference} - ` : ""}
-                  {item.case_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Nev
-            <input value={caseName} onChange={(event) => setCaseName(event.target.value)} />
-          </label>
-          <label>
-            Azonosito
-            <input value={caseReference} onChange={(event) => setCaseReference(event.target.value)} />
-          </label>
-          <button onClick={handleCreateCase} disabled={!caseName || Boolean(busy)}>
-            <FolderPlus size={18} /> Ugy letrehozasa
-          </button>
-          <button onClick={() => refreshCaseData()} disabled={!selectedCaseId || Boolean(busy)}>
-            <RefreshCw size={18} /> Ugyadatok
-          </button>
-        </aside>
+          <div className="case-strip-controls">
+            <label>
+              Aktiv ugy
+              <select value={selectedCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>
+                <option value="">Nincs kivalasztva</option>
+                {cases.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.case_reference ? `${item.case_reference} - ` : ""}
+                    {item.case_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Nev
+              <input value={caseName} onChange={(event) => setCaseName(event.target.value)} />
+            </label>
+            <label>
+              Azonosito
+              <input value={caseReference} onChange={(event) => setCaseReference(event.target.value)} />
+            </label>
+            <button onClick={handleCreateCase} disabled={!caseName || Boolean(busy)}>
+              <FolderPlus size={18} /> Ugy letrehozasa
+            </button>
+            <button onClick={() => refreshCaseData()} disabled={!selectedCaseId || Boolean(busy)}>
+              <RefreshCw size={18} /> Ugyadatok
+            </button>
+          </div>
+        </section>
 
         <section className="main-grid">
           <section className="panel hero-panel">
@@ -1558,17 +1711,26 @@ export function App() {
             </div>
           </section>
 
-          <section className="panel">
+          <div className="workflow-column">
+          <section className="panel documents-panel">
             <div className="section-heading">
               <h2>Iratok</h2>
               <Database size={20} />
             </div>
+            <input
+              className="panel-search-input"
+              value={documentListSearch}
+              onChange={(event) => setDocumentListSearch(event.target.value)}
+              placeholder="Iratnev keresese"
+              disabled={documents.length === 0}
+            />
             <div className="compact-list">
               {documents.length === 0 && <p className="muted">Nincs importalt irat.</p>}
-              {documents.map((document) => (
+              {documents.length > 0 && filteredDocuments.length === 0 && <p className="muted">Nincs a keresésnek megfelelo irat.</p>}
+              {filteredDocuments.map((document) => (
                 <article key={document.id} className="compact-item">
                   <strong>{document.original_filename}</strong>
-                  <span>{document.document_type ?? "ismeretlen"} | {labelProcessingStatus(document.processing_status)} | {formatBytes(document.file_size_bytes)}</span>
+                  <span>{labelDocumentTaxonomy(document)} | {labelProcessingStatus(document.processing_status)} | {formatBytes(document.file_size_bytes)}</span>
                   <code>{document.sha256_hash}</code>
                   <div className="button-row">
                     <button onClick={() => handleDocumentDetail(document)} disabled={Boolean(busy)}>
@@ -1593,7 +1755,7 @@ export function App() {
             </div>
           </section>
 
-          <section className="panel detail-panel">
+          <section className="panel detail-panel document-detail-panel">
             <div className="section-heading">
               <h2>Irat reszletek</h2>
               <FilePlus2 size={20} />
@@ -1605,8 +1767,80 @@ export function App() {
                 <div className="metrics">
                   <span>{documentPages.length} oldal</span>
                   <span>{documentChunks.length} szovegresz</span>
+                  <span>{labelDocumentTaxonomy(selectedDocument)}</span>
                   <span>{labelProcessingStatus(selectedDocument.processing_status)}</span>
                 </div>
+                <details>
+                  <summary>Besorolas modositasa</summary>
+                  <div className="manual-entry-panel">
+                    <div className="form-row">
+                      <label>
+                        Iratcsoport
+                        <select
+                          value={taxonomyEditGroupCode}
+                          onChange={(event) => {
+                            const nextGroupCode = event.target.value;
+                            const nextGroup = documentTaxonomy.find((group) => group.code === nextGroupCode);
+                            setTaxonomyEditGroupCode(nextGroupCode);
+                            setTaxonomyEditTypeCode(nextGroup?.types[0]?.code ?? "uncategorized");
+                          }}
+                          disabled={Boolean(busy) || documentTaxonomy.length === 0}
+                        >
+                          {documentTaxonomy.map((group) => (
+                            <option key={group.code} value={group.code}>
+                              {group.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Irattipus
+                        <select
+                          value={taxonomyEditTypeCode}
+                          onChange={(event) => setTaxonomyEditTypeCode(event.target.value)}
+                          disabled={Boolean(busy) || !selectedTaxonomyEditGroup}
+                        >
+                          {(selectedTaxonomyEditGroup?.types ?? []).map((documentType) => (
+                            <option key={documentType.code} value={documentType.code}>
+                              {documentType.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <label>
+                      Megjegyzes
+                      <textarea
+                        value={taxonomyEditComment}
+                        onChange={(event) => setTaxonomyEditComment(event.target.value)}
+                        placeholder="Peldaul: teves importkori besorolas javitasa"
+                        disabled={Boolean(busy)}
+                      />
+                    </label>
+                    <p className="field-hint">
+                      Csak az irat adminisztrativ besorolasa valtozik. Az oldalak, szovegreszek, forrashivatkozasok es elemzesi futasok nem modosulnak.
+                    </p>
+                    <div className="button-row">
+                      <button
+                        onClick={handleDocumentTaxonomySave}
+                        disabled={Boolean(busy) || !selectedTaxonomyEditGroup || !taxonomyEditTypeCode || !taxonomyEditChanged}
+                      >
+                        Besorolas mentese
+                      </button>
+                      <button
+                        className="secondary-button"
+                        onClick={() => {
+                          setTaxonomyEditGroupCode(selectedDocument.document_group_code);
+                          setTaxonomyEditTypeCode(selectedDocument.document_type_code);
+                          setTaxonomyEditComment("");
+                        }}
+                        disabled={Boolean(busy)}
+                      >
+                        Visszaallitas
+                      </button>
+                    </div>
+                  </div>
+                </details>
                 {canRunOcr(selectedDocument) && (
                   <div className="ocr-action-box">
                     <button onClick={() => handleDocumentOcr(selectedDocument)} disabled={Boolean(busy)}>
@@ -1699,27 +1933,61 @@ export function App() {
             )}
           </section>
 
-          <section className="panel">
+          <section className="panel document-import-panel">
             <div className="section-heading">
               <h2>Irat import</h2>
               <FilePlus2 size={20} />
             </div>
             <div className="form-row">
               <label>
-                Tipus
-                <input value={documentType} onChange={(event) => setDocumentType(event.target.value)} />
+                Iratcsoport
+                <select
+                  value={documentGroupCode}
+                  onChange={(event) => {
+                    const nextGroupCode = event.target.value;
+                    const nextGroup = documentTaxonomy.find((group) => group.code === nextGroupCode);
+                    setDocumentGroupCode(nextGroupCode);
+                    setDocumentTypeCode(nextGroup?.types[0]?.code ?? "uncategorized");
+                  }}
+                  disabled={documentTaxonomy.length === 0}
+                >
+                  {documentTaxonomy.map((group) => (
+                    <option key={group.code} value={group.code}>
+                      {group.label}
+                    </option>
+                  ))}
+                </select>
               </label>
+              <label>
+                Irattipus
+                <select
+                  value={documentTypeCode}
+                  onChange={(event) => setDocumentTypeCode(event.target.value)}
+                  disabled={!selectedImportGroup}
+                >
+                  {(selectedImportGroup?.types ?? []).map((documentType) => (
+                    <option key={documentType.code} value={documentType.code}>
+                      {documentType.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {selectedImportGroup && selectedImportType && (
+              <p className="field-hint">{selectedImportGroup.description} {selectedImportType.description}</p>
+            )}
+            <div className="form-row">
               <label>
                 Irat fajl
                 <input type="file" accept=".txt,.pdf,text/plain,application/pdf" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
               </label>
             </div>
-            <button onClick={handleImport} disabled={!selectedCaseId || !file || Boolean(busy)}>
+            <button onClick={handleImport} disabled={!selectedCaseId || !file || !selectedImportType || Boolean(busy)}>
               <FilePlus2 size={18} /> Importalas
             </button>
           </section>
 
-          <section className="panel">
+          <section className="panel analysis-panel">
             <div className="section-heading">
               <h2>Elemzes</h2>
               <Search size={20} />
@@ -1769,7 +2037,7 @@ export function App() {
               <div className="model-status-panel">
                 <div>
                   <strong>Szemantikus index allapot</strong>
-                  <p>{chunkIndexStatus.document_id ? "Kivalasztott irat" : "Teljes ugy"} | {chunkIndexStatus.embedding_model}</p>
+                  <p>{labelChunkIndexScope(chunkIndexStatus)} | {chunkIndexStatus.embedding_model}</p>
                 </div>
                 <div className="metrics">
                   <span>{labelChunkIndexStatus(chunkIndexStatus)}</span>
@@ -1832,20 +2100,122 @@ export function App() {
                   {analysisSourceModes.map((item) => <option key={item} value={item}>{labelAnalysisSourceMode(item)}</option>)}
                 </select>
               </label>
-              <label>
-                Irat
-                <select
-                  value={analysisDocumentId}
-                  onChange={(event) => setAnalysisDocumentId(event.target.value)}
-                  disabled={!canUseBatchScope || effectiveAnalysisSourceMode !== "document"}
-                >
-                  <option value="">Valassz iratot</option>
-                  {documents.map((document) => (
-                    <option key={document.id} value={document.id}>{document.original_filename}</option>
-                  ))}
-                </select>
-              </label>
             </div>
+            {showStructuredAnalysisFilters && (
+              <div className="source-filter-panel">
+                <div className="form-row">
+                  <label>
+                    Iratcsoport szuro
+                    <select
+                      value={analysisDocumentGroupCode}
+                      onChange={(event) => {
+                        setAnalysisDocumentGroupCode(event.target.value);
+                        setAnalysisDocumentTypeCode("");
+                      }}
+                    >
+                      <option value="">Minden iratcsoport</option>
+                      {documentTaxonomy.map((group) => (
+                        <option key={group.code} value={group.code}>
+                          {group.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Irattipus szuro
+                    <select
+                      value={analysisDocumentTypeCode}
+                      onChange={(event) => setAnalysisDocumentTypeCode(event.target.value)}
+                      disabled={!analysisDocumentGroupCode}
+                    >
+                      <option value="">Minden irattipus</option>
+                      {analysisTypeOptions.map((documentType) => (
+                        <option key={documentType.code} value={documentType.code}>
+                          {documentType.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <p className="field-hint">
+                  A szurok csak a teljes ugy forraskorben ervenyesek. Ha nem jelolsz ki konkret iratot, a rendszer a valasztott csoport/tipus osszes aktualis irataban keres.
+                </p>
+                <div className="source-filter-list">
+                  <div className="source-filter-list-heading">
+                    <button
+                      className="secondary-button"
+                      onClick={() => setAnalysisDocumentIds([])}
+                      disabled={analysisDocumentIds.length === 0 || Boolean(busy)}
+                    >
+                      Kijeloles torlese
+                    </button>
+                    <input
+                      className="source-filter-search"
+                      value={analysisDocumentSearch}
+                      onChange={(event) => setAnalysisDocumentSearch(event.target.value)}
+                      placeholder="Iratnev keresese"
+                      disabled={analysisDocumentFilterOptions.length === 0}
+                    />
+                  </div>
+                  {analysisDocumentFilterOptions.length === 0 && <p className="muted">Nincs a szuroknek megfelelo irat.</p>}
+                  {analysisDocumentFilterOptions.length > 0 && filteredCaseAnalysisDocuments.length === 0 && <p className="muted">Nincs a keresésnek megfelelo irat.</p>}
+                  {filteredCaseAnalysisDocuments.map((document) => (
+                    <label key={document.id} className="checkbox-label source-document-option">
+                      <input
+                        type="checkbox"
+                        checked={analysisDocumentIds.includes(document.id)}
+                        onChange={() => toggleAnalysisDocumentFilter(document.id)}
+                      />
+                      <span>
+                        {document.original_filename}
+                        <small>{labelDocumentTaxonomy(document)} | {labelProcessingStatus(document.processing_status)}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            {canUseBatchScope && effectiveAnalysisSourceMode === "document" && (
+              <div className="source-filter-panel">
+                <p className="field-hint">
+                  Valassz ki egy iratot. Az oldaltartomany a kijeloles utan jelenik meg.
+                </p>
+                <div className="source-filter-list">
+                  <div className="source-filter-list-heading">
+                    <button
+                      className="secondary-button"
+                      onClick={() => setAnalysisDocumentId("")}
+                      disabled={!analysisDocumentId || Boolean(busy)}
+                    >
+                      Kijeloles torlese
+                    </button>
+                    <input
+                      className="source-filter-search"
+                      value={analysisDocumentSearch}
+                      onChange={(event) => setAnalysisDocumentSearch(event.target.value)}
+                      placeholder="Iratnev keresese"
+                      disabled={documents.length === 0}
+                    />
+                  </div>
+                  {documents.length === 0 && <p className="muted">Nincs importalt irat.</p>}
+                  {documents.length > 0 && filteredDocumentAnalysisDocuments.length === 0 && <p className="muted">Nincs a keresésnek megfelelo irat.</p>}
+                  {filteredDocumentAnalysisDocuments.map((document) => (
+                    <label key={document.id} className="checkbox-label source-document-option">
+                      <input
+                        type="radio"
+                        name="analysis-document-source"
+                        checked={analysisDocumentId === document.id}
+                        onChange={() => setAnalysisDocumentId(document.id)}
+                      />
+                      <span>
+                        {document.original_filename}
+                        <small>{labelDocumentTaxonomy(document)} | {labelProcessingStatus(document.processing_status)}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             {showAnalysisPageRange && (
               <div className="form-row">
                 <label>
@@ -1987,115 +2357,7 @@ export function App() {
             )}
           </section>
 
-          <section className="panel">
-            <div className="section-heading">
-              <h2>Kezi ellentmondasjelolt</h2>
-              <GitMerge size={20} />
-            </div>
-            <div className="module-note">
-              Ket forraservenyes, nem elutasitott allitasbol hoz letre ellenorzendo jeloltet. A rogzites nem bizonyitott ellentmondas, hanem emberi review-ra varo par.
-            </div>
-            {manualContradictionClaimOptions.length < 2 && (
-              <p className="muted">Legalabb ket forraservenyes, nem elutasitott allitas kell a kezi jelolthez.</p>
-            )}
-            <div className="form-row">
-              <label>
-                1. allitas
-                <select
-                  value={manualContradiction.claim_id_a}
-                  onChange={(event) => updateManualContradictionField("claim_id_a", event.target.value)}
-                >
-                  <option value="">Valassz allitast</option>
-                  {manualContradictionClaimOptions.map((item) => (
-                    <option key={item.object_id} value={item.object_id} disabled={item.object_id === manualContradiction.claim_id_b}>
-                      {truncateText(item.title || item.body_text || item.object_id, 90)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                2. allitas
-                <select
-                  value={manualContradiction.claim_id_b}
-                  onChange={(event) => updateManualContradictionField("claim_id_b", event.target.value)}
-                >
-                  <option value="">Valassz allitast</option>
-                  {manualContradictionClaimOptions.map((item) => (
-                    <option key={item.object_id} value={item.object_id} disabled={item.object_id === manualContradiction.claim_id_a}>
-                      {truncateText(item.title || item.body_text || item.object_id, 90)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="form-row">
-              <label>
-                Elteres tipusa
-                <select
-                  value={manualContradiction.contradiction_type}
-                  onChange={(event) =>
-                    updateManualContradictionField(
-                      "contradiction_type",
-                      event.target.value as ManualContradictionCandidatePayload["contradiction_type"]
-                    )
-                  }
-                >
-                  {(Object.keys(contradictionTypeLabels) as ManualContradictionCandidatePayload["contradiction_type"][]).map((type) => (
-                    <option key={type} value={type}>
-                      {contradictionTypeLabels[type]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Sulyossagi jelzes
-                <select
-                  value={manualContradiction.severity_hint ?? "low"}
-                  onChange={(event) =>
-                    updateManualContradictionField(
-                      "severity_hint",
-                      event.target.value as NonNullable<ManualContradictionCandidatePayload["severity_hint"]>
-                    )
-                  }
-                >
-                  {(Object.keys(severityHintLabels) as NonNullable<ManualContradictionCandidatePayload["severity_hint"]>[]).map((severity) => (
-                    <option key={severity} value={severity}>
-                      {severityHintLabels[severity]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <label>
-              Ellenorzesi indoklas
-              <textarea
-                value={manualContradiction.description}
-                onChange={(event) => updateManualContradictionField("description", event.target.value)}
-                rows={3}
-                placeholder="Roviden ird le, milyen konkret elteres miatt kell emberi ellenorzes."
-              />
-            </label>
-            <div className="claim-preview-grid">
-              {renderClaimPreview(selectedManualClaimA, "Valassz elso allitast az elonezethez.")}
-              {renderClaimPreview(selectedManualClaimB, "Valassz masodik allitast az elonezethez.")}
-            </div>
-            <button
-              onClick={handleCreateManualContradictionCandidate}
-              disabled={
-                Boolean(busy) ||
-                !selectedCaseId ||
-                manualContradictionClaimOptions.length < 2 ||
-                !manualContradiction.claim_id_a ||
-                !manualContradiction.claim_id_b ||
-                manualContradiction.claim_id_a === manualContradiction.claim_id_b ||
-                !manualContradiction.description.trim()
-              }
-            >
-              <GitMerge size={18} /> Kezi jelolt letrehozasa
-            </button>
-          </section>
-
-          <section className="panel">
+          <section className="panel analysis-history-panel">
             <div className="section-heading">
               <h2>Elemzesi elozmenyek</h2>
               <Archive size={20} />
@@ -2117,7 +2379,7 @@ export function App() {
             </div>
           </section>
 
-          <section className="panel detail-panel">
+          <section className="panel detail-panel analysis-detail-panel">
             <div className="section-heading">
               <h2>Elemzesi futas reszletei</h2>
               <Archive size={20} />
@@ -2163,6 +2425,9 @@ export function App() {
             )}
           </section>
 
+          </div>
+
+          <div className="review-column">
           <section className="panel report-panel">
             <div className="section-heading">
               <h2>Attekintesi jelentés</h2>
@@ -2282,7 +2547,115 @@ export function App() {
             )}
           </section>
 
-          <section className="panel detail-panel">
+          <section className="panel">
+            <div className="section-heading">
+              <h2>Kezi ellentmondasjelolt</h2>
+              <GitMerge size={20} />
+            </div>
+            <div className="module-note">
+              Ket forraservenyes, nem elutasitott allitasbol hoz letre ellenorzendo jeloltet. A rogzites nem bizonyitott ellentmondas, hanem emberi review-ra varo par.
+            </div>
+            {manualContradictionClaimOptions.length < 2 && (
+              <p className="muted">Legalabb ket forraservenyes, nem elutasitott allitas kell a kezi jelolthez.</p>
+            )}
+            <div className="form-row">
+              <label>
+                1. allitas
+                <select
+                  value={manualContradiction.claim_id_a}
+                  onChange={(event) => updateManualContradictionField("claim_id_a", event.target.value)}
+                >
+                  <option value="">Valassz allitast</option>
+                  {manualContradictionClaimOptions.map((item) => (
+                    <option key={item.object_id} value={item.object_id} disabled={item.object_id === manualContradiction.claim_id_b}>
+                      {truncateText(item.title || item.body_text || item.object_id, 90)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                2. allitas
+                <select
+                  value={manualContradiction.claim_id_b}
+                  onChange={(event) => updateManualContradictionField("claim_id_b", event.target.value)}
+                >
+                  <option value="">Valassz allitast</option>
+                  {manualContradictionClaimOptions.map((item) => (
+                    <option key={item.object_id} value={item.object_id} disabled={item.object_id === manualContradiction.claim_id_a}>
+                      {truncateText(item.title || item.body_text || item.object_id, 90)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="form-row">
+              <label>
+                Elteres tipusa
+                <select
+                  value={manualContradiction.contradiction_type}
+                  onChange={(event) =>
+                    updateManualContradictionField(
+                      "contradiction_type",
+                      event.target.value as ManualContradictionCandidatePayload["contradiction_type"]
+                    )
+                  }
+                >
+                  {(Object.keys(contradictionTypeLabels) as ManualContradictionCandidatePayload["contradiction_type"][]).map((type) => (
+                    <option key={type} value={type}>
+                      {contradictionTypeLabels[type]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Sulyossagi jelzes
+                <select
+                  value={manualContradiction.severity_hint ?? "low"}
+                  onChange={(event) =>
+                    updateManualContradictionField(
+                      "severity_hint",
+                      event.target.value as NonNullable<ManualContradictionCandidatePayload["severity_hint"]>
+                    )
+                  }
+                >
+                  {(Object.keys(severityHintLabels) as NonNullable<ManualContradictionCandidatePayload["severity_hint"]>[]).map((severity) => (
+                    <option key={severity} value={severity}>
+                      {severityHintLabels[severity]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label>
+              Ellenorzesi indoklas
+              <textarea
+                value={manualContradiction.description}
+                onChange={(event) => updateManualContradictionField("description", event.target.value)}
+                rows={3}
+                placeholder="Roviden ird le, milyen konkret elteres miatt kell emberi ellenorzes."
+              />
+            </label>
+            <div className="claim-preview-grid">
+              {renderClaimPreview(selectedManualClaimA, "Valassz elso allitast az elonezethez.")}
+              {renderClaimPreview(selectedManualClaimB, "Valassz masodik allitast az elonezethez.")}
+            </div>
+            <button
+              onClick={handleCreateManualContradictionCandidate}
+              disabled={
+                Boolean(busy) ||
+                !selectedCaseId ||
+                manualContradictionClaimOptions.length < 2 ||
+                !manualContradiction.claim_id_a ||
+                !manualContradiction.claim_id_b ||
+                manualContradiction.claim_id_a === manualContradiction.claim_id_b ||
+                !manualContradiction.description.trim()
+              }
+            >
+              <GitMerge size={18} /> Kezi jelolt letrehozasa
+            </button>
+          </section>
+
+          <section className="panel detail-panel object-detail-panel">
             <div className="section-heading">
               <h2>Objektum reszletei</h2>
               <Search size={20} />
@@ -2429,6 +2802,26 @@ export function App() {
 
           <section className="panel">
             <div className="section-heading">
+              <h2>Export elozmenyek</h2>
+              <button className="icon-button" onClick={refreshExports} title="Export elozmenyek frissitese" disabled={!selectedCaseId || Boolean(busy)}>
+                <RefreshCw size={18} />
+              </button>
+            </div>
+            <div className="compact-list">
+              {exports.length === 0 && <p className="muted">Nincs export.</p>}
+              {exports.slice(0, 10).map((item) => (
+                <article key={item.id} className="compact-item">
+                  <strong>{item.export_type.toUpperCase()} {labelExportScope(item.export_scope)}</strong>
+                  <span>{labelExportFilter(item.review_filter)} | {new Date(item.created_at).toLocaleString()}</span>
+                  {item.sha256_hash && <code>{item.sha256_hash}</code>}
+                  <a href={`/api/v1/cases/${selectedCaseId}/exports/${item.id}/download`}>Letoltes</a>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="section-heading">
               <h2>Export</h2>
               <Download size={20} />
             </div>
@@ -2449,25 +2842,8 @@ export function App() {
             )}
           </section>
 
-          <section className="panel">
-            <div className="section-heading">
-              <h2>Export elozmenyek</h2>
-              <button className="icon-button" onClick={refreshExports} title="Export elozmenyek frissitese" disabled={!selectedCaseId || Boolean(busy)}>
-                <RefreshCw size={18} />
-              </button>
-            </div>
-            <div className="compact-list">
-              {exports.length === 0 && <p className="muted">Nincs export.</p>}
-              {exports.slice(0, 10).map((item) => (
-                <article key={item.id} className="compact-item">
-                  <strong>{item.export_type.toUpperCase()} {labelExportScope(item.export_scope)}</strong>
-                  <span>{labelExportFilter(item.review_filter)} | {new Date(item.created_at).toLocaleString()}</span>
-                  {item.sha256_hash && <code>{item.sha256_hash}</code>}
-                  <a href={`/api/v1/cases/${selectedCaseId}/exports/${item.id}/download`}>Letoltes</a>
-                </article>
-              ))}
-            </div>
-          </section>
+          </div>
+
         </section>
       </section>
     </main>
@@ -2544,6 +2920,13 @@ function labelAnalysisSourceMode(value: AnalysisSourceMode) {
   return analysisSourceModeLabels[value] ?? value;
 }
 
+function analysisSourceSummaryLabel(value: AnalysisSourceMode, selectedDocumentCount: number) {
+  if (value === "case" && selectedDocumentCount > 0) {
+    return `Teljes ugy, ${selectedDocumentCount} kijelolt irat`;
+  }
+  return labelAnalysisSourceMode(value);
+}
+
 function labelClaimReviewScope(value: ClaimReviewScope) {
   return claimReviewScopeLabels[value] ?? value;
 }
@@ -2567,6 +2950,29 @@ function labelChunkIndexStatus(value: ChunkIndexStatusResponse) {
   if (value.is_ready) return "index kesz";
   if (value.indexed_chunk_count > 0) return "reszben indexelve";
   return "indexeles szukseges";
+}
+
+function labelChunkIndexScope(value: ChunkIndexStatusResponse) {
+  if (value.document_id) return "Kivalasztott irat";
+  if (value.document_ids.length > 0) return `Teljes ugy, ${value.document_ids.length} kijelolt irat`;
+  if (value.document_group_code && value.document_type_code) return "Teljes ugy, iratcsoport es irattipus szerint szurve";
+  if (value.document_group_code) return "Teljes ugy, iratcsoport szerint szurve";
+  return "Teljes ugy";
+}
+
+function labelDocumentTaxonomy(document: DocumentRead) {
+  const groupLabel = document.document_group_label ?? document.document_group_code;
+  const typeLabel = document.document_type_label ?? document.document_type_code;
+  if (groupLabel === typeLabel) {
+    return typeLabel;
+  }
+  return `${groupLabel} / ${typeLabel}`;
+}
+
+function filterDocumentsByName(documents: DocumentRead[], searchText: string) {
+  const needle = searchText.trim().toLocaleLowerCase("hu-HU");
+  if (!needle) return documents;
+  return documents.filter((document) => document.original_filename.toLocaleLowerCase("hu-HU").includes(needle));
 }
 
 function clampNumberInput(value: string, min: number, max: number, fallback: number) {

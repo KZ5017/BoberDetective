@@ -137,24 +137,64 @@ label {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(250px, 300px) 1fr;
+  gap: 1rem;
+  grid-template-columns: 1fr;
   min-height: calc(100vh - 73px);
+  padding: 1rem;
 }
 
-.sidebar {
+.case-strip {
   background: #ffffff;
-  border-right: 1px solid #d7dde2;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
   display: grid;
-  align-content: start;
-  gap: 0.85rem;
+  gap: 0.75rem;
   padding: 1rem;
+}
+
+.case-strip-controls {
+  align-items: end;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: minmax(18rem, 1.5fr) minmax(13rem, 1fr) minmax(12rem, 0.8fr) auto auto;
 }
 
 .main-grid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.4fr);
-  padding: 1rem;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(460px, 1.05fr);
+  align-items: start;
+}
+
+.workflow-column,
+.review-column {
+  align-content: start;
+  display: grid;
+  gap: 1rem;
+}
+
+.document-import-panel {
+  order: 1;
+}
+
+.documents-panel {
+  order: 2;
+}
+
+.document-detail-panel {
+  order: 3;
+}
+
+.analysis-panel {
+  order: 4;
+}
+
+.analysis-history-panel {
+  order: 5;
+}
+
+.analysis-detail-panel {
+  order: 6;
 }
 
 .panel {
@@ -269,6 +309,59 @@ label {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+}
+
+.source-filter-panel {
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.7rem;
+}
+
+.source-filter-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 26rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.source-filter-list-heading {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+  justify-content: space-between;
+}
+
+.source-filter-search {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.panel-search-input {
+  margin-bottom: 0.7rem;
+}
+
+.source-document-option {
+  align-items: flex-start;
+  background: #f8fafb;
+  border: 1px solid #d7dde2;
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+}
+
+.source-document-option span {
+  color: #202124;
+  display: grid;
+  font-weight: 800;
+  gap: 0.15rem;
+}
+
+.source-document-option small {
+  color: #65737d;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .ocr-action-box {
@@ -582,7 +675,7 @@ pre {
 }
 
 .report-panel {
-  grid-row: span 3;
+  grid-row: auto;
 }
 
 .item-list {
@@ -743,6 +836,9 @@ pre {
 
   .workspace,
   .main-grid,
+  .workflow-column,
+  .review-column,
+  .case-strip-controls,
   .form-row,
   .model-status-grid,
   .operation-grid,

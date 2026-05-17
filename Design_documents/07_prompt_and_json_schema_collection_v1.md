@@ -33,6 +33,8 @@ Minden MVP LLM promptban szerepeljen:
 
 ## 3. Közös input contract
 
+> **Aktualis megjegyzes, 2026-05-17:** a kozos elv maradt, de a tenyleges analysis run inputok batchelt forraschunk metadata-t is tartalmaznak (`batch_index`, `batch_count`, `chunk_labels`, `retrieval_match_type`, `retrieval_score`). A raw-chunk modulok kotelezo fokuszszoveg alapjan valasztanak forrast keyword/semantic/hybrid retrievallel. Az ellentmondas modul ettol elteroen source-valid claim-parokon dolgozik. Reszletek: `Design_documents/10_analysis_batch_processing_plan.md`.
+
 Minden analysis modul közös bemeneti alakja:
 
 ```json

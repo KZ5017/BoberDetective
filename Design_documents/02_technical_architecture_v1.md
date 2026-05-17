@@ -38,6 +38,8 @@ A rendszer nem engedi, hogy a nyelvi modell forrás nélküli állításokat teg
 
 ## 3. Magas szintű adatfolyam
 
+> **Aktualis megjegyzes, 2026-05-17:** az adatfolyam celmodell maradt, de a megvalositott pipeline-ban a PDF import/OCR utan explicit `text_review_required` reteg van: elobb current oldalak keletkeznek, majd a felhasznalo kulon hoz letre chunkokat. A retrieval oldalon a raw-chunk elemzesek mar kotelezo fokuszszoveggel, `case` vagy `document` forraskorrel, `max_chunks` plafonnal, opcionális dokumentum-oldaltartomannyal es keyword/semantic/hybrid moddal dolgoznak. Reszletek: `Design_documents/06_document_processing_pipeline_v1.md` es `Design_documents/10_analysis_batch_processing_plan.md`.
+
 ```text
 Ügy / iratanyag
   ↓
@@ -71,6 +73,8 @@ Forráshivatkozás + audit log + emberi validálás
 ```
 
 ## 4. Fő komponensek
+
+> **Aktualis megjegyzes, 2026-05-17:** a nagy iratmennyisegu ugyek kezelesere kulon dokumentumtaxonomia es strukturalt forrasszuresi terv keszult. Az irattipusokat nem szabad a regi szabad szoveges `document_type` modellre tovabb epiteni; lasd `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`.
 
 A rendszer fő komponensei:
 

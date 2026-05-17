@@ -48,6 +48,11 @@ def test_analysis_module_request_rejects_invalid_page_range() -> None:
         AnalysisModuleRunRequest(query="fokusz", page_start=12, page_end=8)
 
 
+def test_analysis_module_request_rejects_page_range_in_case_mode() -> None:
+    with pytest.raises(ValidationError):
+        AnalysisModuleRunRequest(source_mode="case", query="fokusz", page_start=2, page_end=4)
+
+
 def _retrieved_chunk(label: str, text: str) -> RetrievedChunk:
     return RetrievedChunk(
         label=label,
@@ -252,24 +257,48 @@ def test_select_source_chunks_document_mode_defaults_to_full_document_range(monk
     assert captured_ranges == [(document_id, 1, 42)]
 
 
-def test_select_source_chunks_case_mode_ignores_page_range(monkeypatch) -> None:
-    captured_ranges = []
+def test_select_source_chunks_case_mode_passes_document_ids(monkeypatch) -> None:
+    document_ids = [uuid4(), uuid4()]
+    captured_document_ids = []
 
-    def fake_retrieve_source_scope_chunks(db, case_id_arg, payload, *, document_id=None, page_start=None, page_end=None):
-        captured_ranges.append((document_id, page_start, page_end))
-        return [_retrieved_chunk("chunk_1", "Ugy szintu forras.")]
+    def fake_retrieve_source_scope_chunks(
+        db,
+        case_id_arg,
+        payload,
+        *,
+        document_id=None,
+        document_ids=None,
+        page_start=None,
+        page_end=None,
+    ):
+        captured_document_ids.extend(document_ids or [])
+        return [_retrieved_chunk("chunk_1", "Tobb iratbol szurt forras.")]
 
-    monkeypatch.setattr(analysis_module_common, "_source_scope_max_page", lambda *args, **kwargs: 12)
     monkeypatch.setattr(analysis_module_common, "retrieve_source_scope_chunks", fake_retrieve_source_scope_chunks)
 
     retrieved = analysis_module_common.select_source_chunks(
         SimpleNamespace(),
         uuid4(),
-        AnalysisModuleRunRequest(source_mode="case", query="fokusz", page_start=2, page_end=4),
+        AnalysisModuleRunRequest(source_mode="case", query="fokusz", document_ids=document_ids),
     )
 
     assert len(retrieved) == 1
-    assert captured_ranges == [(None, None, None)]
+    assert captured_document_ids == document_ids
+
+
+def test_analysis_request_rejects_taxonomy_filters_in_document_mode() -> None:
+    with pytest.raises(ValidationError):
+        AnalysisModuleRunRequest(
+            source_mode="document",
+            document_id=uuid4(),
+            query="fokusz",
+            document_group_code="procedural_records",
+        )
+
+
+def test_analysis_request_rejects_document_type_without_group() -> None:
+    with pytest.raises(ValidationError):
+        AnalysisModuleRunRequest(source_mode="case", query="fokusz", document_type_code="jegyzokonyv")
 
 
 def test_select_source_chunks_uses_retrieval_for_document_mode_with_focus(monkeypatch) -> None:

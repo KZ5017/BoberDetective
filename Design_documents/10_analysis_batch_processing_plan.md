@@ -1,5 +1,7 @@
 # 10. Analysis Batch Processing Plan
 
+> **Aktualis megjegyzes, 2026-05-17:** ez a dokumentum a batch-esites torteneti tervet es tobb lepesben bovult allapotat tartalmazza. A szoveg egyes korabbi reszei mar tudatosan elavultak: nincs `focused_query` source mode, nincs legacy analysis `limit`, a raw-chunk modulok `source_mode = case | document`, kotelezo fokuszszoveg, `max_chunks`, `batch_size`, `retrieval_strategy`, es selected-document `page_start/page_end` mezokkel dolgoznak. Az ellentmondas modul claim-par alapu, `contradiction_candidate_limit` mezovel. A kovetkezo source-filtering irany a strukturalt dokumentumtaxonomia: `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`.
+
 ## 1. Cel
 
 A kovetkezo fejlesztes celja, hogy az elemzesi modulok ne csak fokuszalt query alapjan valasszanak ki nehany chunkot, hanem kesobb teljes dokumentumon vagy teljes ugyon is tudjanak dolgozni, batchekre bontva.
@@ -59,6 +61,8 @@ Live smoke allapot:
 
 ## 2. Jelenlegi allapot
 
+> **Aktualis megjegyzes, 2026-05-17:** az alabbi "jelenlegi allapot" mar a dokumentum eredeti irasakor volt aktualis. A mostani aktiv modell: `case` vagy `document` forraskor, kotelezo fokusz, keyword/semantic/hybrid retrieval, `max_chunks` plafon, `batch_size` LLM darabolas, es dokumentum scope eseten opcionális oldaltartomany. Lasd a dokumentum tetejen levo aktualis megjegyzest es a `CURRENT_STATE.md`-t.
+
 A jelenlegi elemzesi modell:
 
 ```text
@@ -109,6 +113,8 @@ source selector
 A fokuszalt query alapu elemzes ennek csak egy source selection modja legyen.
 
 ## 4. Source selection modok
+
+> **Aktualis megjegyzes, 2026-05-17:** a `focused_query` modot az implementaciobol eltavolitottuk. A fokuszszoveg nem forraskor, hanem minden raw-chunk elemzes kotelezo keresesi celja. A forraskor jelenleg `case` vagy `document`; a kesobbi bovites strukturalt dokumentumszurokkel tortenik, nem uj `focused_query` visszahozasaval.
 
 Tervezett modok:
 

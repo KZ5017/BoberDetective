@@ -12,6 +12,7 @@ from app.models.case import CaseModel
 from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
 from app.schemas.document import DocumentImportMetadata
 from app.schemas.document import DocumentOcrRecommendation
+from app.schemas.document import DocumentTaxonomyUpdateRequest
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.analysis_runs import (
     add_analysis_run_input,
@@ -116,6 +117,59 @@ def list_document_chunks(db: Session, case_id: UUID, document_id: UUID) -> list[
             .order_by(DocumentChunkModel.chunk_index.asc())
         ).scalars()
     )
+
+
+def update_document_taxonomy(
+    db: Session,
+    case_id: UUID,
+    document_id: UUID,
+    payload: DocumentTaxonomyUpdateRequest,
+) -> DocumentModel:
+    document = db.get(DocumentModel, document_id)
+    if document is None or document.case_id != case_id:
+        raise DocumentNotFoundError("Document not found")
+
+    user = get_or_create_dev_user(db)
+    previous_group_code = document.document_group_code
+    previous_type_code = document.document_type_code
+    changed = (
+        previous_group_code != payload.document_group_code
+        or previous_type_code != payload.document_type_code
+    )
+
+    document.document_group_code = payload.document_group_code
+    document.document_type_code = payload.document_type_code
+    db.add(document)
+    db.flush()
+
+    event = AuditEvent(
+        event_type="document_reclassified",
+        success=True,
+        case_id=str(case_id),
+        user_id=str(user.id),
+        related_object_type="document",
+        related_object_id=str(document.id),
+        related_document_id=str(document.id),
+        input_summary={
+            "document_id": str(document.id),
+            "previous_document_group_code": previous_group_code,
+            "previous_document_type_code": previous_type_code,
+            "new_document_group_code": payload.document_group_code,
+            "new_document_type_code": payload.document_type_code,
+            "comment": payload.comment,
+        },
+        output_summary={
+            "document_id": str(document.id),
+            "document_group_code": document.document_group_code,
+            "document_type_code": document.document_type_code,
+            "changed": changed,
+        },
+    )
+    DatabaseAuditWriter(db).write(event)
+    JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(event)
+    db.commit()
+    db.refresh(document)
+    return document
 
 
 def document_ocr_recommendation(db: Session, document: DocumentModel) -> DocumentOcrRecommendation:
@@ -434,7 +488,8 @@ async def import_txt_document(
         file_extension="txt",
         file_size_bytes=len(content),
         sha256_hash=sha256_hash,
-        document_type=metadata.document_type,
+        document_group_code=metadata.document_group_code or "uncategorized",
+        document_type_code=metadata.document_type_code or "uncategorized",
         language_code=metadata.language_code,
         is_encrypted=False,
         imported_by_user_id=user.id,
@@ -569,7 +624,8 @@ async def import_pdf_document(
         file_extension="pdf",
         file_size_bytes=len(content),
         sha256_hash=sha256_hash,
-        document_type=metadata.document_type,
+        document_group_code=metadata.document_group_code or "uncategorized",
+        document_type_code=metadata.document_type_code or "uncategorized",
         language_code=metadata.language_code,
         is_encrypted=False,
         imported_by_user_id=user.id,

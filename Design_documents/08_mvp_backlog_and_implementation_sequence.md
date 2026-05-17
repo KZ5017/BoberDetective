@@ -19,6 +19,8 @@ Alapelv:
 
 ## 2. Első működő célállapot
 
+> **Aktualis megjegyzes, 2026-05-17:** az elso MVP celallapot nagy resze mar megvalosult es tovabb finomodott: React/Vite frontend, explicit PDF text-review/chunkolas, OCR, batch-kepes raw-chunk analysis modulok, semantic/hybrid retrieval es background indexing is van. A kovetkezo nagy alapozas a strukturalt irattaxonomia es forrasszures. Friss allapot: `CURRENT_STATE.md`; uj terv: `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`.
+
 Az első valóban hasznos MVP célállapot:
 
 ```text

@@ -265,6 +265,8 @@ Segíti annak rekonstruálását, hogy egy adott időszakban ki férhetett hozz�
 
 ## 6.4 `documents`
 
+> **Aktualis megjegyzes, 2026-05-17:** a `document_type` szabad szoveges mezo az eredeti v1 terv resze volt, de az implementacio ezt meghaladta. A strukturalt irattaxonomia `document_group_code` es `document_type_code` mezokre epul, a regi/meglevo iratok `uncategorized / uncategorized` atmeneti besorolasaval, majd a legacy `document_type` oszlop `0019_drop_legacy_document_type` migracioval kivezetesre kerult. Az ide vonatkozo modositas/reszletezes: `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`.
+
 ### Cél
 
 Az eredeti importált dokumentumok immutable metaadatai.
@@ -282,7 +284,7 @@ Az eredeti importált dokumentumok immutable metaadatai.
 | file_size_bytes | bigint | igen | fájlméret |
 | sha256_hash | char(64) | igen | eredeti fájl hash |
 | import_batch_id | uuid | nem | opcionális csoportos import azonosító |
-| document_type | text | nem | pl. vallomás, jegyzőkönyv, szakvélemény |
+| document_type | text | nem | **Legacy terv, implementacioban kivezetve:** a tenyleges besorolas `document_group_code` / `document_type_code` mezokkel tortenik |
 | language_code | text | nem | pl. `hu` |
 | is_encrypted | boolean | igen | titkosított dokumentum jelölése |
 | imported_by_user_id | uuid | igen | FK `users.id` |
@@ -301,7 +303,7 @@ Az eredeti importált dokumentumok immutable metaadatai.
 - UNIQUE: `(case_id, sha256_hash)`
 - INDEX: `(case_id, imported_at)`
 - INDEX: `processing_status`
-- INDEX: `document_type`
+- INDEX: `document_type` **legacy terv, implementacioban kivezetve**
 
 ### Fontos constraint
 
@@ -312,6 +314,8 @@ Az eredeti importált dokumentumok immutable metaadatai.
 ### Audit / traceability megjegyzés
 
 Ez a tábla az eredeti fájl "evidence root" metaadata. Az üzleti szabály szerint ezek a mezők import után nem módosíthatók, kivéve korlátozott admin metaadatok, mint a `notes`.
+
+> **Aktualis megjegyzes, 2026-05-17:** a megvalositott dokumentumfeldolgozasban `text_review_required` statusz is letezik, mert PDF import/OCR utan az oldalreteg ellenorzese es a chunkolas kulon felhasznaloi dontesi pont. Reszletek: `Design_documents/06_document_processing_pipeline_v1.md`.
 
 ## 6.5 `document_pages`
 
@@ -906,6 +910,8 @@ Ellentmondásjelöltek és forráshivatkozások kapcsolata.
 Lehetővé teszi a UI-ban a két oldal egymás mellé helyezését konkrét idézetekkel.
 
 ## 6.19 `missing_item_candidates`
+
+> **Aktualis megjegyzes, 2026-05-17:** az `expected_document_type` kesobb osszekapcsolhato a strukturalt irattaxonomiaval, de ezt nem erdemes a regi szabad szoveges `document_type` mezore epiteni. Reszletek es nyitott kerdesek: `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`.
 
 ### Cél
 
