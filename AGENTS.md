@@ -185,7 +185,7 @@ As of the latest handoff:
   - secure storage path resolver,
   - SQLAlchemy/psycopg DB layer,
   - Alembic migration foundation,
-  - migrations through `0019_drop_legacy_document_type`,
+  - migrations through `0020_document_lifecycle_status`,
   - users/cases/case_users/audit_events tables,
   - documents/pages/chunks/source references,
   - analysis runs and source-cited analysis modules,
@@ -205,8 +205,8 @@ Current implementation caveats:
 - Configured chat-model load profile is `context_length=12288`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; chat model loading uses `POST /api/v1/system/llm/load-chat-model`.
 - Configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`; embedding model loading uses `POST /api/v1/system/llm/load-embedding-model` with `context_length=12288`, and embedding calls auto-ensure the configured model is loaded before `/v1/embeddings`. LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load.
 - LM Studio native chat calls auto-ensure the configured chat model is loaded; they reuse a matching loaded instance id or load the model with the configured profile when missing.
-- Latest test run: `200 passed`.
-- Latest Alembic state: `0019_drop_legacy_document_type (head)`.
+- Latest test run: `215 passed`.
+- Latest Alembic state: `0020_document_lifecycle_status (head)`.
 - Native-text PDF import uses configurable `BOBERDETECTIVE_PDF_PARSER`; the default `docling_then_pypdf` profile prefers Docling and falls back to local `pypdf`.
 - Current chunking strategy is page-local `char_window_v2`: it preserves processed page boundaries for source-location fidelity and prefers paragraph breaks before sentence-end breaks, line breaks, spaces, and hard character limits.
 - Docling is installed in `.venv`; explicit `BOBERDETECTIVE_PDF_PARSER=docling` import smoke passed with parser `docling` and `parse_document` validation `passed`.
@@ -278,8 +278,9 @@ Strategic next direction:
 - Frontend import/list support for fixed document taxonomy is implemented: the import panel loads `GET /api/v1/document-taxonomy`, shows dependent Hungarian group/type dropdowns, posts `document_group_code` and `document_type_code`, and the document list/detail views show structured taxonomy labels. Document detail also has `Besorolas modositasa`, backed by audit-tracked `PATCH /api/v1/cases/{case_id}/documents/{document_id}/taxonomy`; it changes only document metadata, not pages/chunks/sources/analysis/review objects.
 - Backend analysis source filtering now accepts structured case-scope filters: `document_group_code`, `document_type_code`, and `document_ids`. The filter resolves to a concrete document set and is applied consistently to keyword, semantic, hybrid raw-chunk retrieval, semantic/hybrid index readiness checks, and background chunk indexing; selected-document scope remains the only mode with page ranges.
 - Frontend analysis source filtering now exposes those case-scope structured filters: optional document group, optional dependent document type, and concrete document checkbox selection. Selected-document scope remains the only mode with page ranges.
-- Next target should be document parking/deletion/archive behavior for accidentally imported, badly processed, or intentionally excluded documents, especially before chunk creation. Keep source provenance and `no source -> no claim` central.
-- Another near-term target is a dedicated `Audit naplo` API/panel backed by `audit_events`. Do not confuse it with the current frontend `Elemzesi elozmenyek` panel, which lists `analysis_runs`; import/OCR/chunking show there because they create provenance runs, while pure audit events such as `document_reclassified` should surface in the future audit log.
+- Document lifecycle/parking is implemented through migration `0020_document_lifecycle_status`: documents can be `active`, `excluded`, or `archived`, with status-change metadata, audit events, frontend controls, and safe early discard/delete only before the document becomes analysis/source material.
+- Active documents are the only source material for new indexing, retrieval, analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge operations, and contradiction candidate creation/claim selection. Existing findings from inactive documents remain visible for historical review and show the source document lifecycle status.
+- Next target should be a dedicated, full `Audit naplo` API/panel backed by `audit_events`. Do not confuse it with the current frontend `Elemzesi elozmenyek` panel, which lists `analysis_runs`; import/OCR/chunking show there because they create provenance runs, while pure audit events such as `document_reclassified` and document lifecycle events should surface in the future audit log.
 - Frontend work in this phase should only support the backend workflow: source scope, required focus for raw-chunk modules, batch limits, Hungarian labels, and clear status/error feedback.
 - Rationale: raw-chunk modules can now process document/case scopes, while contradiction detection should operate downstream from source-cited claims and keep `no source -> no claim` intact.
 

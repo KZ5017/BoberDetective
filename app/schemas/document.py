@@ -37,6 +37,10 @@ class DocumentRead(BaseModel):
     imported_by_user_id: UUID
     imported_at: datetime
     processing_status: str
+    lifecycle_status: str
+    lifecycle_status_changed_at: datetime | None = None
+    lifecycle_status_changed_by_user_id: UUID | None = None
+    lifecycle_status_reason: str | None = None
     page_count: int | None
     parser_name: str | None
     parser_version: str | None
@@ -74,6 +78,10 @@ class DocumentTaxonomyUpdateRequest(BaseModel):
     def validate_taxonomy(self) -> "DocumentTaxonomyUpdateRequest":
         validate_document_taxonomy(self.document_group_code, self.document_type_code)
         return self
+
+
+class DocumentLifecycleUpdateRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
 
 
 def document_read_with_labels(document: object) -> DocumentRead:

@@ -1,15 +1,18 @@
+from datetime import UTC, datetime
 from pathlib import Path, PurePath
 from uuid import UUID, uuid4
 import hashlib
+import shutil
 
 from fastapi import UploadFile
-from sqlalchemy import select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.analysis import AnalysisRunModel
+from app.models.analysis import AnalysisRunInputModel, AnalysisRunModel, AnalysisRunOutputModel
 from app.models.case import CaseModel
 from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
+from app.models.source_reference import SourceReferenceModel
 from app.schemas.document import DocumentImportMetadata
 from app.schemas.document import DocumentOcrRecommendation
 from app.schemas.document import DocumentTaxonomyUpdateRequest
@@ -73,12 +76,30 @@ class DocumentChunkingError(DocumentProcessingError):
     pass
 
 
+class DocumentLifecycleError(DocumentProcessingError):
+    pass
+
+
 CHUNKING_STRATEGY = "char_window_v2"
 CHUNKER_VERSION = "2"
 DEFAULT_CHUNK_MAX_CHARS = 2000
 MIN_SOFT_BREAK_CHARS = 200
 OCR_MIN_AVG_CONFIDENCE = 0.5
 OCR_MIN_TEXT_CHARS_PER_PAGE = 120
+ACTIVE_DOCUMENT_STATUS = "active"
+NON_DISCARDABLE_RUN_TYPES = {
+    "extract_entities",
+    "extract_events",
+    "extract_claims",
+    "detect_contradictions",
+    "detect_missing_items",
+    "summarize_case",
+    "answer_with_citations",
+    "export_bundle",
+    "manual_entry",
+    "embed_chunks",
+    "index_chunks",
+}
 
 
 def list_documents(db: Session, case_id: UUID) -> list[DocumentModel]:
@@ -172,6 +193,185 @@ def update_document_taxonomy(
     return document
 
 
+def update_document_lifecycle_status(
+    db: Session,
+    case_id: UUID,
+    document_id: UUID,
+    target_status: str,
+    *,
+    reason: str | None = None,
+) -> DocumentModel:
+    if target_status not in {"active", "excluded", "archived"}:
+        raise DocumentLifecycleError("Unsupported document lifecycle status")
+    document = db.get(DocumentModel, document_id)
+    if document is None or document.case_id != case_id:
+        raise DocumentNotFoundError("Document not found")
+
+    user = get_or_create_dev_user(db)
+    previous_status = document.lifecycle_status
+    changed = previous_status != target_status
+    document.lifecycle_status = target_status
+    document.lifecycle_status_changed_at = datetime.now(UTC)
+    document.lifecycle_status_changed_by_user_id = user.id
+    document.lifecycle_status_reason = reason
+    db.add(document)
+    db.flush()
+
+    event_type = {
+        "active": "document_restored",
+        "excluded": "document_excluded",
+        "archived": "document_archived",
+    }[target_status]
+    event = AuditEvent(
+        event_type=event_type,
+        success=True,
+        case_id=str(case_id),
+        user_id=str(user.id),
+        related_object_type="document",
+        related_object_id=str(document.id),
+        related_document_id=str(document.id),
+        input_summary={
+            "document_id": str(document.id),
+            "previous_lifecycle_status": previous_status,
+            "new_lifecycle_status": target_status,
+            "reason": reason,
+        },
+        output_summary={
+            "document_id": str(document.id),
+            "lifecycle_status": document.lifecycle_status,
+            "changed": changed,
+        },
+    )
+    DatabaseAuditWriter(db).write(event)
+    JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(event)
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+def discard_document(db: Session, case_id: UUID, document_id: UUID, *, reason: str | None = None) -> None:
+    document = db.get(DocumentModel, document_id)
+    if document is None or document.case_id != case_id:
+        raise DocumentNotFoundError("Document not found")
+    _ensure_document_discardable(db, case_id, document)
+
+    user = get_or_create_dev_user(db)
+    storage = StoragePaths(get_settings().data_root)
+    stored_path = _stored_document_path_under_data_root(document, storage)
+    original_dir = storage.originals_dir(str(case_id), str(document.id))
+    derived_dir = storage.derived_dir(str(case_id), str(document.id))
+    page_ids = list(
+        db.execute(select(DocumentPageModel.id).where(DocumentPageModel.case_id == case_id, DocumentPageModel.document_id == document.id)).scalars()
+    )
+    run_ids = _discardable_document_run_ids(db, case_id, document.id, page_ids)
+
+    event = AuditEvent(
+        event_type="document_discarded",
+        success=True,
+        case_id=str(case_id),
+        user_id=str(user.id),
+        related_object_type="document",
+        related_object_id=str(document.id),
+        related_document_id=str(document.id),
+        input_summary={
+            "document_id": str(document.id),
+            "original_filename": document.original_filename,
+            "lifecycle_status": document.lifecycle_status,
+            "processing_status": document.processing_status,
+            "reason": reason,
+        },
+        output_summary={
+            "deleted_page_count": len(page_ids),
+            "deleted_run_count": len(run_ids),
+            "sha256_hash": document.sha256_hash,
+        },
+    )
+    DatabaseAuditWriter(db).write(event)
+    JsonlAuditWriter(storage).write(event)
+
+    if run_ids:
+        db.execute(delete(AnalysisRunOutputModel).where(AnalysisRunOutputModel.analysis_run_id.in_(run_ids)))
+        db.execute(delete(AnalysisRunInputModel).where(AnalysisRunInputModel.analysis_run_id.in_(run_ids)))
+        db.execute(delete(AnalysisRunModel).where(AnalysisRunModel.id.in_(run_ids)))
+    if page_ids:
+        db.execute(delete(DocumentPageModel).where(DocumentPageModel.id.in_(page_ids)))
+    db.delete(document)
+    db.commit()
+
+    _remove_path_if_exists(original_dir)
+    _remove_path_if_exists(derived_dir)
+    if stored_path.exists():
+        _remove_path_if_exists(stored_path)
+
+
+def _ensure_document_discardable(db: Session, case_id: UUID, document: DocumentModel) -> None:
+    chunk_count = db.execute(
+        select(func.count()).select_from(DocumentChunkModel).where(DocumentChunkModel.case_id == case_id, DocumentChunkModel.document_id == document.id)
+    ).scalar_one()
+    if int(chunk_count) > 0:
+        raise DocumentLifecycleError("Document cannot be discarded after chunks have been created")
+
+    source_reference_count = db.execute(
+        select(func.count()).select_from(SourceReferenceModel).where(SourceReferenceModel.case_id == case_id, SourceReferenceModel.document_id == document.id)
+    ).scalar_one()
+    if int(source_reference_count) > 0:
+        raise DocumentLifecycleError("Document cannot be discarded because source references exist")
+
+    page_ids = list(
+        db.execute(select(DocumentPageModel.id).where(DocumentPageModel.case_id == case_id, DocumentPageModel.document_id == document.id)).scalars()
+    )
+    run_ids = _document_run_ids(db, case_id, document.id, page_ids)
+    if run_ids:
+        blocked_count = db.execute(
+            select(func.count()).select_from(AnalysisRunModel).where(
+                AnalysisRunModel.id.in_(run_ids),
+                AnalysisRunModel.run_type.in_(NON_DISCARDABLE_RUN_TYPES),
+            )
+        ).scalar_one()
+        if int(blocked_count) > 0:
+            raise DocumentLifecycleError("Document cannot be discarded because it has analysis history")
+
+
+def _ensure_active_document(document: DocumentModel) -> None:
+    if document.lifecycle_status != ACTIVE_DOCUMENT_STATUS:
+        raise DocumentLifecycleError("Document is not active")
+
+
+def _discardable_document_run_ids(db: Session, case_id: UUID, document_id: UUID, page_ids: list[UUID]) -> list[UUID]:
+    run_ids = _document_run_ids(db, case_id, document_id, page_ids)
+    if not run_ids:
+        return []
+    return list(
+        db.execute(
+            select(AnalysisRunModel.id).where(
+                AnalysisRunModel.id.in_(run_ids),
+                AnalysisRunModel.run_type.not_in(NON_DISCARDABLE_RUN_TYPES),
+            )
+        ).scalars()
+    )
+
+
+def _document_run_ids(db: Session, case_id: UUID, document_id: UUID, page_ids: list[UUID]) -> list[UUID]:
+    conditions = [AnalysisRunInputModel.document_id == document_id]
+    if page_ids:
+        conditions.append(AnalysisRunInputModel.page_id.in_(page_ids))
+    stmt = (
+        select(AnalysisRunInputModel.analysis_run_id)
+        .join(AnalysisRunModel, AnalysisRunModel.id == AnalysisRunInputModel.analysis_run_id)
+        .where(AnalysisRunModel.case_id == case_id)
+        .where(or_(*conditions))
+        .distinct()
+    )
+    return list(db.execute(stmt).scalars())
+
+
+def _remove_path_if_exists(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+    elif path.exists():
+        path.unlink(missing_ok=True)
+
+
 def document_ocr_recommendation(db: Session, document: DocumentModel) -> DocumentOcrRecommendation:
     if document.file_extension != "pdf" or document.mime_type != "application/pdf":
         return DocumentOcrRecommendation(action="hidden", reason_code="not_pdf", message="OCR csak PDF iratoknal ertelmezett.")
@@ -242,6 +442,7 @@ def process_document(db: Session, case_id: UUID, document_id: UUID, *, reason: s
     document = db.get(DocumentModel, document_id)
     if document is None or document.case_id != case_id:
         raise DocumentNotFoundError("Document not found")
+    _ensure_active_document(document)
 
     run = start_analysis_run(
         db,
@@ -297,6 +498,7 @@ def create_document_chunks(db: Session, case_id: UUID, document_id: UUID, *, rea
     document = db.get(DocumentModel, document_id)
     if document is None or document.case_id != case_id:
         raise DocumentNotFoundError("Document not found")
+    _ensure_active_document(document)
 
     current_pages = _list_current_pages(db, case_id, document_id)
     current_chunks = _list_current_chunks(db, case_id, document_id)
@@ -365,6 +567,7 @@ def ocr_document(
     document = db.get(DocumentModel, document_id)
     if document is None or document.case_id != case_id:
         raise DocumentNotFoundError("Document not found")
+    _ensure_active_document(document)
     if document.file_extension != "pdf" or document.mime_type != "application/pdf":
         raise UnsupportedOcrDocumentError("OCR is currently supported for PDF documents only")
 

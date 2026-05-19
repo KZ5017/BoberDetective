@@ -13,6 +13,7 @@ from app.models.source_reference import SourceReferenceModel
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.detached_sources import create_detached_source_item
 from app.services.reviews import list_object_reviews, record_object_review, review_status_for_action
+from app.services.source_references import ensure_source_reference_document_is_active
 from app.services.storage import StoragePaths
 from app.services.users import get_or_create_dev_user
 
@@ -104,6 +105,19 @@ def merge_event(
     target_event = get_event(db, case_id, target_event_id)
     if source_event.event_type != target_event.event_type:
         raise EventValidationError("Only events with the same type can be merged")
+    if target_event.review_status == "corrected":
+        raise EventValidationError("Corrected events cannot be merge targets")
+    if source_event.source_validation_status == "source_invalid":
+        raise EventValidationError("Events without valid sources cannot be merged")
+    if target_event.source_validation_status == "source_invalid":
+        raise EventValidationError("Events without valid sources cannot be merge targets")
+    source_event_sources = list_event_sources(db, source_event.id)
+    target_event_sources = list_event_sources(db, target_event.id)
+    if not source_event_sources:
+        raise EventValidationError("Events without valid sources cannot be merged")
+    if not target_event_sources:
+        raise EventValidationError("Events without valid sources cannot be merge targets")
+    _ensure_event_sources_have_active_documents(db, case_id, source_event_sources + target_event_sources)
 
     target_source_reference_ids = {
         source.source_reference_id
@@ -111,7 +125,7 @@ def merge_event(
     }
     moved_source_count = 0
     skipped_duplicate_source_count = 0
-    for source in list_event_sources(db, source_event.id):
+    for source in source_event_sources:
         if source.source_reference_id in target_source_reference_ids:
             db.delete(source)
             skipped_duplicate_source_count += 1
@@ -209,6 +223,7 @@ def detach_event_source(
     source_reference = db.get(SourceReferenceModel, source_link.source_reference_id)
     if source_reference is None or source_reference.case_id != case_id:
         raise EventValidationError("Event source reference not found for this case")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, EventValidationError)
     source_reference_id = source_link.source_reference_id
     db.delete(source_link)
     db.flush()
@@ -299,6 +314,16 @@ def move_event_source(
     source_link = db.get(EventSourceModel, event_source_id)
     if source_link is None or source_link.event_id != source_event.id:
         raise EventValidationError("Event source not found for this event")
+    source_reference = db.get(SourceReferenceModel, source_link.source_reference_id)
+    if source_reference is None or source_reference.case_id != case_id:
+        raise EventValidationError("Event source reference not found for this case")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, EventValidationError)
+    _ensure_event_sources_have_active_documents(db, case_id, list_event_sources(db, target_event.id))
+
+    previous_target_status = target_event.review_status
+    target_reactivated = previous_target_status == "corrected"
+    if target_reactivated:
+        target_event.review_status = "needs_review"
 
     duplicate = db.execute(
         select(EventSourceModel).where(
@@ -345,14 +370,15 @@ def move_event_source(
         object_type="event",
         object_id=target_event.id,
         action_type="attach_source",
-        previous_review_status=target_event.review_status,
-        new_review_status=None,
+        previous_review_status=previous_target_status,
+        new_review_status=target_event.review_status if target_reactivated else None,
         review_comment=review_comment or f"Esemeny forrasa atveve: {source_event.event_title}",
         correction_patch_json={
             "operation": "move_source_from",
             "event_source_id": str(event_source_id),
             "source_event_id": str(source_event.id),
             "skipped_duplicate_source": skipped_duplicate_source,
+            "reactivated_corrected_target": target_reactivated,
         },
         performed_by_user_id=user.id,
     )
@@ -377,6 +403,8 @@ def move_event_source(
             "target_review_id": str(target_review.id),
             "skipped_duplicate_source": skipped_duplicate_source,
             "remaining_source_count": remaining_source_count,
+            "target_previous_review_status": previous_target_status if target_reactivated else None,
+            "target_new_review_status": target_event.review_status if target_reactivated else None,
         },
     )
     DatabaseAuditWriter(db).write(audit_event)
@@ -411,6 +439,7 @@ def create_event_with_source(
     source_reference = db.get(SourceReferenceModel, source_reference_id)
     if source_reference is None or source_reference.case_id != case_id:
         raise EventValidationError("Source reference not found for this case")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, EventValidationError)
 
     event = EventModel(
         case_id=case_id,
@@ -460,3 +489,11 @@ def create_event_with_source(
 
 def _review_status_for_action(action_type: str, previous_status: str) -> str | None:
     return review_status_for_action(action_type, previous_status, EventValidationError)
+
+
+def _ensure_event_sources_have_active_documents(db: Session, case_id: UUID, sources: list[EventSourceModel]) -> None:
+    for source in sources:
+        source_reference = db.get(SourceReferenceModel, source.source_reference_id)
+        if source_reference is None or source_reference.case_id != case_id:
+            raise EventValidationError("Event source reference not found for this case")
+        ensure_source_reference_document_is_active(db, case_id, source_reference, EventValidationError)

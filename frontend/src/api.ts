@@ -18,6 +18,10 @@ export type DocumentRead = {
   file_size_bytes: number;
   sha256_hash: string;
   processing_status: string;
+  lifecycle_status: string;
+  lifecycle_status_changed_at: string | null;
+  lifecycle_status_changed_by_user_id: string | null;
+  lifecycle_status_reason: string | null;
   page_count: number | null;
   imported_at: string;
   ocr_recommendation: {
@@ -124,6 +128,7 @@ export type ReviewReportSource = {
   document_id: string;
   document_filename: string | null;
   document_sha256_hash: string | null;
+  document_lifecycle_status: string | null;
   page_number: number | null;
   chunk_index: number | null;
   quote_char_start: number | null;
@@ -429,6 +434,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail ?? `${response.status} ${response.statusText}`);
   }
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return response.json() as Promise<T>;
 }
 
@@ -680,6 +688,27 @@ export function updateDocumentTaxonomy(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+}
+
+export function updateDocumentLifecycle(
+  caseId: string,
+  documentId: string,
+  action: "exclude" | "archive" | "restore",
+  reason?: string
+): Promise<DocumentRead> {
+  return request(`/cases/${caseId}/documents/${documentId}/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: reason || null })
+  });
+}
+
+export function discardDocument(caseId: string, documentId: string, reason?: string): Promise<void> {
+  return request(`/cases/${caseId}/documents/${documentId}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: reason || null })
   });
 }
 

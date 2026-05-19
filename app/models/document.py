@@ -19,6 +19,10 @@ class DocumentModel(Base):
             "processing_status in ('pending', 'processing', 'processed', 'failed', 'review_required', 'text_review_required')",
             name="ck_documents_processing_status",
         ),
+        CheckConstraint(
+            "lifecycle_status in ('active', 'excluded', 'archived')",
+            name="ck_documents_lifecycle_status",
+        ),
         UniqueConstraint("case_id", "sha256_hash", name="uq_documents_case_sha256_hash"),
     )
 
@@ -38,13 +42,18 @@ class DocumentModel(Base):
     imported_by_user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
     processing_status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    lifecycle_status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
+    lifecycle_status_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lifecycle_status_changed_by_user_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    lifecycle_status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     parser_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     parser_version: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     case = relationship("CaseModel")
-    imported_by = relationship("UserModel")
+    imported_by = relationship("UserModel", foreign_keys=[imported_by_user_id])
+    lifecycle_status_changed_by = relationship("UserModel", foreign_keys=[lifecycle_status_changed_by_user_id])
 
 
 class DocumentPageModel(Base):

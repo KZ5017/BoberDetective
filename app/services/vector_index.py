@@ -375,7 +375,7 @@ def semantic_chunk_search(
         if chunk is None or chunk.case_id != case_id or not chunk.is_current:
             continue
         document = db.get(DocumentModel, chunk.document_id)
-        if document is None or document.case_id != case_id:
+        if document is None or document.case_id != case_id or document.lifecycle_status != "active":
             continue
         hits.append(
             KeywordSearchHit(
@@ -568,7 +568,9 @@ def _chunks_to_index(db: Session, case_id: UUID, request: ChunkIndexRequest) -> 
     scope_document_ids = _scope_document_ids(db, case_id, request)
     stmt = (
         select(DocumentChunkModel)
+        .join(DocumentModel, DocumentModel.id == DocumentChunkModel.document_id)
         .where(DocumentChunkModel.case_id == case_id, DocumentChunkModel.is_current.is_(True))
+        .where(DocumentModel.lifecycle_status == "active")
         .order_by(DocumentChunkModel.document_id.asc(), DocumentChunkModel.chunk_index.asc())
         .limit(request.limit)
     )
@@ -591,7 +593,16 @@ def _current_chunk_count(db: Session, case_id: UUID, request: ChunkIndexRequest)
     scope_document_ids = _scope_document_ids(db, case_id, request)
     if scope_document_ids == []:
         return 0
-    stmt = select(func.count()).select_from(DocumentChunkModel).where(DocumentChunkModel.case_id == case_id, DocumentChunkModel.is_current.is_(True))
+    stmt = (
+        select(func.count())
+        .select_from(DocumentChunkModel)
+        .join(DocumentModel, DocumentModel.id == DocumentChunkModel.document_id)
+        .where(
+            DocumentChunkModel.case_id == case_id,
+            DocumentChunkModel.is_current.is_(True),
+            DocumentModel.lifecycle_status == "active",
+        )
+    )
     if scope_document_ids is not None:
         stmt = stmt.where(DocumentChunkModel.document_id.in_(scope_document_ids))
     return int(db.execute(stmt).scalar_one())
@@ -604,11 +615,13 @@ def _indexed_chunk_count(db: Session, case_id: UUID, request: ChunkIndexRequest,
     stmt = (
         select(func.count())
         .select_from(DocumentChunkModel)
+        .join(DocumentModel, DocumentModel.id == DocumentChunkModel.document_id)
         .where(
             DocumentChunkModel.case_id == case_id,
             DocumentChunkModel.is_current.is_(True),
             DocumentChunkModel.embedding_model == embedding_model,
             DocumentChunkModel.embedding_vector_id.is_not(None),
+            DocumentModel.lifecycle_status == "active",
         )
     )
     if scope_document_ids is not None:
@@ -617,11 +630,16 @@ def _indexed_chunk_count(db: Session, case_id: UUID, request: ChunkIndexRequest,
 
 
 def _scope_document_ids(db: Session, case_id: UUID, request: ChunkIndexRequest) -> list[UUID] | None:
+    base_stmt = select(DocumentModel.id).where(
+        DocumentModel.case_id == case_id,
+        DocumentModel.lifecycle_status == "active",
+    )
     if request.document_id is not None:
-        return [request.document_id]
+        active_id = db.execute(base_stmt.where(DocumentModel.id == request.document_id)).scalar_one_or_none()
+        return [active_id] if active_id is not None else []
     if not request.document_ids and request.document_group_code is None and request.document_type_code is None:
         return None
-    stmt = select(DocumentModel.id).where(DocumentModel.case_id == case_id)
+    stmt = base_stmt
     requested_ids = list(dict.fromkeys(request.document_ids))
     if requested_ids:
         stmt = stmt.where(DocumentModel.id.in_(requested_ids))

@@ -18,6 +18,7 @@ from app.services.analysis_runs import add_analysis_run_input, add_analysis_run_
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.claims import list_claim_sources
 from app.services.reviews import list_object_reviews, record_object_review, review_status_for_action
+from app.services.source_references import ensure_source_reference_document_is_active
 from app.services.storage import StoragePaths
 
 
@@ -329,6 +330,7 @@ def _get_case_source_reference(db: Session, case_id: UUID, source_reference_id: 
     source_reference = db.get(SourceReferenceModel, source_reference_id)
     if source_reference is None or source_reference.case_id != case_id:
         raise ContradictionCandidateValidationError("Source reference not found for this case")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, ContradictionCandidateValidationError)
     return source_reference
 
 

@@ -366,6 +366,7 @@ def _report_source_from_reference(
         document_id=source_reference.document_id,
         document_filename=document.original_filename if document is not None else None,
         document_sha256_hash=document.sha256_hash if document is not None else None,
+        document_lifecycle_status=document.lifecycle_status if document is not None else None,
         page_id=source_reference.page_id,
         chunk_id=source_reference.chunk_id,
         page_number=source_reference.page_number,

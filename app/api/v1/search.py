@@ -54,9 +54,26 @@ def post_hybrid_search(
         document_ids = _semantic_filter_document_ids(db, case_id, payload)
         try:
             hits = (
-                semantic_chunk_search(db, case_id, payload.query, payload.limit, document_ids=document_ids)
+                semantic_chunk_search(
+                    db,
+                    case_id,
+                    payload.query,
+                    payload.limit,
+                    document_ids=document_ids,
+                    page_start=payload.filters.page_start,
+                    page_end=payload.filters.page_end,
+                )
                 if payload.retrieval_strategy == "semantic"
-                else hybrid_chunk_search(db, case_id, payload.query, keyword_hits, payload.limit, document_ids=document_ids)
+                else hybrid_chunk_search(
+                    db,
+                    case_id,
+                    payload.query,
+                    keyword_hits,
+                    payload.limit,
+                    document_ids=document_ids,
+                    page_start=payload.filters.page_start,
+                    page_end=payload.filters.page_end,
+                )
             )
         except VectorIndexError as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
@@ -65,9 +82,10 @@ def post_hybrid_search(
 
 def _semantic_filter_document_ids(db: Session, case_id: UUID, payload: HybridSearchRequest) -> list[UUID] | None:
     filters = payload.filters
-    if not filters.document_ids and filters.document_group_code is None and filters.document_type_code is None:
-        return None
-    stmt = select(DocumentModel.id).where(DocumentModel.case_id == case_id)
+    stmt = select(DocumentModel.id).where(
+        DocumentModel.case_id == case_id,
+        DocumentModel.lifecycle_status == "active",
+    )
     if filters.document_ids:
         stmt = stmt.where(DocumentModel.id.in_(filters.document_ids))
     if filters.document_group_code is not None:

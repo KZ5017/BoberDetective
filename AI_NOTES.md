@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 200 passed`, `alembic: 0019_drop_legacy_document_type (head)`.
+- Current verification baseline: `pytest: 215 passed`, `alembic: 0020_document_lifecycle_status (head)`.
 
 Initial implementation exists:
 
@@ -99,6 +99,9 @@ Initial implementation exists:
 - entity, event, and missing item candidate source links can be detached manually through audit-tracked `detach_source` review actions; frontend source details show `Levalasztas` only when a concrete source-link id is available,
 - detached source links are parked in `detached_source_items` with the source reference plus object/source snapshots, and the frontend shows them under `Levalasztott forrasok`,
 - detached sources can be reattached from the parked-source panel or marked irrelevant; source details can also directly move a source to another same-type target object without a manual detach/reattach round,
+- document lifecycle/parking is implemented with `active`, `excluded`, and `archived` states plus audit-tracked status changes; only active documents can be used as new source material for indexing, retrieval, analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge, and contradiction candidate creation/claim selection,
+- existing review findings from excluded/archived documents remain visible for historical review, and review report source details expose the source document lifecycle status,
+- early document discard/delete is allowed only before the document has become analysis/source material; otherwise documents should be excluded or archived rather than physically removed,
 - users can select readonly text from document chunks and create source-bound manual claim/entity/event/missing item candidate objects through `manual_entry` provenance runs,
 - detached source items can also create new source-bound manual claim/entity/event/missing item candidate objects and then store the created object as their handled target,
 - missing item candidate persistence, source linkage, API, review workflow, and review report inclusion,
@@ -263,8 +266,8 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Plan and implement document delete / exclude / archive behavior for accidentally imported, badly processed, or intentionally parked documents.
-3. Design and implement an `Audit naplo` API/panel backed by `audit_events`; it should include events such as `document_reclassified` with its optional comment.
+2. Design and implement a full `Audit naplo` API/panel backed by `audit_events`; it should include lifecycle, taxonomy, source movement, review, import/OCR/chunking, export, and analysis-run audit events in one searchable place.
+3. Re-test document lifecycle behavior on a larger multi-document case, especially excluded/archived source visibility, active-only source use, and UI refresh after lifecycle changes.
 4. Consider durable job supervision if indexing grows beyond FastAPI background tasks.
 
 Strategic rationale:
@@ -274,6 +277,7 @@ Strategic rationale:
 - The raw-chunk analysis modules are now batch-capable and live-smoke passed on document/case source modes.
 - Large-case usability now uses structured document metadata for import/list display and analysis source filtering. The old free-text `documents.document_type` column/API field has been removed through `0019_drop_legacy_document_type`; do not reintroduce uncontrolled free-text document classification.
 - Document reclassification is available as an audit-tracked metadata-only operation: `PATCH /api/v1/cases/{case_id}/documents/{document_id}/taxonomy` validates the taxonomy pair, records `document_reclassified`, and intentionally leaves pages, chunks, source references, analysis runs, and review objects untouched.
+- Document lifecycle is now an active-source gate. Inactive documents remain historically visible where already cited, but must not become new source material unless restored to `active`.
 - The current `Elemzesi elozmenyek` panel lists `analysis_runs` only. Import/OCR/chunking appear there because they create provenance runs; pure audit events such as `document_reclassified` belong in a future separate `Audit naplo` panel backed by `audit_events`.
 - The structured metadata foundation is visible in the frontend import/list workflow, and the analysis panel now exposes whole-case source filters for document group, dependent document type, and concrete document checkbox selection.
 - Backend analysis source selection uses the structured metadata for case-scope filtering and applies the resolved document set consistently to keyword, semantic, hybrid retrieval, semantic/hybrid readiness checks, and background chunk indexing.
@@ -298,8 +302,8 @@ Implementation status:
 - Initial FastAPI scaffold exists under `app/`.
 - Health endpoint works.
 - SQLAlchemy/psycopg DB layer exists.
-- Alembic migrations through `0018_document_taxonomy` are applied.
-- `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, `export_items`, `summary_items`, `summary_item_sources`, `contradiction_candidates`, `contradiction_candidate_sources`, `missing_item_candidates`, and `missing_item_candidate_sources` tables exist.
+- Alembic migrations through `0020_document_lifecycle_status` are applied.
+- `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, `export_items`, `summary_items`, `summary_item_sources`, `contradiction_candidates`, `contradiction_candidate_sources`, `missing_item_candidates`, `missing_item_candidate_sources`, and `detached_source_items` tables exist.
 - Case create/list API works.
 - Case creation writes DB audit event and JSONL audit event.
 - Document/page/chunk persistence foundation exists.
@@ -475,7 +479,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `200 passed`.
+- Latest test run: `215 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

@@ -13,6 +13,7 @@ from app.models.source_reference import SourceReferenceModel
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.detached_sources import create_detached_source_item
 from app.services.reviews import list_object_reviews, record_object_review, review_status_for_action
+from app.services.source_references import ensure_source_reference_document_is_active
 from app.services.storage import StoragePaths
 from app.services.users import get_or_create_dev_user
 
@@ -108,8 +109,16 @@ def merge_entity(
     target_entity = get_entity(db, case_id, target_entity_id)
     if source_entity.entity_type != target_entity.entity_type:
         raise EntityValidationError("Only entities with the same type can be merged")
+    if target_entity.review_status == "corrected":
+        raise EntityValidationError("Corrected entities cannot be merge targets")
 
     source_mentions = list_entity_mentions(db, source_entity.id)
+    if not source_mentions:
+        raise EntityValidationError("Entities without sources cannot be merged")
+    target_mentions = list_entity_mentions(db, target_entity.id)
+    if not target_mentions:
+        raise EntityValidationError("Entities without sources cannot be merge targets")
+    _ensure_entity_mentions_have_active_documents(db, case_id, source_mentions + target_mentions)
     moved_mention_count = 0
     for mention in source_mentions:
         mention.entity_id = target_entity.id
@@ -200,6 +209,7 @@ def detach_entity_mention(
     source_reference = db.get(SourceReferenceModel, mention.source_reference_id) if mention.source_reference_id is not None else None
     if source_reference is None or source_reference.case_id != case_id:
         raise EntityValidationError("Entity mention source reference not found for this case")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, EntityValidationError)
 
     source_reference_id = mention.source_reference_id
     source_document_id = mention.document_id
@@ -285,6 +295,16 @@ def move_entity_mention(
     mention = db.get(EntityMentionModel, mention_id)
     if mention is None or mention.case_id != case_id or mention.entity_id != source_entity.id:
         raise EntityValidationError("Entity mention not found for this entity")
+    source_reference = db.get(SourceReferenceModel, mention.source_reference_id) if mention.source_reference_id is not None else None
+    if source_reference is None or source_reference.case_id != case_id:
+        raise EntityValidationError("Entity mention source reference not found for this case")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, EntityValidationError)
+    _ensure_entity_mentions_have_active_documents(db, case_id, list_entity_mentions(db, target_entity.id))
+
+    previous_target_status = target_entity.review_status
+    target_reactivated = previous_target_status == "corrected"
+    if target_reactivated:
+        target_entity.review_status = "needs_review"
 
     mention.entity_id = target_entity.id
     source_entity.updated_at = datetime.now(UTC)
@@ -314,13 +334,14 @@ def move_entity_mention(
         object_type="entity",
         object_id=target_entity.id,
         action_type="attach_source",
-        previous_review_status=target_entity.review_status,
-        new_review_status=None,
+        previous_review_status=previous_target_status,
+        new_review_status=target_entity.review_status if target_reactivated else None,
         review_comment=review_comment or f"Entitas forrasa atveve: {source_entity.canonical_name}",
         correction_patch_json={
             "operation": "move_source_from",
             "mention_id": str(mention_id),
             "source_entity_id": str(source_entity.id),
+            "reactivated_corrected_target": target_reactivated,
         },
         performed_by_user_id=user.id,
     )
@@ -345,6 +366,9 @@ def move_entity_mention(
         },
         output_summary={"source_review_id": str(source_review.id), "target_review_id": str(target_review.id)},
     )
+    if target_reactivated:
+        audit_event.output_summary["target_previous_review_status"] = previous_target_status
+        audit_event.output_summary["target_new_review_status"] = target_entity.review_status
     DatabaseAuditWriter(db).write(audit_event)
     JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(audit_event)
     db.commit()
@@ -376,6 +400,7 @@ def create_entity_with_mention(
     source_reference = db.get(SourceReferenceModel, source_reference_id)
     if source_reference is None or source_reference.case_id != case_id:
         raise EntityValidationError("Source reference not found for this case")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, EntityValidationError)
 
     entity = _find_existing_entity(db, case_id, entity_type, canonical_name, normalized_value)
     created_entity = entity is None
@@ -490,3 +515,11 @@ def _normalize_entity_key(value: str | None) -> str:
 
 def _review_status_for_action(action_type: str, previous_status: str) -> str | None:
     return review_status_for_action(action_type, previous_status, EntityValidationError)
+
+
+def _ensure_entity_mentions_have_active_documents(db: Session, case_id: UUID, mentions: list[EntityMentionModel]) -> None:
+    for mention in mentions:
+        source_reference = db.get(SourceReferenceModel, mention.source_reference_id) if mention.source_reference_id is not None else None
+        if source_reference is None or source_reference.case_id != case_id:
+            raise EntityValidationError("Entity mention source reference not found for this case")
+        ensure_source_reference_document_is_active(db, case_id, source_reference, EntityValidationError)

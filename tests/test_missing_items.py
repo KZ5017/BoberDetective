@@ -2,6 +2,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.models.missing_item import MissingItemCandidateModel
 from app.schemas.missing_item import MissingItemSourceCreate
 from app.services.missing_items import (
     MissingItemCandidateNotFoundError,
@@ -78,6 +79,82 @@ def test_merge_missing_item_candidate_rejects_same_source_and_target() -> None:
             case_id=uuid4(),
             source_candidate_id=candidate_id,
             target_candidate_id=candidate_id,
+        )
+
+
+def test_merge_missing_item_candidate_rejects_corrected_target() -> None:
+    case_id = uuid4()
+    source = MissingItemCandidateModel(
+        id=uuid4(),
+        case_id=case_id,
+        missing_item_type="attachment",
+        referenced_item_text="1. szamu melleklet",
+        description="A forras mellekletre hivatkozik.",
+        created_by_analysis_run_id=uuid4(),
+        review_status="needs_review",
+    )
+    target = MissingItemCandidateModel(
+        id=uuid4(),
+        case_id=case_id,
+        missing_item_type="attachment",
+        referenced_item_text="1. melleklet",
+        description="Korabbi osszevont jelolt.",
+        created_by_analysis_run_id=uuid4(),
+        review_status="corrected",
+    )
+
+    class _Db:
+        def get(self, model, key):
+            return {source.id: source, target.id: target}.get(key)
+
+    with pytest.raises(
+        MissingItemCandidateValidationError,
+        match="Corrected missing item candidates cannot be merge targets",
+    ):
+        merge_missing_item_candidate(
+            _Db(),
+            case_id=case_id,
+            source_candidate_id=source.id,
+            target_candidate_id=target.id,
+        )
+
+
+def test_merge_missing_item_candidate_rejects_source_invalid_source() -> None:
+    case_id = uuid4()
+    source = MissingItemCandidateModel(
+        id=uuid4(),
+        case_id=case_id,
+        missing_item_type="attachment",
+        referenced_item_text="1. szamu melleklet",
+        description="A forras mellekletre hivatkozik.",
+        created_by_analysis_run_id=uuid4(),
+        source_validation_status="source_invalid",
+        review_status="needs_review",
+    )
+    target = MissingItemCandidateModel(
+        id=uuid4(),
+        case_id=case_id,
+        missing_item_type="attachment",
+        referenced_item_text="1. melleklet",
+        description="Masik jelolt.",
+        created_by_analysis_run_id=uuid4(),
+        source_validation_status="source_valid",
+        review_status="needs_review",
+    )
+
+    class _Db:
+        def get(self, model, key):
+            return {source.id: source, target.id: target}.get(key)
+
+    with pytest.raises(
+        MissingItemCandidateValidationError,
+        match="Missing item candidates without valid sources cannot be merged",
+    ):
+        merge_missing_item_candidate(
+            _Db(),
+            case_id=case_id,
+            source_candidate_id=source.id,
+            target_candidate_id=target.id,
         )
 
 

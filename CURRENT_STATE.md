@@ -24,8 +24,8 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 200 passed
-alembic: 0019_drop_legacy_document_type (head)
+pytest: 215 passed
+alembic: 0020_document_lifecycle_status (head)
 ```
 
 ## What Works Now
@@ -34,7 +34,7 @@ alembic: 0019_drop_legacy_document_type (head)
 - Minimal React/Vite frontend workbench scaffold under `frontend/`.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0019_drop_legacy_document_type`.
+- Alembic migrations through `0020_document_lifecycle_status`.
 - Immutable TXT import with page/chunk persistence.
 - Explicit imported-document processing validation run flow.
 - Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile, page persistence, and `parse_document` analysis run provenance.
@@ -80,6 +80,8 @@ alembic: 0019_drop_legacy_document_type (head)
 - Whole-case raw-chunk analysis has no page-range fields or backend page-range requirement. Selected-document analysis defaults `Oldaltol` to 1 and `Oldalig` to the selected document page count; if API callers omit page fields for document scope, the backend uses the full document and rejects only out-of-document ranges.
 - Latest user-side retrieval/analysis smoke after selected-document page-range filtering produced the best and most precise analysis results observed so far; this is a positive quality signal for the combined focus text + source scope + retrieval strategy + page-range workflow.
 - Document taxonomy/source-filtering planning exists in `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`. The first backend/frontend/import slices are implemented, backend analysis source selection accepts structured case-scope filters (`document_group_code`, `document_type_code`, `document_ids`), and the frontend analysis panel exposes matching whole-case filters with document group/type dropdowns and a concrete document checkbox list. These filters resolve to a concrete document set and apply consistently to keyword, semantic, hybrid retrieval, semantic/hybrid readiness checks, and background chunk indexing. The old free-text `documents.document_type` column/API field was intentionally removed in migration `0019_drop_legacy_document_type`; structured taxonomy codes are now the only document type/classification path. Documents can be reclassified through audit-tracked metadata-only updates at `PATCH /api/v1/cases/{case_id}/documents/{document_id}/taxonomy`; this changes only `document_group_code` / `document_type_code` and does not touch pages, chunks, source references, analysis runs, or review objects.
+- Document lifecycle/parking foundation is implemented through migration `0020_document_lifecycle_status`. Documents have `lifecycle_status` values `active`, `excluded`, and `archived`, with status-change metadata and audit events. Active documents are the only source material for new indexing, retrieval, raw-chunk analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge operations, and contradiction candidate creation/claim selection. Existing findings from inactive documents remain visible for historical review, and review report sources show the source document lifecycle status.
+- Early document discard/delete is available only for safely discardable documents before they become analysis/source material. Once chunks, source references, analysis inputs, or review consequences exist, documents are parked through `excluded` or `archived` instead of being physically removed.
 - Frontend source-search strategy selection is available for document/case modes too. `Szovegresz plafon` defaults to 20 and is capped at 30 for raw-chunk modules; the same cap is enforced by the backend. `Batch meret` controls how the selected source chunks are split into LLM calls. Semantic/hybrid index readiness is required before semantic/hybrid retrieval can run.
 - Analysis batch processing is planned in `Design_documents/10_analysis_batch_processing_plan.md`; the first backend slices now support batch-capable `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` with shared source selection and chunk batching.
 - Latest live batch analysis smoke passed:
@@ -193,6 +195,11 @@ Cases and documents:
 - `POST /api/v1/cases/{case_id}/documents`
 - `POST /api/v1/cases/{case_id}/documents/{document_id}/process`
 - `POST /api/v1/cases/{case_id}/documents/{document_id}/ocr`
+- `POST /api/v1/cases/{case_id}/documents/{document_id}/chunks`
+- `POST /api/v1/cases/{case_id}/documents/{document_id}/exclude`
+- `POST /api/v1/cases/{case_id}/documents/{document_id}/archive`
+- `POST /api/v1/cases/{case_id}/documents/{document_id}/restore`
+- `DELETE /api/v1/cases/{case_id}/documents/{document_id}`
 - `GET /api/v1/cases/{case_id}/documents/{document_id}/pages`
 - `GET /api/v1/cases/{case_id}/documents/{document_id}/chunks`
 
@@ -332,8 +339,8 @@ Latest document-processing/PDF smoke:
 
 Recommended order:
 
-1. Plan and implement document delete / exclude / archive behavior for accidentally imported, badly processed, or intentionally parked documents. Keep source provenance, analysis references, and `no source -> no claim` central.
-2. Design an `Audit naplo` workflow/API/panel backed by `audit_events`. Keep it conceptually separate from the current `Elemzesi elozmenyek` panel, which lists `analysis_runs`, not all audit events.
+1. Design and implement a full `Audit naplo` workflow/API/panel backed by `audit_events`. Keep it conceptually separate from the current `Elemzesi elozmenyek` panel, which lists `analysis_runs`, not all audit events.
+2. Re-test document lifecycle behavior on a larger multi-document case, especially excluded/archived source visibility, active-only search/index/analysis, and frontend refresh behavior after lifecycle changes.
 3. Consider persistent/background job supervision beyond FastAPI `BackgroundTasks` before very long multi-hundred-page indexing workloads.
 
 Rationale:
@@ -341,6 +348,7 @@ Rationale:
 - Focus text remains valuable and required for analysis runs, while source scope stays cleanly separated as whole-case or selected-document.
 - Structured document taxonomy is now the preferred foundation for large-case source narrowing; do not build new filtering behavior on free-text document type values.
 - Document reclassification is intentionally audit-only plus metadata-only; the next audit-log UI should surface `document_reclassified` events and their optional comments from `audit_events`.
+- Document lifecycle is now an active-source gate. Inactive documents must remain historically visible where already cited, but must not become new source material unless restored to `active`.
 - The raw-chunk analysis modules are now batch-capable and live-smoke passed on document/case source modes.
 - Contradiction detection is downstream of source-cited claims, so it should remain claim-pair based and preserve `no source -> no claim` through claim/source-reference provenance.
 

@@ -5,11 +5,11 @@ import json
 import httpx
 
 from app.core.config import Settings
-from app.models.document import DocumentChunkModel
+from app.models.document import DocumentChunkModel, DocumentModel
 from app.services.search import KeywordSearchHit
 from app.schemas.search import ChunkIndexRequest
 from app.services.llm import LLMEmbeddingResult
-from app.services.vector_index import QdrantChunkIndex, _chunks_to_index, embed_chunks_in_batches, hybrid_chunk_search
+from app.services.vector_index import QdrantChunkIndex, SemanticChunkHit, _chunks_to_index, embed_chunks_in_batches, hybrid_chunk_search, semantic_chunk_search
 
 
 def _settings() -> Settings:
@@ -211,6 +211,98 @@ def test_hybrid_chunk_search_prioritizes_keyword_semantic_overlap(monkeypatch) -
     assert [hit.chunk_id for hit in hits] == [overlap_chunk_id, semantic_only_chunk_id]
     assert hits[0].match_type == "hybrid"
     assert hits[0].score > hits[1].score
+
+
+def test_semantic_chunk_search_skips_inactive_documents(monkeypatch) -> None:
+    case_id = uuid4()
+    active_document_id = uuid4()
+    inactive_document_id = uuid4()
+    active_chunk_id = uuid4()
+    inactive_chunk_id = uuid4()
+    active_chunk = DocumentChunkModel(
+        id=active_chunk_id,
+        case_id=case_id,
+        document_id=active_document_id,
+        page_start=1,
+        page_end=1,
+        chunk_index=0,
+        chunk_text="aktiv szoveg",
+        chunking_strategy="char_window_v1",
+        chunker_version="1",
+        version_no=1,
+        is_current=True,
+    )
+    inactive_chunk = DocumentChunkModel(
+        id=inactive_chunk_id,
+        case_id=case_id,
+        document_id=inactive_document_id,
+        page_start=2,
+        page_end=2,
+        chunk_index=1,
+        chunk_text="kizart szoveg",
+        chunking_strategy="char_window_v1",
+        chunker_version="1",
+        version_no=1,
+        is_current=True,
+    )
+    active_document = DocumentModel(
+        id=active_document_id,
+        case_id=case_id,
+        original_filename="aktiv.pdf",
+        stored_path="/tmp/aktiv.pdf",
+        mime_type="application/pdf",
+        file_extension="pdf",
+        file_size_bytes=12,
+        sha256_hash="a" * 64,
+        imported_by_user_id=uuid4(),
+        processing_status="processed",
+        lifecycle_status="active",
+    )
+    inactive_document = DocumentModel(
+        id=inactive_document_id,
+        case_id=case_id,
+        original_filename="kizart.pdf",
+        stored_path="/tmp/kizart.pdf",
+        mime_type="application/pdf",
+        file_extension="pdf",
+        file_size_bytes=12,
+        sha256_hash="b" * 64,
+        imported_by_user_id=uuid4(),
+        processing_status="processed",
+        lifecycle_status="excluded",
+    )
+
+    class FakeProvider:
+        def embeddings(self, model: str, texts: list[str]) -> LLMEmbeddingResult:
+            return LLMEmbeddingResult(model=model, embeddings=[[0.1, 0.2]])
+
+    class FakeIndex:
+        def __init__(self, settings) -> None:
+            self.settings = settings
+
+        def search(self, **kwargs):
+            return [
+                SemanticChunkHit(chunk_id=inactive_chunk_id, score=0.99, match_type="semantic"),
+                SemanticChunkHit(chunk_id=active_chunk_id, score=0.75, match_type="semantic"),
+            ]
+
+    class FakeDb:
+        def get(self, model, object_id):
+            return {
+                (DocumentChunkModel, active_chunk_id): active_chunk,
+                (DocumentChunkModel, inactive_chunk_id): inactive_chunk,
+                (DocumentModel, active_document_id): active_document,
+                (DocumentModel, inactive_document_id): inactive_document,
+            }.get((model, object_id))
+
+    monkeypatch.setattr("app.services.vector_index.ensure_semantic_index_ready", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.vector_index.get_settings", lambda: _settings())
+    monkeypatch.setattr("app.services.vector_index.get_llm_provider", lambda settings: FakeProvider())
+    monkeypatch.setattr("app.services.vector_index.QdrantChunkIndex", FakeIndex)
+
+    hits = semantic_chunk_search(FakeDb(), case_id, "kerdes", 10)
+
+    assert [hit.document_id for hit in hits] == [active_document_id]
 
 
 def test_embed_chunks_in_batches_splits_embedding_requests(monkeypatch) -> None:

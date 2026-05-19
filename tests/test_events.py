@@ -2,6 +2,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.models.event import EventModel
 from app.services.events import EventNotFoundError, EventValidationError, _review_status_for_action, create_event_with_source, detach_event_source, merge_event
 
 
@@ -50,6 +51,72 @@ def test_merge_event_rejects_same_source_and_target() -> None:
             case_id=uuid4(),
             source_event_id=event_id,
             target_event_id=event_id,
+        )
+
+
+def test_merge_event_rejects_corrected_target() -> None:
+    case_id = uuid4()
+    source = EventModel(
+        id=uuid4(),
+        case_id=case_id,
+        event_type="investigative_action",
+        event_title="Kihallgatas",
+        created_by_analysis_run_id=uuid4(),
+        review_status="needs_review",
+    )
+    target = EventModel(
+        id=uuid4(),
+        case_id=case_id,
+        event_type="investigative_action",
+        event_title="Tanumeghallgatas",
+        created_by_analysis_run_id=uuid4(),
+        review_status="corrected",
+    )
+
+    class _Db:
+        def get(self, model, key):
+            return {source.id: source, target.id: target}.get(key)
+
+    with pytest.raises(EventValidationError, match="Corrected events cannot be merge targets"):
+        merge_event(
+            _Db(),
+            case_id=case_id,
+            source_event_id=source.id,
+            target_event_id=target.id,
+        )
+
+
+def test_merge_event_rejects_source_invalid_source() -> None:
+    case_id = uuid4()
+    source = EventModel(
+        id=uuid4(),
+        case_id=case_id,
+        event_type="investigative_action",
+        event_title="Kihallgatas",
+        created_by_analysis_run_id=uuid4(),
+        source_validation_status="source_invalid",
+        review_status="needs_review",
+    )
+    target = EventModel(
+        id=uuid4(),
+        case_id=case_id,
+        event_type="investigative_action",
+        event_title="Tanumeghallgatas",
+        created_by_analysis_run_id=uuid4(),
+        source_validation_status="source_valid",
+        review_status="needs_review",
+    )
+
+    class _Db:
+        def get(self, model, key):
+            return {source.id: source, target.id: target}.get(key)
+
+    with pytest.raises(EventValidationError, match="Events without valid sources cannot be merged"):
+        merge_event(
+            _Db(),
+            case_id=case_id,
+            source_event_id=source.id,
+            target_event_id=target.id,
         )
 
 

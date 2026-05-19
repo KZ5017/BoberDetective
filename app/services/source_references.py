@@ -138,10 +138,31 @@ def validate_source_references(
     return validations
 
 
+def source_reference_document_is_active(
+    db: Session,
+    case_id: UUID,
+    source_reference: SourceReferenceModel,
+) -> bool:
+    document = db.get(DocumentModel, source_reference.document_id)
+    return document is not None and document.case_id == case_id and document.lifecycle_status == "active"
+
+
+def ensure_source_reference_document_is_active(
+    db: Session,
+    case_id: UUID,
+    source_reference: SourceReferenceModel,
+    error_type: type[ValueError] = SourceReferenceValidationError,
+) -> None:
+    if not source_reference_document_is_active(db, case_id, source_reference):
+        raise error_type("Source reference document is not active")
+
+
 def _get_case_document(db: Session, case_id: UUID, document_id: UUID) -> DocumentModel:
     document = db.get(DocumentModel, document_id)
     if document is None or document.case_id != case_id:
         raise SourceReferenceValidationError("Document not found in this case")
+    if document.lifecycle_status != "active":
+        raise SourceReferenceValidationError("Document is not active")
     return document
 
 

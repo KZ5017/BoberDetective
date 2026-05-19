@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.claim import ClaimModel, ClaimSourceModel
+from app.models.document import DocumentModel
 from app.models.source_reference import SourceReferenceModel
 from app.schemas.analysis_modules import AnalysisModuleContradictionCandidate, AnalysisModuleRunRequest, AnalysisModuleRunResponse
 from app.schemas.contradiction import ContradictionSourceCreate
@@ -386,10 +387,12 @@ def retrieve_claims_for_contradiction_detection(
         select(ClaimModel, ClaimSourceModel, SourceReferenceModel)
         .join(ClaimSourceModel, ClaimSourceModel.claim_id == ClaimModel.id)
         .join(SourceReferenceModel, SourceReferenceModel.id == ClaimSourceModel.source_reference_id)
+        .join(DocumentModel, DocumentModel.id == SourceReferenceModel.document_id)
         .where(
             ClaimModel.case_id == case_id,
             ClaimModel.source_validation_status == "source_valid",
             ClaimModel.review_status.in_(review_status_filter),
+            DocumentModel.lifecycle_status == "active",
         )
         .order_by(ClaimModel.created_at.desc(), ClaimSourceModel.relevance_rank.asc())
         .limit(max(limit * 2, 2))

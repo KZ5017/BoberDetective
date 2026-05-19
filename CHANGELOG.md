@@ -1,5 +1,20 @@
 # CHANGELOG.md
 
+## 2026-05-20
+
+### Added
+
+- Added document lifecycle/parking support with `active`, `excluded`, and `archived` states, status-change metadata, audit events, frontend controls, and Alembic migration `0020_document_lifecycle_status`.
+- Added safe early document discard/delete for documents that have not yet become analysis/source material; documents with chunks, source references, analysis inputs, or review consequences are parked through exclude/archive instead of physical deletion.
+- Added active-document enforcement across new source-producing workflows: indexing, retrieval, raw-chunk analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge, and contradiction candidate creation/claim selection.
+- Added review report lifecycle visibility for source documents so historical findings from excluded/archived documents remain visible while clearly marked as inactive-source material.
+- Added frontend refresh behavior after document lifecycle changes so report items, selected item details, merge targets, source movement targets, detached-source controls, and manual contradiction claim options reflect the current active/inactive source state.
+
+### Changed
+
+- Updated the verification baseline to `215 passed` and Alembic head `0020_document_lifecycle_status`.
+- Recorded the next larger direction as a full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing history.
+
 ## 2026-05-14
 
 ### Added

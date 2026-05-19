@@ -152,7 +152,7 @@ def _retrieve_chunks_by_query(
         document_group_code=document_group_code,
         document_type_code=document_type_code,
     )
-    if effective_document_ids == [] and (document_ids or document_group_code or document_type_code):
+    if effective_document_ids == []:
         return []
 
     for query in analysis_retrieval_queries(query_text):
@@ -228,6 +228,8 @@ def select_source_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunR
     if payload.source_mode == "document":
         if payload.document_id is None:
             raise AnalysisModuleError("document_id is required for document source mode")
+        if not _document_is_active(db, case_id, payload.document_id):
+            raise AnalysisModuleError("Selected document is not active")
         page_start, page_end = _document_page_range(db, case_id, payload.document_id, payload.page_start, payload.page_end)
         retrieval_chunks = retrieve_source_scope_chunks(
             db,
@@ -268,7 +270,10 @@ def _document_page_range(
 
 
 def _source_scope_max_page(db: Session, case_id: UUID, document_id: UUID | None = None) -> int | None:
-    stmt = select(func.max(DocumentModel.page_count)).where(DocumentModel.case_id == case_id)
+    stmt = select(func.max(DocumentModel.page_count)).where(
+        DocumentModel.case_id == case_id,
+        DocumentModel.lifecycle_status == "active",
+    )
     if document_id is not None:
         stmt = stmt.where(DocumentModel.id == document_id)
     value = db.execute(stmt).scalar_one_or_none()
@@ -286,12 +291,15 @@ def _effective_document_ids(
     document_group_code: str | None = None,
     document_type_code: str | None = None,
 ) -> list[UUID]:
+    base_stmt = select(DocumentModel.id).where(
+        DocumentModel.case_id == case_id,
+        DocumentModel.lifecycle_status == "active",
+    )
     if document_id is not None:
-        return [document_id]
+        active_id = db.execute(base_stmt.where(DocumentModel.id == document_id)).scalar_one_or_none()
+        return [active_id] if active_id is not None else []
     requested_ids = list(dict.fromkeys(document_ids or []))
-    if not requested_ids and document_group_code is None and document_type_code is None:
-        return []
-    stmt = select(DocumentModel.id).where(DocumentModel.case_id == case_id)
+    stmt = base_stmt
     if requested_ids:
         stmt = stmt.where(DocumentModel.id.in_(requested_ids))
     if document_group_code is not None:
@@ -299,6 +307,16 @@ def _effective_document_ids(
     if document_type_code is not None:
         stmt = stmt.where(DocumentModel.document_type_code == document_type_code)
     return list(db.execute(stmt).scalars().all())
+
+
+def _document_is_active(db: Session, case_id: UUID, document_id: UUID) -> bool:
+    return db.execute(
+        select(DocumentModel.id).where(
+            DocumentModel.case_id == case_id,
+            DocumentModel.id == document_id,
+            DocumentModel.lifecycle_status == "active",
+        )
+    ).scalar_one_or_none() is not None
 
 
 def split_retrieved_chunks(retrieved_chunks: list[RetrievedChunk], batch_size: int) -> list[list[RetrievedChunk]]:
@@ -329,6 +347,7 @@ def _document_chunks(db: Session, case_id: UUID, document_id: UUID, limit: int) 
             DocumentChunkModel.case_id == case_id,
             DocumentChunkModel.document_id == document_id,
             DocumentModel.case_id == case_id,
+            DocumentModel.lifecycle_status == "active",
             DocumentChunkModel.is_current.is_(True),
         )
         .order_by(DocumentChunkModel.chunk_index.asc())
@@ -352,7 +371,11 @@ def _fallback_case_chunks(db: Session, case_id: UUID, limit: int) -> list[Retrie
     stmt = (
         select(DocumentChunkModel, DocumentModel.original_filename)
         .join(DocumentModel, DocumentModel.id == DocumentChunkModel.document_id)
-        .where(DocumentChunkModel.case_id == case_id, DocumentChunkModel.is_current.is_(True))
+        .where(
+            DocumentChunkModel.case_id == case_id,
+            DocumentChunkModel.is_current.is_(True),
+            DocumentModel.lifecycle_status == "active",
+        )
         .order_by(DocumentModel.imported_at.asc(), DocumentChunkModel.chunk_index.asc())
         .limit(limit)
     )

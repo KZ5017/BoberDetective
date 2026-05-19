@@ -56,6 +56,7 @@ def _search_chunks(
         .where(
             DocumentChunkModel.case_id == case_id,
             DocumentChunkModel.is_current.is_(True),
+            DocumentModel.lifecycle_status == "active",
             vector.op("@@")(ts_query),
         )
         .order_by(desc(rank), DocumentChunkModel.chunk_index.asc())
@@ -94,6 +95,7 @@ def _search_pages(
         .where(
             DocumentPageModel.case_id == case_id,
             DocumentPageModel.is_current.is_(True),
+            DocumentModel.lifecycle_status == "active",
             vector.op("@@")(ts_query),
         )
         .order_by(desc(rank), DocumentPageModel.page_number.asc())

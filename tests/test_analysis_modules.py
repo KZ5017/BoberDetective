@@ -197,6 +197,7 @@ def test_analysis_retrieval_queries_keep_accents_and_two_letter_terms() -> None:
 
 def test_retrieve_chunks_raises_when_focus_matches_no_source(monkeypatch) -> None:
     monkeypatch.setattr(analysis_module_common, "keyword_search", lambda *args, **kwargs: [])
+    monkeypatch.setattr(analysis_module_common, "_effective_document_ids", lambda *args, **kwargs: [uuid4()])
 
     with pytest.raises(AnalysisModuleError, match="No source chunks matched"):
         analysis_module_common.retrieve_chunks(
@@ -226,12 +227,24 @@ def test_select_source_chunks_requires_focus_text_for_document_mode() -> None:
 
 def test_select_source_chunks_rejects_page_range_beyond_scope(monkeypatch) -> None:
     monkeypatch.setattr(analysis_module_common, "_source_scope_max_page", lambda *args, **kwargs: 30)
+    monkeypatch.setattr(analysis_module_common, "_document_is_active", lambda *args, **kwargs: True)
 
     with pytest.raises(AnalysisModuleError, match="Page range"):
         analysis_module_common.select_source_chunks(
             SimpleNamespace(),
             uuid4(),
             AnalysisModuleRunRequest(source_mode="document", document_id=uuid4(), query="fokusz", page_start=20, page_end=50),
+        )
+
+
+def test_select_source_chunks_rejects_inactive_document(monkeypatch) -> None:
+    monkeypatch.setattr(analysis_module_common, "_document_is_active", lambda *args, **kwargs: False)
+
+    with pytest.raises(AnalysisModuleError, match="Selected document is not active"):
+        analysis_module_common.select_source_chunks(
+            SimpleNamespace(),
+            uuid4(),
+            AnalysisModuleRunRequest(source_mode="document", document_id=uuid4(), query="fokusz"),
         )
 
 
@@ -245,6 +258,7 @@ def test_select_source_chunks_document_mode_defaults_to_full_document_range(monk
         return [_retrieved_chunk("chunk_1", "A teljes iratbol valasztott forras.")]
 
     monkeypatch.setattr(analysis_module_common, "_source_scope_max_page", lambda *args, **kwargs: 42)
+    monkeypatch.setattr(analysis_module_common, "_document_is_active", lambda *args, **kwargs: True)
     monkeypatch.setattr(analysis_module_common, "retrieve_source_scope_chunks", fake_retrieve_source_scope_chunks)
 
     retrieved = analysis_module_common.select_source_chunks(
@@ -342,6 +356,8 @@ def test_select_source_chunks_uses_retrieval_for_document_mode_with_focus(monkey
     db = SimpleNamespace(get=lambda model, item_id: chunk if item_id == chunk.id else None)
     monkeypatch.setattr(analysis_module_common, "keyword_search", fake_keyword_search)
     monkeypatch.setattr(analysis_module_common, "_source_scope_max_page", lambda *args, **kwargs: 10)
+    monkeypatch.setattr(analysis_module_common, "_document_is_active", lambda *args, **kwargs: True)
+    monkeypatch.setattr(analysis_module_common, "_effective_document_ids", lambda *args, **kwargs: [document_id])
 
     retrieved = analysis_module_common.select_source_chunks(
         db,

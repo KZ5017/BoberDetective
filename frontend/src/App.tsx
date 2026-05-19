@@ -51,6 +51,7 @@ import {
   createManualContradictionCandidate,
   createManualObjectFromDetachedSource,
   detachObjectSource,
+  discardDocument,
   discardDetachedSourceItem,
   getAnalysisRun,
   getChunkIndexStatus,
@@ -78,6 +79,7 @@ import {
   runAnalysis,
   runDocumentOcr,
   startChunkIndexJob,
+  updateDocumentLifecycle,
   updateDocumentTaxonomy
 } from "./api";
 
@@ -112,6 +114,10 @@ const busyLabels: Record<string, string> = {
   "case-data": "Ugyadatok betoltese",
   "document-detail": "Iratreszletek betoltese",
   "document-taxonomy": "Iratbesorolas mentese",
+  "document-exclude": "Irat kizárása",
+  "document-archive": "Irat archiválása",
+  "document-restore": "Irat visszaállítása",
+  "document-discard": "Irat elvetése",
   "document-chunks": "Szovegreszek letrehozasa",
   "document-ocr": "OCR futtatasa",
   "run-detail": "Elemzesi futas reszleteinek betoltese",
@@ -121,19 +127,19 @@ const busyLabels: Record<string, string> = {
   report: "Attekintesi jelentés betoltese",
   "export-json": "JSON export keszitese",
   "export-html": "HTML export keszitese",
-  "review-verify": "Felulvizsgalat rogzítese",
-  "review-reject": "Felulvizsgalat rogzítese",
-  "review-mark_needs_review": "Felulvizsgalat rogzítese",
+  "review-verify": "Ellenőrzés rögzítése",
+  "review-reject": "Ellenőrzés rögzítése",
+  "review-mark_needs_review": "Ellenőrzés rögzítése",
   "review-comment": "Megjegyzes rogzítese",
-  "entity-merge": "Entitasok osszevonasa",
-  "event-merge": "Esemenyek osszevonasa",
-  "missing-item-merge": "Hianyzo irat jeloltek osszevonasa",
-  "source-detach": "Forras levalasztasa",
-  "source-move": "Forras athelyezese",
-  "detached-source-attach": "Levalasztott forras csatolasa",
-  "detached-source-discard": "Levalasztott forras irrelevansnak jelolese",
-  "manual-object": "Kezi objektum rogzitese",
-  "manual-contradiction": "Kezi ellentmondasjelolt rogzitese",
+  "entity-merge": "Entitások összevonása",
+  "event-merge": "Események összevonása",
+  "missing-item-merge": "Hiányzó iratjelöltek összevonása",
+  "source-detach": "Forráshivatkozás leválasztása",
+  "source-move": "Forráshivatkozás áthelyezése",
+  "detached-source-attach": "Leválasztott forráshivatkozás csatolása",
+  "detached-source-discard": "Leválasztott forráshivatkozás irrelevánsnak jelölése",
+  "manual-object": "Kézi találat rögzítése",
+  "manual-contradiction": "Kézi ellentmondásjelölt rögzítése",
   "chunk-index": "Chunk indexeles",
   "llm-smoke": "LLM modell allapot",
   "chat-load": "Chat modell betoltese",
@@ -141,12 +147,12 @@ const busyLabels: Record<string, string> = {
 };
 
 const moduleLabels: Record<string, string> = {
-  extract_claims: "Allitasok kinyerese",
-  extract_events: "Esemenyek kinyerese",
-  extract_entities: "Entitasok kinyerese",
+  extract_claims: "Állítások kinyerése",
+  extract_events: "Események kinyerése",
+  extract_entities: "Entitások kinyerése",
   summarize_case: "Ugyosszefoglalo keszitese",
-  detect_contradiction_candidates: "Ellentmondasjeloltek keresese",
-  detect_missing_items: "Hianyzo iratok keresese",
+  detect_contradiction_candidates: "Ellentmondásjelöltek keresése",
+  detect_missing_items: "Hiányzó iratok keresése",
   manual_entry: "Kezi rogzitese"
 };
 
@@ -158,8 +164,8 @@ const analysisSourceModeLabels: Record<AnalysisSourceMode, string> = {
 const claimReviewScopeLabels: Record<ClaimReviewScope, string> = {
   reviewable: "Ellenorizheto allitasok",
   verified: "Csak ellenorzott",
-  needs_review: "Ellenorzesre varok",
-  all_source_valid: "Minden forraservenyes"
+  needs_review: "Ellenőrzésre várók",
+  all_source_valid: "Minden forráshivatkozás érvényes"
 };
 
 const retrievalStrategyLabels: Record<RetrievalStrategy, string> = {
@@ -169,20 +175,20 @@ const retrievalStrategyLabels: Record<RetrievalStrategy, string> = {
 };
 
 const objectTypeLabels: Record<string, string> = {
-  claim: "Allitas",
-  event: "Esemeny",
-  entity: "Entitas",
-  summary_item: "Osszefoglalo elem",
-  contradiction_candidate: "Ellentmondasjelolt",
-  missing_item_candidate: "Hianyzo irat jelolt",
+  claim: "Állítás",
+  event: "Esemény",
+  entity: "Entitás",
+  summary_item: "Összefoglaló elem",
+  contradiction_candidate: "Ellentmondásjelölt",
+  missing_item_candidate: "Hiányzó iratjelölt",
   export: "Export"
 };
 
 const manualObjectTypeLabels: Record<ManualObjectType, string> = {
-  claim: "Allitas",
-  entity: "Entitas",
-  event: "Esemeny",
-  missing_item_candidate: "Hianyzo irat jelolt"
+  claim: "Állítás",
+  entity: "Entitás",
+  event: "Esemény",
+  missing_item_candidate: "Hiányzó iratjelölt"
 };
 
 const contradictionTypeLabels: Record<ManualContradictionCandidatePayload["contradiction_type"], string> = {
@@ -201,17 +207,17 @@ const severityHintLabels: Record<NonNullable<ManualContradictionCandidatePayload
 };
 
 const reviewStatusLabels: Record<string, string> = {
-  needs_review: "Ellenorzesre var",
-  verified: "Ellenorizve",
-  rejected: "Elutasitva",
-  corrected: "Javitva",
-  new: "Uj"
+  needs_review: "Ellenőrzésre vár",
+  verified: "Ellenőrizve",
+  rejected: "Elutasítva",
+  corrected: "Javítva",
+  new: "Új"
 };
 
 const sourceValidationLabels: Record<string, string> = {
-  source_valid: "Forras ervenyes",
-  source_invalid: "Forras ervenytelen",
-  pending_source_validation: "Forras ellenorzesre var"
+  source_valid: "Forráshivatkozás érvényes",
+  source_invalid: "Nincs érvényes forráshivatkozás",
+  pending_source_validation: "Forráshivatkozás ellenőrzésre vár"
 };
 
 const runStatusLabels: Record<string, string> = {
@@ -228,13 +234,13 @@ const validationStatusLabels: Record<string, string> = {
 };
 
 const actionLabels: Record<string, string> = {
-  verify: "Ellenorzes",
+  verify: "Ellenőrzés",
   reject: "Elutasitas",
-  mark_needs_review: "Ellenorzesre jeloles",
+  mark_needs_review: "Ellenőrzésre jelölés",
   comment: "Megjegyzes",
   correct: "Javitas",
-  attach_source: "Forras csatolasa",
-  detach_source: "Forras levalasztasa"
+  attach_source: "Forráshivatkozás csatolása",
+  detach_source: "Forráshivatkozás leválasztása"
 };
 
 function getManualContradictionClaims(caseId: string): Promise<ReviewReport> {
@@ -255,6 +261,7 @@ export function App() {
   const [taxonomyEditGroupCode, setTaxonomyEditGroupCode] = useState("uncategorized");
   const [taxonomyEditTypeCode, setTaxonomyEditTypeCode] = useState("uncategorized");
   const [taxonomyEditComment, setTaxonomyEditComment] = useState("");
+  const [documentLifecycleReason, setDocumentLifecycleReason] = useState("");
   const [documentPages, setDocumentPages] = useState<DocumentPageRead[]>([]);
   const [documentChunks, setDocumentChunks] = useState<DocumentChunkRead[]>([]);
   const [analysisRunDetail, setAnalysisRunDetail] = useState<AnalysisRunDetail | null>(null);
@@ -288,6 +295,7 @@ export function App() {
   const [objectType, setObjectType] = useState("");
   const [reviewStatus, setReviewStatus] = useState("needs_review");
   const [sourceValidationStatus, setSourceValidationStatus] = useState("source_valid");
+  const [reportSearch, setReportSearch] = useState("");
   const [report, setReport] = useState<ReviewReport | null>(null);
   const [selectedReportItem, setSelectedReportItem] = useState<ReviewReportItem | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
@@ -342,10 +350,16 @@ export function App() {
     Boolean(selectedDocument) &&
     (selectedDocument?.document_group_code !== taxonomyEditGroupCode ||
       selectedDocument?.document_type_code !== taxonomyEditTypeCode);
-  const selectedAnalysisDocument = useMemo(
-    () => documents.find((item) => item.id === analysisDocumentId) ?? null,
-    [analysisDocumentId, documents]
+  const activeDocuments = useMemo(
+    () => documents.filter((document) => document.lifecycle_status === "active"),
+    [documents]
   );
+  const selectedAnalysisDocument = useMemo(
+    () => activeDocuments.find((item) => item.id === analysisDocumentId) ?? null,
+    [activeDocuments, analysisDocumentId]
+  );
+  const selectedDocumentIsActive = selectedDocument?.lifecycle_status === "active";
+  const canAttemptSelectedDocumentDiscard = Boolean(selectedDocumentIsActive && documentChunks.length === 0);
   const filteredDocuments = useMemo(
     () => filterDocumentsByName(documents, documentListSearch),
     [documents, documentListSearch]
@@ -357,25 +371,25 @@ export function App() {
   const analysisTypeOptions = selectedAnalysisGroup?.types ?? [];
   const analysisDocumentFilterOptions = useMemo(
     () =>
-      documents.filter((document) => {
+      activeDocuments.filter((document) => {
         if (analysisDocumentGroupCode && document.document_group_code !== analysisDocumentGroupCode) return false;
         if (analysisDocumentTypeCode && document.document_type_code !== analysisDocumentTypeCode) return false;
         return true;
       }),
-    [documents, analysisDocumentGroupCode, analysisDocumentTypeCode]
+    [activeDocuments, analysisDocumentGroupCode, analysisDocumentTypeCode]
   );
   const filteredCaseAnalysisDocuments = useMemo(
     () => filterDocumentsByName(analysisDocumentFilterOptions, analysisDocumentSearch),
     [analysisDocumentFilterOptions, analysisDocumentSearch]
   );
   const filteredDocumentAnalysisDocuments = useMemo(
-    () => filterDocumentsByName(documents, analysisDocumentSearch),
-    [documents, analysisDocumentSearch]
+    () => filterDocumentsByName(activeDocuments, analysisDocumentSearch),
+    [activeDocuments, analysisDocumentSearch]
   );
   const manualContradictionClaimOptions = useMemo(
     () =>
       manualContradictionClaims.filter(
-        (item) => item.source_validation_status === "source_valid" && item.review_status !== "rejected"
+        (item) => item.source_validation_status === "source_valid" && item.review_status !== "rejected" && reportItemSourcesAreActive(item)
       ),
     [manualContradictionClaims]
   );
@@ -401,8 +415,8 @@ export function App() {
     if (effectiveAnalysisSourceMode === "document") {
       return Math.max(1, selectedAnalysisDocument?.page_count ?? 1);
     }
-    return Math.max(1, ...documents.map((item) => item.page_count ?? 0));
-  }, [documents, effectiveAnalysisSourceMode, selectedAnalysisDocument]);
+    return Math.max(1, ...activeDocuments.map((item) => item.page_count ?? 0));
+  }, [activeDocuments, effectiveAnalysisSourceMode, selectedAnalysisDocument]);
   const requiresFocusText = true;
   const usesSemanticIndex = canUseBatchScope && retrievalStrategy !== "keyword" && query.trim().length > 0;
   const semanticIndexReady = !usesSemanticIndex || Boolean(chunkIndexStatus?.is_ready);
@@ -436,6 +450,12 @@ export function App() {
     }),
     [objectType, reviewStatus, sourceValidationStatus]
   );
+  const visibleReportItems = useMemo(() => {
+    if (!report) return [];
+    const queryText = reportSearch.trim().toLocaleLowerCase("hu-HU");
+    if (!queryText) return report.items;
+    return report.items.filter((item) => reportItemMatchesSearch(item, queryText));
+  }, [report, reportSearch]);
 
   useEffect(() => {
     void refreshCases();
@@ -483,10 +503,10 @@ export function App() {
   }, [selectedCaseId]);
 
   useEffect(() => {
-    if (analysisDocumentId && !documents.some((item) => item.id === analysisDocumentId)) {
+    if (analysisDocumentId && !activeDocuments.some((item) => item.id === analysisDocumentId)) {
       setAnalysisDocumentId("");
     }
-  }, [analysisDocumentId, documents]);
+  }, [activeDocuments, analysisDocumentId]);
 
   useEffect(() => {
     if (!analysisDocumentGroupCode) {
@@ -662,6 +682,7 @@ export function App() {
       setDocumentPages(pagesResponse.data);
       setDocumentChunks(chunksResponse.data);
       setManualSource(null);
+      setDocumentLifecycleReason("");
       setNotice("Irat reszletek betoltve.");
       setLastActionSummary(`${document.original_filename}: ${pagesResponse.data.length} oldal, ${chunksResponse.data.length} szovegresz.`);
     });
@@ -685,13 +706,75 @@ export function App() {
     });
   }
 
+  async function refreshDocumentsAfterLifecycleChange(documentId: string, fallback?: DocumentRead | null) {
+    if (!selectedCaseId) return;
+    const documentsResponse = await listDocuments(selectedCaseId);
+    const refreshedDocument = documentsResponse.data.find((item) => item.id === documentId) ?? fallback ?? null;
+    setDocuments(documentsResponse.data);
+    setSelectedDocument(refreshedDocument);
+    if (refreshedDocument) {
+      setTaxonomyEditGroupCode(refreshedDocument.document_group_code);
+      setTaxonomyEditTypeCode(refreshedDocument.document_type_code);
+      if (refreshedDocument.lifecycle_status !== "active") {
+        setManualSource(null);
+      }
+    } else {
+      setDocumentPages([]);
+      setDocumentChunks([]);
+      setManualSource(null);
+    }
+    if (!documentsResponse.data.some((item) => item.id === analysisDocumentId && item.lifecycle_status === "active")) {
+      setAnalysisDocumentId("");
+      setAnalysisDocumentIds([]);
+    }
+    setMergeTargets({});
+    setSourceMoveTargets({});
+    setDetachedSourceTargets({});
+    setManualContradiction((current) => ({ ...current, claim_id_a: "", claim_id_b: "" }));
+    await refreshReviewStateAfterSourceChange(selectedReportItem?.object_id ?? null);
+  }
+
+  async function handleDocumentLifecycleAction(action: "exclude" | "archive" | "restore") {
+    if (!selectedCaseId || !selectedDocument) return;
+    await perform(`document-${action}`, async () => {
+      const response = await updateDocumentLifecycle(selectedCaseId, selectedDocument.id, action, documentLifecycleReason.trim() || undefined);
+      await refreshDocumentsAfterLifecycleChange(selectedDocument.id, response);
+      setDocumentLifecycleReason("");
+      setNotice(`Irat állapota frissítve: ${labelDocumentLifecycleStatus(response.lifecycle_status)}.`);
+      setLastActionSummary(`${response.original_filename}: ${labelDocumentLifecycleStatus(response.lifecycle_status)}`);
+    });
+  }
+
+  async function handleDocumentDiscard() {
+    if (!selectedCaseId || !selectedDocument) return;
+    if (!canAttemptSelectedDocumentDiscard) {
+      setError("Az irat jelenlegi állapotában nem vethető el végleges törléssel.");
+      return;
+    }
+    const confirmed = window.confirm("Biztosan végleg elveted ezt az iratot? Ez csak korai, elemzési alapként még nem használt iratnál engedélyezett.");
+    if (!confirmed) return;
+    const documentId = selectedDocument.id;
+    const filename = selectedDocument.original_filename;
+    await perform("document-discard", async () => {
+      await discardDocument(selectedCaseId, documentId, documentLifecycleReason.trim() || undefined);
+      await refreshDocumentsAfterLifecycleChange(documentId, null);
+      setDocumentLifecycleReason("");
+      setNotice("Irat elvetve és törölve.");
+      setLastActionSummary(`${filename}: elvetve`);
+    });
+  }
+
   function handleManualSourceFromChunk(chunk: DocumentChunkRead, textarea: HTMLTextAreaElement) {
     if (!selectedDocument) return;
+    if (selectedDocument.lifecycle_status !== "active") {
+      setError("Kézi forráshivatkozás csak aktív iratból hozható létre.");
+      return;
+    }
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const quote = chunk.chunk_text.slice(start, end).trim();
     if (quote.length === 0 || end <= start) {
-      setError("Jelolj ki egy konkret forrasreszletet a szovegreszbol.");
+      setError("Jelölj ki egy konkrét forráshivatkozási idézetet a szövegrészből.");
       return;
     }
     const quoteStart = chunk.chunk_text.indexOf(quote, start);
@@ -709,7 +792,7 @@ export function App() {
       citationLabel: `${selectedDocument.original_filename}, chunk ${chunk.chunk_index}`
     });
     setManualFields({});
-    setNotice("Forras kijelolve kezi rogzitesehez.");
+    setNotice("Forráshivatkozás kijelölve kézi rögzítéshez.");
   }
 
   async function handleDocumentOcr(document: DocumentRead) {
@@ -965,7 +1048,7 @@ export function App() {
       setReport(reportResponse);
       setManualContradictionClaims(manualClaimsResponse.items);
       setSelectedReportItem(reportResponse.items.find((item) => item.object_id === objectId) ?? null);
-      setNotice("Felulvizsgalat rogzítve, jelentes frissitve.");
+      setNotice("Ellenőrzés rögzítve, jelentés frissítve.");
       setLastActionSummary(`${labelObjectType(itemObjectType)}: ${labelAction(actionType)}`);
     });
   }
@@ -997,8 +1080,8 @@ export function App() {
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       setSelectedReportItem(reportResponse.items.find((item) => item.object_id === targetEntityId) ?? null);
-      setNotice("Entitasok osszevonva, forrasok atkapcsolva.");
-      setLastActionSummary(`Entitas osszevonva: ${sourceItem.title}`);
+      setNotice("Entitások összevonva, forráshivatkozások átkapcsolva.");
+      setLastActionSummary(`Entitás összevonva: ${sourceItem.title}`);
     });
   }
 
@@ -1029,8 +1112,8 @@ export function App() {
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       setSelectedReportItem(reportResponse.items.find((item) => item.object_id === targetEventId) ?? null);
-      setNotice("Esemenyek osszevonva, forrasok atkapcsolva.");
-      setLastActionSummary(`Esemeny osszevonva: ${sourceItem.title}`);
+      setNotice("Események összevonva, forráshivatkozások átkapcsolva.");
+      setLastActionSummary(`Esemény összevonva: ${sourceItem.title}`);
     });
   }
 
@@ -1061,14 +1144,15 @@ export function App() {
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       setSelectedReportItem(reportResponse.items.find((item) => item.object_id === targetCandidateId) ?? null);
-      setNotice("Hianyzo irat jeloltek osszevonva, forrasok atkapcsolva.");
-      setLastActionSummary(`Hianyzo irat jelolt osszevonva: ${sourceItem.title}`);
+      setNotice("Hiányzó iratjelöltek összevonva, forráshivatkozások átkapcsolva.");
+      setLastActionSummary(`Hiányzó iratjelölt összevonva: ${sourceItem.title}`);
     });
   }
 
   function canDetachSource(item: ReviewReportItem, source: ReviewReportSource) {
     return (
       Boolean(source.source_link_id) &&
+      reportSourceIsActive(source) &&
       (item.object_type === "entity" || item.object_type === "event" || item.object_type === "missing_item_candidate")
     );
   }
@@ -1094,8 +1178,8 @@ export function App() {
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       setSelectedReportItem(reportResponse.items.find((reportItem) => reportItem.object_id === item.object_id) ?? null);
-      setNotice("Forras levalasztva, jelentés frissitve.");
-      setLastActionSummary(`${labelObjectType(item.object_type)}: forras levalasztva.`);
+      setNotice("Forráshivatkozás leválasztva, jelentés frissítve.");
+      setLastActionSummary(`${labelObjectType(item.object_type)}: forráshivatkozás leválasztva.`);
     });
   }
 
@@ -1104,39 +1188,43 @@ export function App() {
   }
 
   function sourceMoveTargetOptions(item: ReviewReportItem) {
+    const sourceTargetLabel = (title: string, reviewStatus: string) =>
+      `${title} (${labelReviewStatus(reviewStatus)}${reviewStatus === "corrected" ? ", újranyitás" : ""})`;
     if (item.object_type === "entity") {
       return entities
-        .filter((entity) => entity.id !== item.object_id && entity.entity_type === item.subtype && entity.review_status !== "corrected")
-        .map((entity) => ({ id: entity.id, label: `${entity.canonical_name} (${labelReviewStatus(entity.review_status)})` }));
+        .filter((entity) => entity.id !== item.object_id && entity.entity_type === item.subtype)
+        .map((entity) => ({ id: entity.id, label: sourceTargetLabel(entity.canonical_name, entity.review_status) }));
     }
     if (item.object_type === "event") {
       return events
-        .filter((event) => event.id !== item.object_id && event.event_type === item.subtype && event.review_status !== "corrected")
-        .map((event) => ({ id: event.id, label: `${event.event_title} (${labelReviewStatus(event.review_status)})` }));
+        .filter((event) => event.id !== item.object_id && event.event_type === item.subtype)
+        .map((event) => ({ id: event.id, label: sourceTargetLabel(event.event_title, event.review_status) }));
     }
     if (item.object_type === "missing_item_candidate") {
       return missingItemCandidates
-        .filter((candidate) => candidate.id !== item.object_id && candidate.missing_item_type === item.subtype && candidate.review_status !== "corrected")
-        .map((candidate) => ({ id: candidate.id, label: `${candidate.referenced_item_text} (${labelReviewStatus(candidate.review_status)})` }));
+        .filter((candidate) => candidate.id !== item.object_id && candidate.missing_item_type === item.subtype)
+        .map((candidate) => ({ id: candidate.id, label: sourceTargetLabel(candidate.referenced_item_text, candidate.review_status) }));
     }
     return [];
   }
 
   function detachedSourceTargetOptions(item: DetachedSourceItemRead) {
+    const sourceTargetLabel = (title: string, reviewStatus: string) =>
+      `${title} (${labelReviewStatus(reviewStatus)}${reviewStatus === "corrected" ? ", újranyitás" : ""})`;
     if (item.detached_from_object_type === "entity") {
       return entities
-        .filter((entity) => entity.entity_type === item.object_subtype_snapshot && entity.review_status !== "corrected")
-        .map((entity) => ({ id: entity.id, label: `${entity.canonical_name} (${labelReviewStatus(entity.review_status)})` }));
+        .filter((entity) => entity.entity_type === item.object_subtype_snapshot)
+        .map((entity) => ({ id: entity.id, label: sourceTargetLabel(entity.canonical_name, entity.review_status) }));
     }
     if (item.detached_from_object_type === "event") {
       return events
-        .filter((event) => event.event_type === item.object_subtype_snapshot && event.review_status !== "corrected")
-        .map((event) => ({ id: event.id, label: `${event.event_title} (${labelReviewStatus(event.review_status)})` }));
+        .filter((event) => event.event_type === item.object_subtype_snapshot)
+        .map((event) => ({ id: event.id, label: sourceTargetLabel(event.event_title, event.review_status) }));
     }
     if (item.detached_from_object_type === "missing_item_candidate") {
       return missingItemCandidates
-        .filter((candidate) => candidate.missing_item_type === item.object_subtype_snapshot && candidate.review_status !== "corrected")
-        .map((candidate) => ({ id: candidate.id, label: `${candidate.referenced_item_text} (${labelReviewStatus(candidate.review_status)})` }));
+        .filter((candidate) => candidate.missing_item_type === item.object_subtype_snapshot)
+        .map((candidate) => ({ id: candidate.id, label: sourceTargetLabel(candidate.referenced_item_text, candidate.review_status) }));
     }
     return [];
   }
@@ -1165,7 +1253,7 @@ export function App() {
     const key = sourceMoveKey(item, source);
     const targetObjectId = sourceMoveTargets[key];
     if (!targetObjectId) {
-      setError("Valassz celobjektumot a forras athelyezesehez.");
+      setError("Válassz céltalálatot a forráshivatkozás áthelyezéséhez.");
       return;
     }
     const comment = reviewComments[item.object_id] ?? "";
@@ -1174,8 +1262,8 @@ export function App() {
       setReviewComments((current) => ({ ...current, [item.object_id]: "" }));
       setSourceMoveTargets((current) => ({ ...current, [key]: "" }));
       await refreshReviewStateAfterSourceChange(targetObjectId);
-      setNotice("Forras athelyezve, jelentés frissitve.");
-      setLastActionSummary(`${labelObjectType(item.object_type)}: forras athelyezve.`);
+      setNotice("Forráshivatkozás áthelyezve, jelentés frissítve.");
+      setLastActionSummary(`${labelObjectType(item.object_type)}: forráshivatkozás áthelyezve.`);
     });
   }
 
@@ -1183,15 +1271,15 @@ export function App() {
     if (!selectedCaseId) return;
     const targetObjectId = detachedSourceTargets[item.id];
     if (!targetObjectId) {
-      setError("Valassz celobjektumot a levalasztott forras csatolasahoz.");
+      setError("Válassz céltalálatot a leválasztott forráshivatkozás csatolásához.");
       return;
     }
     await perform("detached-source-attach", async () => {
       await attachDetachedSourceItem(selectedCaseId, item.id, targetObjectId, item.detach_comment ?? undefined);
       setDetachedSourceTargets((current) => ({ ...current, [item.id]: "" }));
       await refreshReviewStateAfterSourceChange(targetObjectId);
-      setNotice("Levalasztott forras csatolva.");
-      setLastActionSummary(`${labelObjectType(item.detached_from_object_type)}: levalasztott forras csatolva.`);
+      setNotice("Leválasztott forráshivatkozás csatolva.");
+      setLastActionSummary(`${labelObjectType(item.detached_from_object_type)}: leválasztott forráshivatkozás csatolva.`);
     });
   }
 
@@ -1200,8 +1288,8 @@ export function App() {
     await perform("detached-source-discard", async () => {
       await discardDetachedSourceItem(selectedCaseId, item.id, item.detach_comment ?? undefined);
       await refreshReviewStateAfterSourceChange(null);
-      setNotice("Levalasztott forras irrelevansnak jelolve.");
-      setLastActionSummary("Levalasztott forras irrelevansnak jelolve.");
+      setNotice("Leválasztott forráshivatkozás irrelevánsnak jelölve.");
+      setLastActionSummary("Leválasztott forráshivatkozás irrelevánsnak jelölve.");
     });
   }
 
@@ -1270,8 +1358,8 @@ export function App() {
       setMissingItemCandidates(missingItemsResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       setSelectedReportItem(reportResponse.items.find((item) => item.object_id === response.object_id) ?? null);
-      setNotice("Forrasbol rogzitett objektum letrehozva.");
-      setLastActionSummary(`${labelObjectType(response.object_type)}: forrasbol rogzitve.`);
+      setNotice("Forráshivatkozásból rögzített találat létrehozva.");
+      setLastActionSummary(`${labelObjectType(response.object_type)}: forráshivatkozásból rögzítve.`);
     });
   }
 
@@ -1288,8 +1376,8 @@ export function App() {
       setDetachedManualFields((current) => ({ ...current, [item.id]: {} }));
       setDetachedManualTypes((current) => ({ ...current, [item.id]: "claim" }));
       await refreshReviewStateAfterSourceChange(response.object_id);
-      setNotice("Levalasztott forrasbol uj objektum letrehozva.");
-      setLastActionSummary(`${labelObjectType(response.object_type)}: levalasztott forrasbol rogzitve.`);
+      setNotice("Leválasztott forráshivatkozásból új találat létrehozva.");
+      setLastActionSummary(`${labelObjectType(response.object_type)}: leválasztott forráshivatkozásból rögzítve.`);
     });
   }
 
@@ -1329,8 +1417,8 @@ export function App() {
       setManualContradictionClaims(manualClaimsResponse.items);
       setAnalysisRuns(runsResponse.data);
       setSelectedReportItem(reportResponse.items.find((item) => item.object_type === "contradiction_candidate") ?? null);
-      setNotice("Kezi ellentmondasjelolt letrehozva.");
-      setLastActionSummary("Kezi ellentmondasjelolt: ket allitas parositva.");
+      setNotice("Kézi ellentmondásjelölt létrehozva.");
+      setLastActionSummary("Kézi ellentmondásjelölt: két állítás párosítva.");
     });
   }
 
@@ -1342,15 +1430,15 @@ export function App() {
       <article className="text-sample">
         <strong>{item.title}</strong>
         <span>
-          {labelReviewStatus(item.review_status)} | {item.sources.length} forras
+          {labelReviewStatus(item.review_status)} | {formatSourceReferenceCount(item.sources.length)}
         </span>
         <pre>{item.body_text ?? ""}</pre>
         <div className="source-list">
           {item.sources.slice(0, 3).map((source, index) => (
             <details key={source.source_link_id ?? source.source_reference_id} className="source-detail" open={index === 0}>
               <summary>
-                {index + 1}. forras: {source.document_filename ?? "irat"} {source.page_number ? `${source.page_number}. oldal` : ""}{" "}
-                {source.chunk_index !== null ? `${source.chunk_index}. szovegresz` : ""}
+                {index + 1}. forráshivatkozás: {source.document_filename ?? "irat"} {source.page_number ? `${source.page_number}. oldal` : ""}{" "}
+                {source.chunk_index !== null ? `${source.chunk_index}. szövegrész` : ""}
               </summary>
               <blockquote>{source.quote_text}</blockquote>
             </details>
@@ -1368,20 +1456,20 @@ export function App() {
       <div className="source-action-row">
         <button
           className="secondary-button source-action"
-          title="Forras levalasztasa errol az objektumrol"
+          title="Forráshivatkozás leválasztása erről a találatról"
           onClick={() => handleDetachSource(item, source)}
           disabled={Boolean(busy)}
         >
-          <Unlink size={16} /> Levalasztas
+          <Unlink size={16} /> Leválasztás
         </button>
         {targetOptions.length > 0 && (
           <>
             <select
               value={sourceMoveTargets[key] ?? ""}
               onChange={(event) => setSourceMoveTargets((current) => ({ ...current, [key]: event.target.value }))}
-              aria-label="Forras athelyezes celja"
+              aria-label="Forráshivatkozás áthelyezési célja"
             >
-              <option value="">Athelyezes celja</option>
+              <option value="">Áthelyezés célja</option>
               {targetOptions.map((target) => (
                 <option key={target.id} value={target.id}>
                   {target.label}
@@ -1389,7 +1477,7 @@ export function App() {
               ))}
             </select>
             <button className="secondary-button source-action" onClick={() => handleMoveSource(item, source)} disabled={Boolean(busy) || !sourceMoveTargets[key]}>
-              Athelyezes
+              Áthelyezés
             </button>
           </>
         )}
@@ -1406,18 +1494,18 @@ export function App() {
       return (
         <>
           <label>
-            Allitas tipusa
+            Állítás típusa
             <select value={fields.claim_type ?? "document_fact"} onChange={(event) => updateField("claim_type", event.target.value)}>
-              <option value="document_fact">Iratbeli teny</option>
-              <option value="witness_statement">Tanui allitas</option>
-              <option value="expert_opinion">Szakertoi velemeny</option>
-              <option value="administrative_fact">Hivatalos teny</option>
-              <option value="inference_candidate">Kovetkeztetesjelolt</option>
+              <option value="document_fact">Iratbeli tény</option>
+              <option value="witness_statement">Tanúi állítás</option>
+              <option value="expert_opinion">Szakértői vélemény</option>
+              <option value="administrative_fact">Hivatalos tény</option>
+              <option value="inference_candidate">Következtetésjelölt</option>
               <option value="unknown">Ismeretlen</option>
             </select>
           </label>
           <label>
-            Allitas szovege
+            Állítás szövege
             <textarea value={fields.claim_text ?? ""} onChange={(event) => updateField("claim_text", event.target.value)} />
           </label>
         </>
@@ -1427,26 +1515,26 @@ export function App() {
       return (
         <>
           <label>
-            Entitas tipus
+            Entitás típusa
             <select value={fields.entity_type ?? "person"} onChange={(event) => updateField("entity_type", event.target.value)}>
-              <option value="person">Szemely</option>
+              <option value="person">Személy</option>
               <option value="organization">Szervezet</option>
               <option value="location">Hely</option>
               <option value="phone">Telefon</option>
               <option value="email">Email</option>
-              <option value="license_plate">Rendszam</option>
-              <option value="case_reference">Ugyhivatkozas</option>
-              <option value="money_amount">Penzosszeg</option>
-              <option value="document_reference">Irat hivatkozas</option>
-              <option value="other">Egyeb</option>
+              <option value="license_plate">Rendszám</option>
+              <option value="case_reference">Ügyhivatkozás</option>
+              <option value="money_amount">Pénzösszeg</option>
+              <option value="document_reference">Irat hivatkozás</option>
+              <option value="other">Egyéb</option>
             </select>
           </label>
           <label>
-            Nev / ertek
+            Név / érték
             <input value={fields.canonical_name ?? ""} onChange={(event) => updateField("canonical_name", event.target.value)} />
           </label>
           <label>
-            Leiras
+            Leírás
             <textarea value={fields.description ?? ""} onChange={(event) => updateField("description", event.target.value)} />
           </label>
         </>
@@ -1456,29 +1544,29 @@ export function App() {
       return (
         <>
           <label>
-            Esemeny tipus
+            Esemény típusa
             <select value={fields.event_type ?? "statement"} onChange={(event) => updateField("event_type", event.target.value)}>
               <option value="statement">Nyilatkozat</option>
-              <option value="call">Hivas</option>
-              <option value="meeting">Talalkozo</option>
-              <option value="transfer">Atadas / utalas</option>
-              <option value="search">Kutatas</option>
-              <option value="seizure">Lefoglalas</option>
+              <option value="call">Hívás</option>
+              <option value="meeting">Találkozó</option>
+              <option value="transfer">Átadás / utalás</option>
+              <option value="search">Kutatás</option>
+              <option value="seizure">Lefoglalás</option>
               <option value="document_created">Irat keletkezett</option>
-              <option value="document_received">Irat erkezett</option>
-              <option value="other">Egyeb</option>
+              <option value="document_received">Irat érkezett</option>
+              <option value="other">Egyéb</option>
             </select>
           </label>
           <label>
-            Esemeny cime
+            Esemény címe
             <input value={fields.event_title ?? ""} onChange={(event) => updateField("event_title", event.target.value)} />
           </label>
           <label>
-            Leiras
+            Leírás
             <textarea value={fields.event_description ?? ""} onChange={(event) => updateField("event_description", event.target.value)} />
           </label>
           <label>
-            Ido szovegesen
+            Idő szövegesen
             <input value={fields.event_time_raw ?? ""} onChange={(event) => updateField("event_time_raw", event.target.value)} />
           </label>
           <label>
@@ -1491,15 +1579,15 @@ export function App() {
     return (
       <>
         <label>
-          Hianyzo irat tipus
+          Hiányzó irat típusa
           <select value={fields.missing_item_type ?? "document_reference"} onChange={(event) => updateField("missing_item_type", event.target.value)}>
-            <option value="attachment">Melleklet</option>
+            <option value="attachment">Melléklet</option>
             <option value="video">Video</option>
-            <option value="expert_report">Szakertoi velemeny</option>
-            <option value="protocol">Jegyzokonyv</option>
-            <option value="image">Kep</option>
-            <option value="document_reference">Irat hivatkozas</option>
-            <option value="other">Egyeb</option>
+            <option value="expert_report">Szakértői vélemény</option>
+            <option value="protocol">Jegyzőkönyv</option>
+            <option value="image">Kép</option>
+            <option value="document_reference">Irat hivatkozás</option>
+            <option value="other">Egyéb</option>
           </select>
         </label>
         <label>
@@ -1507,11 +1595,11 @@ export function App() {
           <input value={fields.referenced_item_text ?? ""} onChange={(event) => updateField("referenced_item_text", event.target.value)} />
         </label>
         <label>
-          Leiras
+          Leírás
           <textarea value={fields.description ?? ""} onChange={(event) => updateField("description", event.target.value)} />
         </label>
         <label>
-          Varhato irattipus
+          Várható irattípus
           <input value={fields.expected_document_type ?? ""} onChange={(event) => updateField("expected_document_type", event.target.value)} />
         </label>
       </>
@@ -1520,6 +1608,8 @@ export function App() {
 
   function renderEntityMergeControls(item: ReviewReportItem, compact = false) {
     if (item.object_type !== "entity") return null;
+    if (item.source_validation_status === "source_invalid") return null;
+    if (!reportItemSourcesAreActive(item)) return null;
     const targetOptions = entities.filter(
       (entity) =>
         entity.id !== item.object_id &&
@@ -1530,26 +1620,26 @@ export function App() {
     return (
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
         <label>
-          Osszevonas celja
+          Összevonás célja
           <select
             value={mergeTargets[item.object_id] ?? ""}
             onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
           >
-            <option value="">Valassz celentitast</option>
+            <option value="">Válassz célentitást</option>
             {targetOptions.map((entity) => (
               <option key={entity.id} value={entity.id}>
                 {entity.canonical_name} ({labelReviewStatus(entity.review_status)})
               </option>
             ))}
           </select>
-          <span className="field-hint">Csak azonos tipusú, nem javitott entitasok valaszthatok celkent.</span>
+          <span className="field-hint">Csak azonos típusú, nem javított, érvényes forráshivatkozású entitások választhatók célként.</span>
         </label>
         <button
           className="secondary-button"
           onClick={() => handleEntityMerge(item)}
           disabled={Boolean(busy) || !mergeTargets[item.object_id]}
         >
-          <GitMerge size={18} /> Osszevonas
+          <GitMerge size={18} /> Összevonás
         </button>
       </div>
     );
@@ -1557,36 +1647,39 @@ export function App() {
 
   function renderEventMergeControls(item: ReviewReportItem, compact = false) {
     if (item.object_type !== "event") return null;
+    if (item.source_validation_status === "source_invalid") return null;
+    if (!reportItemSourcesAreActive(item)) return null;
     const targetOptions = events.filter(
       (event) =>
         event.id !== item.object_id &&
         event.event_type === item.subtype &&
+        event.source_validation_status !== "source_invalid" &&
         event.review_status !== "corrected"
     );
     if (targetOptions.length === 0) return null;
     return (
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
         <label>
-          Osszevonas celja
+          Összevonás célja
           <select
             value={mergeTargets[item.object_id] ?? ""}
             onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
           >
-            <option value="">Valassz celesemenyt</option>
+            <option value="">Válassz céleseményt</option>
             {targetOptions.map((event) => (
               <option key={event.id} value={event.id}>
                 {event.event_title} ({labelReviewStatus(event.review_status)})
               </option>
             ))}
           </select>
-          <span className="field-hint">Csak azonos tipusú, nem javitott esemenyek valaszthatok celkent.</span>
+          <span className="field-hint">Csak azonos típusú, nem javított, érvényes forráshivatkozású események választhatók célként.</span>
         </label>
         <button
           className="secondary-button"
           onClick={() => handleEventMerge(item)}
           disabled={Boolean(busy) || !mergeTargets[item.object_id]}
         >
-          <GitMerge size={18} /> Osszevonas
+          <GitMerge size={18} /> Összevonás
         </button>
       </div>
     );
@@ -1594,36 +1687,39 @@ export function App() {
 
   function renderMissingItemMergeControls(item: ReviewReportItem, compact = false) {
     if (item.object_type !== "missing_item_candidate") return null;
+    if (item.source_validation_status === "source_invalid") return null;
+    if (!reportItemSourcesAreActive(item)) return null;
     const targetOptions = missingItemCandidates.filter(
       (candidate) =>
         candidate.id !== item.object_id &&
         candidate.missing_item_type === item.subtype &&
+        candidate.source_validation_status !== "source_invalid" &&
         candidate.review_status !== "corrected"
     );
     if (targetOptions.length === 0) return null;
     return (
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
         <label>
-          Osszevonas celja
+          Összevonás célja
           <select
             value={mergeTargets[item.object_id] ?? ""}
             onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
           >
-            <option value="">Valassz celjeloltet</option>
+            <option value="">Válassz céljelöltet</option>
             {targetOptions.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
                 {candidate.referenced_item_text} ({labelReviewStatus(candidate.review_status)})
               </option>
             ))}
           </select>
-          <span className="field-hint">Csak azonos tipusú, nem javitott hianyzo irat jeloltek valaszthatok celkent.</span>
+          <span className="field-hint">Csak azonos típusú, nem javított, érvényes forráshivatkozású hiányzó iratjelöltek választhatók célként.</span>
         </label>
         <button
           className="secondary-button"
           onClick={() => handleMissingItemMerge(item)}
           disabled={Boolean(busy) || !mergeTargets[item.object_id]}
         >
-          <GitMerge size={18} /> Osszevonas
+          <GitMerge size={18} /> Összevonás
         </button>
       </div>
     );
@@ -1638,7 +1734,7 @@ export function App() {
         </div>
         <div className="status-strip">
           <span><ShieldCheck size={16} /> helyi</span>
-          <span><Database size={16} /> forrashivatkozott</span>
+          <span><Database size={16} /> forráshivatkozott</span>
           <span><CheckCircle2 size={16} /> emberi ellenorzes</span>
         </div>
       </header>
@@ -1730,7 +1826,9 @@ export function App() {
               {filteredDocuments.map((document) => (
                 <article key={document.id} className="compact-item">
                   <strong>{document.original_filename}</strong>
-                  <span>{labelDocumentTaxonomy(document)} | {labelProcessingStatus(document.processing_status)} | {formatBytes(document.file_size_bytes)}</span>
+                  <span>
+                    {labelDocumentTaxonomy(document)} | {labelProcessingStatus(document.processing_status)} | {labelDocumentLifecycleStatus(document.lifecycle_status)} | {formatBytes(document.file_size_bytes)}
+                  </span>
                   <code>{document.sha256_hash}</code>
                   <div className="button-row">
                     <button onClick={() => handleDocumentDetail(document)} disabled={Boolean(busy)}>
@@ -1769,6 +1867,7 @@ export function App() {
                   <span>{documentChunks.length} szovegresz</span>
                   <span>{labelDocumentTaxonomy(selectedDocument)}</span>
                   <span>{labelProcessingStatus(selectedDocument.processing_status)}</span>
+                  <span>{labelDocumentLifecycleStatus(selectedDocument.lifecycle_status)}</span>
                 </div>
                 <details>
                   <summary>Besorolas modositasa</summary>
@@ -1818,7 +1917,7 @@ export function App() {
                       />
                     </label>
                     <p className="field-hint">
-                      Csak az irat adminisztrativ besorolasa valtozik. Az oldalak, szovegreszek, forrashivatkozasok es elemzesi futasok nem modosulnak.
+                      Csak az irat adminisztratív besorolása változik. Az oldalak, szövegrészek, forráshivatkozások és elemzési futások nem módosulnak.
                     </p>
                     <div className="button-row">
                       <button
@@ -1839,6 +1938,74 @@ export function App() {
                         Visszaallitas
                       </button>
                     </div>
+                  </div>
+                </details>
+                <details>
+                  <summary>Irat állapota</summary>
+                  <div className="manual-entry-panel">
+                    <div className="metrics">
+                      <span>{labelDocumentLifecycleStatus(selectedDocument.lifecycle_status)}</span>
+                      {selectedDocument.lifecycle_status_changed_at && (
+                        <span>{formatDateTime(selectedDocument.lifecycle_status_changed_at)}</span>
+                      )}
+                    </div>
+                    {selectedDocument.lifecycle_status_reason && (
+                      <p className="field-hint">Utolsó indoklás: {selectedDocument.lifecycle_status_reason}</p>
+                    )}
+                    <label>
+                      Megjegyzés / indoklás
+                      <textarea
+                        value={documentLifecycleReason}
+                        onChange={(event) => setDocumentLifecycleReason(event.target.value)}
+                        placeholder="Opcionális indoklás az állapotváltozáshoz"
+                        disabled={Boolean(busy)}
+                      />
+                    </label>
+                    <p className="field-hint">
+                      Az aktív iratok vesznek részt új keresésben, indexelésben és elemzésben. A kizárt vagy archivált iratok történeti forrásként továbbra is visszakereshetők.
+                    </p>
+                    <div className="button-row">
+                      {!selectedDocumentIsActive && (
+                        <button onClick={() => handleDocumentLifecycleAction("restore")} disabled={Boolean(busy)}>
+                          Visszaállítás aktívra
+                        </button>
+                      )}
+                      {selectedDocumentIsActive && (
+                        <button onClick={() => handleDocumentLifecycleAction("exclude")} disabled={Boolean(busy)}>
+                          Kizárás elemzésből
+                        </button>
+                      )}
+                      {selectedDocumentIsActive && (
+                        <button onClick={() => handleDocumentLifecycleAction("archive")} disabled={Boolean(busy)}>
+                          Archiválás
+                        </button>
+                      )}
+                      {selectedDocument.lifecycle_status === "excluded" && (
+                        <button onClick={() => handleDocumentLifecycleAction("archive")} disabled={Boolean(busy)}>
+                          Archiválás
+                        </button>
+                      )}
+                      {selectedDocument.lifecycle_status === "archived" && (
+                        <button onClick={() => handleDocumentLifecycleAction("exclude")} disabled={Boolean(busy)}>
+                          Kizárás elemzésből
+                        </button>
+                      )}
+                      {canAttemptSelectedDocumentDiscard && (
+                        <button className="secondary-button" onClick={handleDocumentDiscard} disabled={Boolean(busy)}>
+                          Elvetés / törlés
+                        </button>
+                      )}
+                    </div>
+                    {selectedDocumentIsActive && documentChunks.length > 0 && (
+                      <p className="field-hint">
+                        Az irat már szövegrészekre lett bontva, ezért nem vethető el végleges törléssel. Kizárással vagy archiválással parkolópályára tehető.
+                      </p>
+                    )}
+                    {!selectedDocumentIsActive && (
+                      <p className="field-hint">
+                        Nem aktív iratból nem indítható új OCR, szövegrész-létrehozás, indexelés, elemzés vagy kézi forráshivatkozás.
+                      </p>
+                    )}
                   </div>
                 </details>
                 {canRunOcr(selectedDocument) && (
@@ -1872,6 +2039,9 @@ export function App() {
                 <details>
                   <summary>Szovegreszek</summary>
                   <div className="detail-list">
+                    {!selectedDocumentIsActive && documentChunks.length > 0 && (
+                      <p className="field-hint">Ez az irat nem aktív, ezért a meglévő szövegrészek csak megtekinthetők.</p>
+                    )}
                     {documentChunks.map((chunk) => (
                       <article key={chunk.id} className="text-sample">
                         <strong>{chunk.chunk_index}. szovegresz</strong>
@@ -1882,33 +2052,35 @@ export function App() {
                           defaultValue={chunk.chunk_text}
                           aria-label={`${chunk.chunk_index}. szovegresz kijelolheto szovege`}
                         />
-                        <button
-                          className="secondary-button"
-                          onClick={(event) => {
-                            const textarea = event.currentTarget.parentElement?.querySelector("textarea");
-                            if (textarea) handleManualSourceFromChunk(chunk, textarea);
-                          }}
-                          disabled={Boolean(busy)}
-                        >
-                          Forras kijelolese
-                        </button>
+                        {selectedDocumentIsActive && (
+                          <button
+                            className="secondary-button"
+                            onClick={(event) => {
+                              const textarea = event.currentTarget.parentElement?.querySelector("textarea");
+                              if (textarea) handleManualSourceFromChunk(chunk, textarea);
+                            }}
+                            disabled={Boolean(busy)}
+                          >
+                            Forráshivatkozás kijelölése
+                          </button>
+                        )}
                       </article>
                     ))}
                   </div>
                 </details>
                 {manualSource && (
                   <details open>
-                    <summary>Uj objektum forrasbol</summary>
+                    <summary>Új találat forráshivatkozásból</summary>
                     <div className="manual-entry-panel">
                       <label>
-                        Kijelolt forras
-                        <textarea readOnly value={manualSource.quoteText} aria-label="Kijelolt forras readonly elonezet" />
+                        Kijelölt forráshivatkozás
+                        <textarea readOnly value={manualSource.quoteText} aria-label="Kijelölt forráshivatkozás readonly előnézet" />
                       </label>
                       <span className="field-hint">
-                        {manualSource.citationLabel} | idezet {formatRange(manualSource.quoteStart, manualSource.quoteEnd)}
+                        {manualSource.citationLabel} | idézet {formatRange(manualSource.quoteStart, manualSource.quoteEnd)}
                       </span>
                       <label>
-                        Objektum tipus
+                        Találat típusa
                         <select value={manualObjectType} onChange={(event) => setManualObjectType(event.target.value as ManualObjectType)}>
                           {(Object.keys(manualObjectTypeLabels) as ManualObjectType[]).map((type) => (
                             <option key={type} value={type}>
@@ -1920,10 +2092,10 @@ export function App() {
                       {renderManualObjectFields()}
                       <div className="button-row">
                         <button onClick={handleCreateManualObject} disabled={Boolean(busy)}>
-                          Rogzites forrasbol
+                          Rögzítés forráshivatkozásból
                         </button>
                         <button className="secondary-button" onClick={() => setManualSource(null)} disabled={Boolean(busy)}>
-                          Megse
+                          Mégse
                         </button>
                       </div>
                     </div>
@@ -2061,7 +2233,7 @@ export function App() {
                   <p className="field-hint">Indexeles folyamatban, az allapot automatikusan frissul.</p>
                 )}
                 {usesSemanticIndex && !chunkIndexStatus.is_ready && (
-                  <p className="error-text">Szemantikus vagy hybrid futtatashoz elobb indexelni kell az aktualis forraskort.</p>
+                  <p className="error-text">Szemantikus vagy hybrid futtatáshoz előbb indexelni kell az aktuális forráskört.</p>
                 )}
               </div>
             )}
@@ -2071,7 +2243,7 @@ export function App() {
                   className="secondary-button"
                   onClick={handleIndexChunks}
                   disabled={!selectedCaseId || Boolean(busy) || indexJobIsRunning || (effectiveAnalysisSourceMode === "document" && !analysisDocumentId)}
-                  title="Lokalis embedding es Qdrant index keszitese az aktualis forraskorhoz"
+                  title="Lokális embedding és Qdrant index készítése az aktuális forráskörhöz"
                 >
                   {indexJobIsRunning ? "Indexeles folyamatban" : "Szovegreszek indexelese"}
                 </button>
@@ -2091,7 +2263,7 @@ export function App() {
             </div>
             <div className="form-row">
               <label>
-                Forraskor
+                Forráskör
                 <select
                   value={effectiveAnalysisSourceMode}
                   onChange={(event) => setAnalysisSourceMode(event.target.value as AnalysisSourceMode)}
@@ -2138,7 +2310,7 @@ export function App() {
                   </label>
                 </div>
                 <p className="field-hint">
-                  A szurok csak a teljes ugy forraskorben ervenyesek. Ha nem jelolsz ki konkret iratot, a rendszer a valasztott csoport/tipus osszes aktualis irataban keres.
+                  A szűrők csak a teljes ügy forráskörben érvényesek. Ha nem jelölsz ki konkrét iratot, a rendszer a választott csoport/típus összes aktuális iratában keres.
                 </p>
                 <div className="source-filter-list">
                   <div className="source-filter-list-heading">
@@ -2194,11 +2366,11 @@ export function App() {
                       value={analysisDocumentSearch}
                       onChange={(event) => setAnalysisDocumentSearch(event.target.value)}
                       placeholder="Iratnev keresese"
-                      disabled={documents.length === 0}
+                      disabled={activeDocuments.length === 0}
                     />
                   </div>
-                  {documents.length === 0 && <p className="muted">Nincs importalt irat.</p>}
-                  {documents.length > 0 && filteredDocumentAnalysisDocuments.length === 0 && <p className="muted">Nincs a keresésnek megfelelo irat.</p>}
+                  {activeDocuments.length === 0 && <p className="muted">Nincs aktív irat.</p>}
+                  {activeDocuments.length > 0 && filteredDocumentAnalysisDocuments.length === 0 && <p className="muted">Nincs a keresésnek megfelelo aktív irat.</p>}
                   {filteredDocumentAnalysisDocuments.map((document) => (
                     <label key={document.id} className="checkbox-label source-document-option">
                       <input
@@ -2285,7 +2457,7 @@ export function App() {
               <>
                 <div className="form-row">
                   <label>
-                    Forraskereses
+                    Forráskeresés
                     <select
                       value={retrievalStrategy}
                       onChange={(event) => setRetrievalStrategy(event.target.value as RetrievalStrategy)}
@@ -2301,13 +2473,13 @@ export function App() {
               <>
                 <div className="form-row">
                   <label>
-                    Allitaskor
+                    Állításkör
                     <select value={claimReviewScope} onChange={(event) => setClaimReviewScope(event.target.value as ClaimReviewScope)}>
                       {claimReviewScopes.map((item) => <option key={item} value={item}>{labelClaimReviewScope(item)}</option>)}
                     </select>
                   </label>
                   <label>
-                    Ellentmondasjelolt plafon
+                    Ellentmondásjelölt plafon
                     <input
                       type="number"
                       min={1}
@@ -2318,7 +2490,7 @@ export function App() {
                   </label>
                 </div>
                 <div className="module-note">
-                  Claim-par alapu modul: a rendszer a mar kinyert, forrasolt allitasok kozott valaszt ellenorizendo parokat. Az alapertelmezett allitaskor nem veszi figyelembe az elutasitott allitasokat. A fokusz kotelezo, es a claim szovegeben vagy forrasidezeteiben szur.
+                  Állításpár alapú modul: a rendszer a már kinyert, forráshivatkozott állítások között választ ellenőrizendő párokat. Az alapértelmezett állításkör nem veszi figyelembe az elutasított állításokat. A fókusz kötelező, és az állítás szövegében vagy forráshivatkozási idézeteiben szűr.
                 </div>
               </>
             )}
@@ -2332,8 +2504,8 @@ export function App() {
               />
               <span className="field-hint">
                 {isContradictionModule
-                  ? "Kotelezo: ez szuri a mar kinyert allitasokat es forrasidezeteiket."
-                  : "Kotelezo: ez valasztja ki a relevans szovegreszeket a megadott forraskorben."}
+                  ? "Kötelező: ez szűri a már kinyert állításokat és forráshivatkozási idézeteiket."
+                  : "Kötelező: ez választja ki a releváns szövegrészeket a megadott forráskörben."}
               </span>
             </label>
             {requiresFocusText && query.trim().length === 0 && (
@@ -2402,7 +2574,7 @@ export function App() {
                     {analysisRunDetail.inputs.map((input) => (
                       <article key={input.id} className="compact-item">
                         <strong>{input.sequence_no}. {labelAnalysisInputType(input.input_type)}</strong>
-                        <span>{input.related_object_type ? labelObjectType(input.related_object_type) : "Forras"} {input.related_object_id ?? input.chunk_id ?? input.document_id ?? ""}</span>
+                        <span>{input.related_object_type ? labelObjectType(input.related_object_type) : "Forráshivatkozás"} {input.related_object_id ?? input.chunk_id ?? input.document_id ?? ""}</span>
                         {renderAnalysisSourceSummary(input.source_summary, input.payload_json)}
                         {input.payload_json && renderAnalysisInputPayload(input.payload_json)}
                       </article>
@@ -2430,48 +2602,60 @@ export function App() {
           <div className="review-column">
           <section className="panel report-panel">
             <div className="section-heading">
-              <h2>Attekintesi jelentés</h2>
+              <h2>Áttekintési jelentés</h2>
               <Archive size={20} />
             </div>
             <div className="form-row">
               <label>
-                Objektum
+                Találat típusa
                 <select value={objectType} onChange={(event) => setObjectType(event.target.value)}>
-                  {objectTypes.map((item) => <option key={item} value={item}>{item ? labelObjectType(item) : "Osszes"}</option>)}
+                  {objectTypes.map((item) => <option key={item} value={item}>{item ? labelObjectType(item) : "Összes találat"}</option>)}
                 </select>
               </label>
               <label>
-                Felulvizsgalat allapota
+                Ellenőrzési állapot
                 <select value={reviewStatus} onChange={(event) => setReviewStatus(event.target.value)}>
-                  {reviewStatuses.map((item) => <option key={item} value={item}>{item ? labelReviewStatus(item) : "Osszes"}</option>)}
+                  {reviewStatuses.map((item) => <option key={item} value={item}>{item ? labelReviewStatus(item) : "Összes"}</option>)}
                 </select>
               </label>
               <label>
-                Forras allapota
+                Forráshivatkozás állapota
                 <select value={sourceValidationStatus} onChange={(event) => setSourceValidationStatus(event.target.value)}>
-                  {sourceValidationStatuses.map((item) => <option key={item} value={item}>{item ? labelSourceValidationStatus(item) : "Osszes"}</option>)}
+                  {sourceValidationStatuses.map((item) => <option key={item} value={item}>{item ? labelSourceValidationStatus(item) : "Összes"}</option>)}
                 </select>
               </label>
               <button onClick={handleLoadReport} disabled={!selectedCaseId || Boolean(busy)}>
-                <RefreshCw size={18} /> Betoltes
+                <RefreshCw size={18} /> Betöltés
               </button>
             </div>
             {report && (
               <>
+                <div className="form-row">
+                  <label>
+                    Keresés a találatokban
+                    <input
+                      value={reportSearch}
+                      onChange={(event) => setReportSearch(event.target.value)}
+                      placeholder="Találat neve, leírása vagy idézete"
+                    />
+                  </label>
+                </div>
                 <div className="metrics">
-                  <span>{report.counts.total} osszesen</span>
-                  <span>{report.counts.needs_review} ellenorzesre var</span>
-                  <span>{report.counts.verified} ellenorizve</span>
-                  <span>{report.counts.rejected} elutasitva</span>
+                  <span>{report.counts.total} találat</span>
+                  <span>{visibleReportItems.length} megjelenítve</span>
+                  <span>{report.counts.needs_review} ellenőrzésre vár</span>
+                  <span>{report.counts.verified} ellenőrizve</span>
+                  <span>{report.counts.rejected} elutasítva</span>
                 </div>
                 <div className="item-list">
-                  {report.items.map((item) => (
+                  {visibleReportItems.length === 0 && <p className="muted">Nincs a keresésnek megfelelő találat.</p>}
+                  {visibleReportItems.map((item) => (
                     <article key={item.object_id} className="report-item">
                       <div>
                         <h3>{item.title}</h3>
                         <p>{item.body_text}</p>
                         {item.object_type === "contradiction_candidate" && (
-                          <p className="review-note">Ellenorizendo jelolt: a rendszer nem tekinti bizonyitott ellentmondasnak.</p>
+                          <p className="review-note">Ellenőrizendő jelölt: a rendszer nem tekinti bizonyított ellentmondásnak.</p>
                         )}
                       </div>
                       <div className="tags">
@@ -2479,11 +2663,11 @@ export function App() {
                         <span>{labelSubtype(item.object_type, item.subtype)}</span>
                         <span>{labelReviewStatus(item.review_status)}</span>
                         <span>{labelSourceValidationStatus(item.source_validation_status)}</span>
-                        <span>{item.reviews.length} felulvizsgalat</span>
-                        <span>{item.sources.length} forras</span>
+                        <span>{item.reviews.length} ellenőrzés</span>
+                        <span>{formatSourceReferenceCount(item.sources.length)}</span>
                       </div>
                       <button className="secondary-button" onClick={() => setSelectedReportItem(item)}>
-                        Reszletek
+                        Részletek
                       </button>
                       {renderEntityMergeControls(item, true)}
                       {renderEventMergeControls(item, true)}
@@ -2492,14 +2676,17 @@ export function App() {
                         {item.sources.map((source, index) => (
                           <details key={source.source_link_id ?? source.source_reference_id} className="source-detail" open={index === 0}>
                             <summary>
-                              {index + 1}. forras: {source.document_filename ?? "irat"} {source.page_number ? `${source.page_number}. oldal` : ""} {source.chunk_index !== null ? `${source.chunk_index}. szovegresz` : ""}
+                              {index + 1}. forráshivatkozás: {source.document_filename ?? "irat"} {source.page_number ? `${source.page_number}. oldal` : ""} {source.chunk_index !== null ? `${source.chunk_index}. szövegrész` : ""}
                             </summary>
                             <div className="source-meta">
                               <span>{labelSupportType(source.support_type)}</span>
                               <span>sorrend {source.relevance_rank ?? index}</span>
-                              <span>{source.citation_label ?? "nincs hivatkozasi cimke"}</span>
-                              <span>idezet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
-                              <span>reszlet {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
+                              <span>{source.citation_label ?? "nincs hivatkozási címke"}</span>
+                              {source.document_lifecycle_status && source.document_lifecycle_status !== "active" && (
+                                <span>forrás irat állapota: {labelDocumentLifecycleStatus(source.document_lifecycle_status)}</span>
+                              )}
+                              <span>idézet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
+                              <span>szövegkörnyezet {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
                             </div>
                             <blockquote>{source.quote_text}</blockquote>
                             {source.source_text_excerpt && <p className="excerpt">{source.source_text_excerpt}</p>}
@@ -2513,7 +2700,7 @@ export function App() {
                           {item.reviews.map((review) => (
                             <div key={review.id}>
                               <strong>{labelAction(review.action_type)}</strong>
-                              <span>{review.new_review_status ? labelReviewStatus(review.new_review_status) : "megjegyzes"}</span>
+                              <span>{review.new_review_status ? labelReviewStatus(review.new_review_status) : "megjegyzés"}</span>
                               <span>{new Date(review.performed_at).toLocaleString()}</span>
                               {review.review_comment && <p>{review.review_comment}</p>}
                             </div>
@@ -2524,19 +2711,19 @@ export function App() {
                         <input
                           value={reviewComments[item.object_id] ?? ""}
                           onChange={(event) => setReviewComments((current) => ({ ...current, [item.object_id]: event.target.value }))}
-                          placeholder="Felulvizsgalati megjegyzes"
-                          aria-label="Felulvizsgalati megjegyzes"
+                          placeholder="Ellenőrzési megjegyzés"
+                          aria-label="Ellenőrzési megjegyzés"
                         />
-                        <button title="Ellenorizve" onClick={() => handleReview(item.object_type, item.object_id, "verify")} disabled={Boolean(busy)}>
+                        <button title="Ellenőrizve" onClick={() => handleReview(item.object_type, item.object_id, "verify")} disabled={Boolean(busy)}>
                           <CheckCircle2 size={18} />
                         </button>
-                        <button title="Elutasitas" onClick={() => handleReview(item.object_type, item.object_id, "reject")} disabled={Boolean(busy)}>
-                          Elutasit
+                        <button title="Elutasítás" onClick={() => handleReview(item.object_type, item.object_id, "reject")} disabled={Boolean(busy)}>
+                          Elutasít
                         </button>
-                        <button title="Ellenorzesre var" onClick={() => handleReview(item.object_type, item.object_id, "mark_needs_review")} disabled={Boolean(busy)}>
-                          Ellenorzesre
+                        <button title="Ellenőrzésre vár" onClick={() => handleReview(item.object_type, item.object_id, "mark_needs_review")} disabled={Boolean(busy)}>
+                          Ellenőrzésre
                         </button>
-                        <button title="Megjegyzes" onClick={() => handleReview(item.object_type, item.object_id, "comment")} disabled={Boolean(busy)}>
+                        <button title="Megjegyzés" onClick={() => handleReview(item.object_type, item.object_id, "comment")} disabled={Boolean(busy)}>
                           <MessageSquare size={18} />
                         </button>
                       </div>
@@ -2549,14 +2736,14 @@ export function App() {
 
           <section className="panel">
             <div className="section-heading">
-              <h2>Kezi ellentmondasjelolt</h2>
+              <h2>Kézi ellentmondásjelölt</h2>
               <GitMerge size={20} />
             </div>
             <div className="module-note">
-              Ket forraservenyes, nem elutasitott allitasbol hoz letre ellenorzendo jeloltet. A rogzites nem bizonyitott ellentmondas, hanem emberi review-ra varo par.
+              Két érvényes forráshivatkozású, nem elutasított állításból hoz létre ellenőrizendő jelöltet. A rögzítés nem bizonyított ellentmondás, hanem emberi ellenőrzésre váró pár.
             </div>
             {manualContradictionClaimOptions.length < 2 && (
-              <p className="muted">Legalabb ket forraservenyes, nem elutasitott allitas kell a kezi jelolthez.</p>
+              <p className="muted">Legalább két érvényes forráshivatkozású, nem elutasított állítás kell a kézi jelölthez.</p>
             )}
             <div className="form-row">
               <label>
@@ -2627,7 +2814,7 @@ export function App() {
               </label>
             </div>
             <label>
-              Ellenorzesi indoklas
+              Ellenőrzési indoklás
               <textarea
                 value={manualContradiction.description}
                 onChange={(event) => updateManualContradictionField("description", event.target.value)}
@@ -2657,10 +2844,10 @@ export function App() {
 
           <section className="panel detail-panel object-detail-panel">
             <div className="section-heading">
-              <h2>Objektum reszletei</h2>
+              <h2>Találat részletei</h2>
               <Search size={20} />
             </div>
-            {!selectedReportItem && <p className="muted">Valassz jelenteselemet a reszletekhez.</p>}
+            {!selectedReportItem && <p className="muted">Válassz találatot a részletekhez.</p>}
             {selectedReportItem && (
               <div className="detail-stack">
                 <strong>{selectedReportItem.title}</strong>
@@ -2673,7 +2860,7 @@ export function App() {
                 <code>{selectedReportItem.object_id}</code>
                 {selectedReportItem.body_text && <p>{selectedReportItem.body_text}</p>}
                 {selectedReportItem.object_type === "contradiction_candidate" && (
-                  <p className="review-note">A jelolt ket forrasolt allitas parjat emeli ki emberi ellenorzesre. Onmagaban nem bizonyitott tenymegallapitas.</p>
+                  <p className="review-note">A jelölt két forráshivatkozott állítás párját emeli ki emberi ellenőrzésre. Önmagában nem bizonyított ténymegállapítás.</p>
                 )}
                 <div className="object-facts">
                   {objectDetailFacts(selectedReportItem).map((fact) => (
@@ -2687,12 +2874,12 @@ export function App() {
                 {renderEventMergeControls(selectedReportItem)}
                 {renderMissingItemMergeControls(selectedReportItem)}
                 <details open>
-                  <summary>Forrasok</summary>
+                  <summary>Forráshivatkozások</summary>
                   <div className="detail-list">
                     {selectedReportItem.sources.map((source, index) => (
                       <article key={source.source_link_id ?? source.source_reference_id} className="text-sample">
                         <strong>{index + 1}. {source.document_filename ?? "irat"}</strong>
-                        <span>{source.citation_label ?? "nincs hivatkozas"} | idezet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
+                        <span>{source.citation_label ?? "nincs hivatkozás"} | idézet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
                         <pre>{source.quote_text}</pre>
                         {renderSourceDetachButton(selectedReportItem, source)}
                       </article>
@@ -2700,12 +2887,12 @@ export function App() {
                   </div>
                 </details>
                 <details>
-                  <summary>Felulvizsgalati elozmenyek</summary>
+                  <summary>Ellenőrzési előzmények</summary>
                   <div className="detail-list">
                     {selectedReportItem.reviews.map((review) => (
                       <article key={review.id} className="compact-item">
                         <strong>{labelAction(review.action_type)}</strong>
-                        <span>{review.new_review_status ? labelReviewStatus(review.new_review_status) : "megjegyzes"} | {new Date(review.performed_at).toLocaleString()}</span>
+                        <span>{review.new_review_status ? labelReviewStatus(review.new_review_status) : "megjegyzés"} | {new Date(review.performed_at).toLocaleString()}</span>
                         {review.review_comment && <p>{review.review_comment}</p>}
                       </article>
                     ))}
@@ -2717,11 +2904,11 @@ export function App() {
 
           <section className="panel">
             <div className="section-heading">
-              <h2>Levalasztott forrasok</h2>
+              <h2>Leválasztott forráshivatkozások</h2>
               <Archive size={20} />
             </div>
             <div className="compact-list detached-source-list">
-              {detachedSourceItems.length === 0 && <p className="muted">Nincs levalasztott forras.</p>}
+              {detachedSourceItems.length === 0 && <p className="muted">Nincs leválasztott forráshivatkozás.</p>}
               {detachedSourceItems.slice(0, 12).map((item) => (
                 <article key={item.id} className="compact-item">
                   <strong>
@@ -2734,7 +2921,7 @@ export function App() {
                       : ""}
                   </span>
                   <span>
-                    Eredeti tipus: {item.object_subtype_snapshot ?? "ismeretlen"} | korabbi allapot:{" "}
+                    Eredeti típus: {item.object_subtype_snapshot ?? "ismeretlen"} | korábbi állapot:{" "}
                     {item.object_review_status_snapshot ? labelReviewStatus(item.object_review_status_snapshot) : "ismeretlen"}
                   </span>
                   {item.source_snapshot_json?.citation_label && <span>{item.source_snapshot_json.citation_label}</span>}
@@ -2746,9 +2933,9 @@ export function App() {
                         <select
                           value={detachedSourceTargets[item.id] ?? ""}
                           onChange={(event) => setDetachedSourceTargets((current) => ({ ...current, [item.id]: event.target.value }))}
-                          aria-label="Levalasztott forras csatolasi celja"
+                          aria-label="Leválasztott forráshivatkozás csatolási célja"
                         >
-                          <option value="">Csatolas celja</option>
+                          <option value="">Visszacsatolás célja</option>
                           {detachedSourceTargetOptions(item).map((target) => (
                             <option key={target.id} value={target.id}>
                               {target.label}
@@ -2760,18 +2947,18 @@ export function App() {
                           onClick={() => handleAttachDetachedSource(item)}
                           disabled={Boolean(busy) || !detachedSourceTargets[item.id]}
                         >
-                          Csatolas
+                          Csatolás
                         </button>
                         <button className="secondary-button source-action" onClick={() => handleDiscardDetachedSource(item)} disabled={Boolean(busy)}>
-                          Irrelevans
+                          Irreleváns
                         </button>
                       </div>
                       <details>
-                        <summary>Uj objektum ebből a forrasbol</summary>
+                        <summary>Új találat ebből a forráshivatkozásból</summary>
                         <div className="manual-entry-panel">
-                          <textarea readOnly value={item.source_snapshot_json?.quote_text ?? ""} aria-label="Levalasztott forras readonly elonezet" />
+                          <textarea readOnly value={item.source_snapshot_json?.quote_text ?? ""} aria-label="Leválasztott forráshivatkozás readonly előnézet" />
                           <label>
-                            Objektum tipus
+                            Találat típusa
                             <select
                               value={detachedManualTypes[item.id] ?? "claim"}
                               onChange={(event) => setDetachedManualTypes((current) => ({ ...current, [item.id]: event.target.value as ManualObjectType }))}
@@ -2789,7 +2976,7 @@ export function App() {
                             (key, value) => updateDetachedManualField(item.id, key, value)
                           )}
                           <button onClick={() => handleCreateManualObjectFromDetachedSource(item)} disabled={Boolean(busy)}>
-                            Uj objektum letrehozasa
+                            Új találat létrehozása
                           </button>
                         </div>
                       </details>
@@ -2886,13 +3073,13 @@ function analysisFocusPlaceholder(moduleKey: string, isContradictionModule: bool
     return "Add meg, milyen temaju allitasok kozott keressen ellentmondasjelolteket.";
   }
   const placeholders: Record<string, string> = {
-    extract_claims: "Add meg, milyen allitasokat keressen a forrasokban.",
+    extract_claims: "Add meg, milyen állításokat keressen a forráshivatkozásokhoz.",
     extract_events: "Add meg, milyen esemenyekre vagy idoszakra fokuszaljon.",
     extract_entities: "Add meg, milyen szemelyre, szervezetre, helyre vagy azonosítora fokuszaljon.",
-    summarize_case: "Add meg, milyen temarol keszuljon forrashu osszefoglalo.",
+    summarize_case: "Add meg, milyen témáról készüljön forráshű összefoglaló.",
     detect_missing_items: "Add meg, milyen hivatkozott iratot, mellekletet vagy bizonyitekfajtat keressen."
   };
-  return placeholders[moduleKey] ?? "Add meg a fokuszt a forrasalapu elemzeshez.";
+  return placeholders[moduleKey] ?? "Add meg a fókuszt a forráshivatkozott elemzéshez.";
 }
 
 function formatBytes(bytes: number) {
@@ -2910,6 +3097,13 @@ function formatConfidence(value: number | null) {
     return "-";
   }
   return `${Math.round(value * 100)}%`;
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("hu-HU", {
+    dateStyle: "medium",
+    timeStyle: "medium"
+  }).format(new Date(value));
 }
 
 function labelModule(value: string) {
@@ -3002,6 +3196,28 @@ function labelSourceValidationStatus(value: string) {
   return sourceValidationLabels[value] ?? value;
 }
 
+function reportItemMatchesSearch(item: ReviewReportItem, queryText: string) {
+  const haystack = [
+    item.title,
+    item.body_text ?? "",
+    labelObjectType(item.object_type),
+    labelSubtype(item.object_type, item.subtype),
+    ...item.sources.flatMap((source) => [
+      source.document_filename ?? "",
+      source.citation_label ?? "",
+      source.quote_text,
+      source.source_text_excerpt ?? ""
+    ])
+  ]
+    .join(" ")
+    .toLocaleLowerCase("hu-HU");
+  return haystack.includes(queryText);
+}
+
+function formatSourceReferenceCount(count: number) {
+  return `${count} forráshivatkozás`;
+}
+
 function labelRunStatus(value: string) {
   return runStatusLabels[value] ?? value;
 }
@@ -3016,9 +3232,9 @@ function labelAction(value: string) {
 
 function labelDetachedHandlingStatus(value: string) {
   const labels: Record<string, string> = {
-    needs_review: "Ellenorzesre var",
-    reattached: "Ujra csatolva",
-    discarded: "Irrelevansnak jelolve"
+    needs_review: "Ellenőrzésre vár",
+    reattached: "Újra csatolva",
+    discarded: "Irrelevánsnak jelölve"
   };
   return labels[value] ?? value;
 }
@@ -3030,10 +3246,27 @@ function labelProcessingStatus(value: string) {
     processing: "Feldolgozas alatt",
     processed: "Feldolgozva",
     text_review_required: "Szoveg ellenorzesre var",
-    review_required: "Ellenorzest igenyel",
+    review_required: "Ellenőrzést igényel",
     failed: "Sikertelen"
   };
   return labels[value] ?? value;
+}
+
+function labelDocumentLifecycleStatus(value: string) {
+  const labels: Record<string, string> = {
+    active: "Aktív",
+    excluded: "Kizárt",
+    archived: "Archivált"
+  };
+  return labels[value] ?? value;
+}
+
+function reportSourceIsActive(source: ReviewReportSource) {
+  return !source.document_lifecycle_status || source.document_lifecycle_status === "active";
+}
+
+function reportItemSourcesAreActive(item: ReviewReportItem) {
+  return item.sources.length > 0 && item.sources.every(reportSourceIsActive);
 }
 
 function labelTextSource(value: string) {
@@ -3048,11 +3281,11 @@ function labelTextSource(value: string) {
 }
 
 function canRunOcr(document: DocumentRead) {
-  return document.ocr_recommendation?.action === "recommended" || document.ocr_recommendation?.action === "optional";
+  return document.lifecycle_status === "active" && (document.ocr_recommendation?.action === "recommended" || document.ocr_recommendation?.action === "optional");
 }
 
 function canCreateChunks(document: DocumentRead) {
-  return document.processing_status === "text_review_required";
+  return document.lifecycle_status === "active" && document.processing_status === "text_review_required";
 }
 
 function labelOcrAction(document: DocumentRead) {
@@ -3073,12 +3306,12 @@ function labelSupportType(value: string) {
 
 function labelAnalysisInputType(value: string) {
   const labels: Record<string, string> = {
-    query_text: "Keresdes",
-    filter: "Kivalasztasi szuro",
-    chunk: "Szovegresz",
-    claim: "Allitas",
-    event: "Esemeny",
-    source_reference: "Forrashivatkozas"
+    query_text: "Kérdés",
+    filter: "Kiválasztási szűrő",
+    chunk: "Szövegrész",
+    claim: "Állítás",
+    event: "Esemény",
+    source_reference: "Forráshivatkozás"
   };
   return labels[value] ?? value;
 }
@@ -3129,7 +3362,7 @@ function renderAnalysisOutputSummary(summary: AnalysisRunDetail["outputs"][numbe
       <div className="source-meta">
         {summary.review_status && <span>{labelReviewStatus(summary.review_status)}</span>}
         {summary.source_validation_status && <span>{labelSourceValidationStatus(summary.source_validation_status)}</span>}
-        {summary.source_count !== null && summary.source_count !== undefined && <span>{summary.source_count} forras</span>}
+        {summary.source_count !== null && summary.source_count !== undefined && <span>{formatSourceReferenceCount(summary.source_count)}</span>}
       </div>
       {summary.body_text && <p className="analysis-source-preview">{summary.body_text}</p>}
     </div>
@@ -3168,7 +3401,7 @@ function renderAnalysisInputPayload(payload: Record<string, unknown>) {
         <div className="metrics">
           <span>{String(payload.claim_label ?? "allitas")}</span>
           <span>{payload.claim_pair_labels.length} kivalasztott parban szerepel</span>
-          <span>{String(payload.source_validation_status ?? "forras allapot ismeretlen")}</span>
+          <span>{String(payload.source_validation_status ?? "forráshivatkozás állapota ismeretlen")}</span>
         </div>
         <p className="muted">Parok: {payload.claim_pair_labels.map(String).join(", ")}</p>
       </div>
@@ -3191,9 +3424,9 @@ function formatAnalysisSourceLabel(value: unknown) {
   const rawValue = String(value);
   const match = rawValue.match(/^chunk_(\d+)$/);
   if (match) {
-    return `elemzesi forras: ${match[1]}`;
+    return `elemzési szövegrész: ${match[1]}`;
   }
-  return `elemzesi forras: ${rawValue}`;
+  return `elemzési forrás: ${rawValue}`;
 }
 
 function formatScore(value: unknown) {
@@ -3233,26 +3466,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function labelAnalysisOutputType(value: string) {
   const labels: Record<string, string> = {
-    claim: "Allitas",
-    event: "Esemeny",
-    entity: "Entitas",
-    mention: "Emlites",
-    source_reference: "Forrashivatkozas",
-    summary_item: "Osszefoglalo elem",
-    contradiction_candidate: "Ellentmondasjelolt",
-    missing_item_candidate: "Hianyzo irat jelolt"
+    claim: "Állítás",
+    event: "Esemény",
+    entity: "Entitás",
+    mention: "Említés",
+    source_reference: "Forráshivatkozás",
+    summary_item: "Összefoglaló elem",
+    contradiction_candidate: "Ellentmondásjelölt",
+    missing_item_candidate: "Hiányzó iratjelölt"
   };
   return labels[value] ?? value;
 }
 
 function labelExportFilter(value: string | null) {
   const labels: Record<string, string> = {
-    all: "Osszes",
+    all: "Összes",
     verified_only: "Csak ellenorzott",
-    needs_review: "Ellenorzesre var",
+    needs_review: "Ellenőrzésre vár",
     rejected: "Elutasitott"
   };
-  return labels[value ?? "all"] ?? (value ?? "Osszes");
+  return labels[value ?? "all"] ?? (value ?? "Összes");
 }
 
 function labelExportScope(value: string) {
@@ -3264,25 +3497,25 @@ function labelExportScope(value: string) {
 
 function objectDetailFacts(item: ReviewReportItem) {
   const base = [
-    { label: "Forrasok", value: String(item.sources.length) },
-    { label: "Felulvizsgalatok", value: String(item.reviews.length) }
+    { label: "Forráshivatkozások", value: String(item.sources.length) },
+    { label: "Ellenőrzések", value: String(item.reviews.length) }
   ];
   if (item.object_type === "contradiction_candidate") {
-    return [...base, { label: "Jelolt tipusa", value: labelSubtype(item.object_type, item.subtype) }];
+    return [...base, { label: "Jelölt típusa", value: labelSubtype(item.object_type, item.subtype) }];
   }
   if (item.object_type === "missing_item_candidate") {
     return [...base, { label: "Hivatkozott irat", value: item.title }];
   }
   if (item.object_type === "summary_item") {
-    return [...base, { label: "Osszefoglalo tipusa", value: item.subtype }];
+    return [...base, { label: "Összefoglaló típusa", value: item.subtype }];
   }
   if (item.object_type === "entity") {
-    return [...base, { label: "Entitas tipusa", value: item.subtype }];
+    return [...base, { label: "Entitás típusa", value: item.subtype }];
   }
   if (item.object_type === "event") {
-    return [...base, { label: "Esemeny tipusa", value: item.subtype }];
+    return [...base, { label: "Esemény típusa", value: item.subtype }];
   }
-  return [...base, { label: "Allitas tipusa", value: item.subtype }];
+  return [...base, { label: "Állítás típusa", value: item.subtype }];
 }
 
 function labelSubtype(objectType: string, subtype: string) {

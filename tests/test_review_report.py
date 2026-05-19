@@ -138,6 +138,7 @@ def test_report_source_expands_document_chunk_and_excerpt_details() -> None:
         sha256_hash="b" * 64,
         imported_by_user_id=uuid4(),
         processing_status="processed",
+        lifecycle_status="excluded",
     )
     page = DocumentPageModel(
         id=page_id,
@@ -179,6 +180,7 @@ def test_report_source_expands_document_chunk_and_excerpt_details() -> None:
 
     assert report_source.document_filename == "irat.txt"
     assert report_source.document_sha256_hash == "b" * 64
+    assert report_source.document_lifecycle_status == "excluded"
     assert report_source.chunk_index == 2
     assert report_source.chunk_char_start == 100
     assert report_source.page_text_source == "native"

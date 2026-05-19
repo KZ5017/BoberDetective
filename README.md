@@ -115,6 +115,8 @@ Completed:
 - Frontend TXT/PDF import selection and OCR action for review-required/no-page PDF documents
 - Frontend source scope controls for batch-capable raw-chunk analysis modules
 - Frontend structured document taxonomy controls for import/list display and whole-case analysis source filtering by document group, document type, and selected document list
+- Document lifecycle controls for active/excluded/archived documents, plus safe early discard for documents that have not yet become analysis/source material
+- Active-document gate for new indexing, retrieval, analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source movement, merge workflows, and contradiction candidate creation
 - Frontend optional-focus and claim-review-scope claim-pair display for contradiction analysis, contradiction analysis run details, and conservative contradiction review notes
 - Frontend analysis focus input starts empty; examples are placeholders only and are not processed unless the user types text
 - Frontend review status/source validation filters and object detail panel
@@ -130,8 +132,8 @@ PDF/OCR sample checks:
 
 Next:
 
-- Decide and implement document parking/deletion/archive behavior for accidentally imported, badly processed, or intentionally excluded documents
-- Design an `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
+- Design and implement a full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
+- Re-test document lifecycle behavior on a larger multi-document case
 - Consider durable job supervision if indexing grows beyond FastAPI background tasks
 
 Frontend dev URL:
@@ -182,7 +184,7 @@ Initial backend scaffold exists under `app/` with:
 - JSONL audit writer skeleton
 - storage path resolver with path traversal protection
 - SQLAlchemy/psycopg DB layer
-- Alembic migration foundation
+- Alembic migration foundation through `0020_document_lifecycle_status`
 - `users`, `cases`, `case_users`, `audit_events` tables
 - case create/list API
 - DB + JSONL audit on case creation
@@ -190,6 +192,7 @@ Initial backend scaffold exists under `app/` with:
 - immutable TXT import API with DB + JSONL audit
 - deterministic TXT chunk creation during import
 - document chunks API
+- document lifecycle API for archive/exclude/restore and safe early discard
 - keyword search API over document pages/chunks
 - source-reference API with quote validation
 - `/api/v1/system/llm/smoke` endpoint for local provider reachability
@@ -228,6 +231,6 @@ Frontend:
 - React/Vite scaffold under `frontend/`
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
-- Current UI workflows: case create/list, TXT/PDF import, document list, page/chunk drill-down, OCR recommendation, explicit PDF text review and chunk creation, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
+- Current UI workflows: case create/list, TXT/PDF import, document list, document taxonomy editing, document lifecycle actions, page/chunk drill-down, OCR recommendation, explicit PDF text review and chunk creation, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
 - Raw-chunk analysis module UI supports selected-document and whole-case source scopes with required focus text, selected-document page range, `Szovegresz plafon` capped at 30, and batch controls
 - Raw-chunk analysis can choose keyword, semantic, or hybrid source retrieval after chunk indexing

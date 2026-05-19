@@ -14,6 +14,7 @@ from app.schemas.missing_item import MissingItemSourceCreate
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.detached_sources import create_detached_source_item
 from app.services.reviews import list_object_reviews, record_object_review, review_status_for_action
+from app.services.source_references import ensure_source_reference_document_is_active
 from app.services.storage import StoragePaths
 from app.services.users import get_or_create_dev_user
 
@@ -176,6 +177,19 @@ def merge_missing_item_candidate(
     target_candidate = get_missing_item_candidate(db, case_id, target_candidate_id)
     if source_candidate.missing_item_type != target_candidate.missing_item_type:
         raise MissingItemCandidateValidationError("Only missing item candidates with the same type can be merged")
+    if target_candidate.review_status == "corrected":
+        raise MissingItemCandidateValidationError("Corrected missing item candidates cannot be merge targets")
+    if source_candidate.source_validation_status == "source_invalid":
+        raise MissingItemCandidateValidationError("Missing item candidates without valid sources cannot be merged")
+    if target_candidate.source_validation_status == "source_invalid":
+        raise MissingItemCandidateValidationError("Missing item candidates without valid sources cannot be merge targets")
+    source_candidate_sources = list_missing_item_candidate_sources(db, source_candidate.id)
+    target_candidate_sources = list_missing_item_candidate_sources(db, target_candidate.id)
+    if not source_candidate_sources:
+        raise MissingItemCandidateValidationError("Missing item candidates without valid sources cannot be merged")
+    if not target_candidate_sources:
+        raise MissingItemCandidateValidationError("Missing item candidates without valid sources cannot be merge targets")
+    _ensure_missing_item_candidate_sources_have_active_documents(db, case_id, source_candidate_sources + target_candidate_sources)
 
     target_source_reference_ids = {
         source.source_reference_id
@@ -187,7 +201,7 @@ def merge_missing_item_candidate(
     }
     moved_source_count = 0
     skipped_duplicate_source_count = 0
-    for source in list_missing_item_candidate_sources(db, source_candidate.id):
+    for source in source_candidate_sources:
         if source.source_reference_id in target_source_reference_ids:
             db.delete(source)
             skipped_duplicate_source_count += 1
@@ -285,6 +299,7 @@ def detach_missing_item_candidate_source(
     source_reference = db.get(SourceReferenceModel, source_link.source_reference_id)
     if source_reference is None or source_reference.case_id != case_id:
         raise MissingItemCandidateValidationError("Missing item candidate source reference not found for this case")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, MissingItemCandidateValidationError)
     source_reference_id = source_link.source_reference_id
     db.delete(source_link)
     db.flush()
@@ -375,6 +390,20 @@ def move_missing_item_candidate_source(
     source_link = db.get(MissingItemCandidateSourceModel, source_link_id)
     if source_link is None or source_link.missing_item_candidate_id != source_candidate.id:
         raise MissingItemCandidateValidationError("Missing item candidate source not found for this candidate")
+    source_reference = db.get(SourceReferenceModel, source_link.source_reference_id)
+    if source_reference is None or source_reference.case_id != case_id:
+        raise MissingItemCandidateValidationError("Missing item candidate source reference not found for this case")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, MissingItemCandidateValidationError)
+    _ensure_missing_item_candidate_sources_have_active_documents(
+        db,
+        case_id,
+        list_missing_item_candidate_sources(db, target_candidate.id),
+    )
+
+    previous_target_status = target_candidate.review_status
+    target_reactivated = previous_target_status == "corrected"
+    if target_reactivated:
+        target_candidate.review_status = "needs_review"
 
     duplicate = db.execute(
         select(MissingItemCandidateSourceModel).where(
@@ -421,14 +450,15 @@ def move_missing_item_candidate_source(
         object_type="missing_item_candidate",
         object_id=target_candidate.id,
         action_type="attach_source",
-        previous_review_status=target_candidate.review_status,
-        new_review_status=None,
+        previous_review_status=previous_target_status,
+        new_review_status=target_candidate.review_status if target_reactivated else None,
         review_comment=review_comment or f"Hianyzo irat jelolt forrasa atveve: {source_candidate.referenced_item_text}",
         correction_patch_json={
             "operation": "move_source_from",
             "missing_item_candidate_source_id": str(source_link_id),
             "source_missing_item_candidate_id": str(source_candidate.id),
             "skipped_duplicate_source": skipped_duplicate_source,
+            "reactivated_corrected_target": target_reactivated,
         },
         performed_by_user_id=user.id,
     )
@@ -453,6 +483,8 @@ def move_missing_item_candidate_source(
             "target_review_id": str(target_review.id),
             "skipped_duplicate_source": skipped_duplicate_source,
             "remaining_source_count": remaining_source_count,
+            "target_previous_review_status": previous_target_status if target_reactivated else None,
+            "target_new_review_status": target_candidate.review_status if target_reactivated else None,
         },
     )
     DatabaseAuditWriter(db).write(audit_event)
@@ -466,8 +498,21 @@ def _get_case_source_reference(db: Session, case_id: UUID, source_reference_id: 
     source_reference = db.get(SourceReferenceModel, source_reference_id)
     if source_reference is None or source_reference.case_id != case_id:
         raise MissingItemCandidateValidationError("Source reference not found for this case")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, MissingItemCandidateValidationError)
     return source_reference
 
 
 def _review_status_for_action(action_type: str, previous_status: str) -> str | None:
     return review_status_for_action(action_type, previous_status, MissingItemCandidateValidationError)
+
+
+def _ensure_missing_item_candidate_sources_have_active_documents(
+    db: Session,
+    case_id: UUID,
+    sources: list[MissingItemCandidateSourceModel],
+) -> None:
+    for source in sources:
+        source_reference = db.get(SourceReferenceModel, source.source_reference_id)
+        if source_reference is None or source_reference.case_id != case_id:
+            raise MissingItemCandidateValidationError("Missing item candidate source reference not found for this case")
+        ensure_source_reference_document_is_active(db, case_id, source_reference, MissingItemCandidateValidationError)

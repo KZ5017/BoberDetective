@@ -12,6 +12,7 @@ from app.schemas.document import (
     DocumentChunkRead,
     DocumentChunkRequest,
     DocumentImportMetadata,
+    DocumentLifecycleUpdateRequest,
     DocumentList,
     DocumentOcrRequest,
     DocumentPageList,
@@ -27,12 +28,14 @@ from app.services.documents import (
     DocumentImportError,
     DocumentNotFoundError,
     DocumentProcessingError,
+    DocumentLifecycleError,
     DuplicateDocumentError,
     PdfParserUnavailableError,
     PdfParsingError,
     UnsupportedDocumentTypeError,
     UploadTooLargeError,
     create_document_chunks,
+    discard_document,
     document_ocr_recommendation,
     import_document,
     list_document_chunks,
@@ -41,6 +44,7 @@ from app.services.documents import (
     ocr_document,
     process_document,
     update_document_taxonomy,
+    update_document_lifecycle_status,
 )
 
 router = APIRouter()
@@ -101,6 +105,52 @@ def patch_document_taxonomy(
     except DocumentNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return _document_read(db, document)
+
+
+@router.post("/cases/{case_id}/documents/{document_id}/exclude", response_model=DocumentRead)
+def post_document_exclude(
+    case_id: UUID,
+    document_id: UUID,
+    payload: DocumentLifecycleUpdateRequest | None = None,
+    db: Session = Depends(get_db),
+) -> DocumentRead:
+    return _lifecycle_response(db, case_id, document_id, "excluded", payload)
+
+
+@router.post("/cases/{case_id}/documents/{document_id}/archive", response_model=DocumentRead)
+def post_document_archive(
+    case_id: UUID,
+    document_id: UUID,
+    payload: DocumentLifecycleUpdateRequest | None = None,
+    db: Session = Depends(get_db),
+) -> DocumentRead:
+    return _lifecycle_response(db, case_id, document_id, "archived", payload)
+
+
+@router.post("/cases/{case_id}/documents/{document_id}/restore", response_model=DocumentRead)
+def post_document_restore(
+    case_id: UUID,
+    document_id: UUID,
+    payload: DocumentLifecycleUpdateRequest | None = None,
+    db: Session = Depends(get_db),
+) -> DocumentRead:
+    return _lifecycle_response(db, case_id, document_id, "active", payload)
+
+
+@router.delete("/cases/{case_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document(
+    case_id: UUID,
+    document_id: UUID,
+    payload: DocumentLifecycleUpdateRequest | None = None,
+    db: Session = Depends(get_db),
+) -> None:
+    try:
+        discard_document(db, case_id, document_id, reason=payload.reason if payload else None)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DocumentLifecycleError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return None
 
 
 @router.post("/cases/{case_id}/documents/{document_id}/process", response_model=DocumentProcessResponse)
@@ -190,3 +240,25 @@ def _document_read(db: Session, document: DocumentModel) -> DocumentRead:
     return document_read_with_labels(document).model_copy(
         update={"ocr_recommendation": document_ocr_recommendation(db, document)}
     )
+
+
+def _lifecycle_response(
+    db: Session,
+    case_id: UUID,
+    document_id: UUID,
+    target_status: str,
+    payload: DocumentLifecycleUpdateRequest | None,
+) -> DocumentRead:
+    try:
+        document = update_document_lifecycle_status(
+            db,
+            case_id,
+            document_id,
+            target_status,
+            reason=payload.reason if payload else None,
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DocumentLifecycleError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _document_read(db, document)

@@ -12,6 +12,7 @@ from app.models.missing_item import MissingItemCandidateModel, MissingItemCandid
 from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
+from app.services.source_references import ensure_source_reference_document_is_active
 from app.services.storage import StoragePaths
 from app.services.users import get_or_create_dev_user
 
@@ -111,15 +112,22 @@ def attach_detached_source_item(
     source_reference = db.get(SourceReferenceModel, item.source_reference_id)
     if source_reference is None or source_reference.case_id != case_id:
         raise DetachedSourceValidationError("Detached source reference not found for this case")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, DetachedSourceValidationError)
 
     user = get_or_create_dev_user(db)
     skipped_duplicate_source = False
+    previous_target_status = None
+    target_reactivated = False
     if item.detached_from_object_type == "entity":
         target = db.get(EntityModel, target_object_id)
         if target is None or target.case_id != case_id:
             raise DetachedSourceValidationError("Target entity not found for this case")
         if item.object_subtype_snapshot and target.entity_type != item.object_subtype_snapshot:
             raise DetachedSourceValidationError("Target entity type does not match detached source snapshot")
+        previous_target_status = target.review_status
+        target_reactivated = previous_target_status == "corrected"
+        if target_reactivated:
+            target.review_status = "needs_review"
         duplicate = db.execute(
             select(EntityMentionModel).where(
                 EntityMentionModel.entity_id == target.id,
@@ -153,6 +161,10 @@ def attach_detached_source_item(
             raise DetachedSourceValidationError("Target event not found for this case")
         if item.object_subtype_snapshot and target.event_type != item.object_subtype_snapshot:
             raise DetachedSourceValidationError("Target event type does not match detached source snapshot")
+        previous_target_status = target.review_status
+        target_reactivated = previous_target_status == "corrected"
+        if target_reactivated:
+            target.review_status = "needs_review"
         duplicate = db.execute(
             select(EventSourceModel).where(
                 EventSourceModel.event_id == target.id,
@@ -173,6 +185,10 @@ def attach_detached_source_item(
             raise DetachedSourceValidationError("Target missing item candidate not found for this case")
         if item.object_subtype_snapshot and target.missing_item_type != item.object_subtype_snapshot:
             raise DetachedSourceValidationError("Target missing item type does not match detached source snapshot")
+        previous_target_status = target.review_status
+        target_reactivated = previous_target_status == "corrected"
+        if target_reactivated:
+            target.review_status = "needs_review"
         duplicate = db.execute(
             select(MissingItemCandidateSourceModel).where(
                 MissingItemCandidateSourceModel.missing_item_candidate_id == target.id,
@@ -202,14 +218,15 @@ def attach_detached_source_item(
         object_type=object_type,
         object_id=object_id,
         action_type="attach_source",
-        previous_review_status=None,
-        new_review_status=None,
+        previous_review_status=previous_target_status,
+        new_review_status="needs_review" if target_reactivated else None,
         review_comment=review_comment or f"Levalasztott forras csatolva: {object_title}",
         correction_patch_json={
             "operation": "reattach_detached_source",
             "detached_source_item_id": str(item.id),
             "source_reference_id": str(source_reference.id),
             "skipped_duplicate_source": skipped_duplicate_source,
+            "reactivated_corrected_target": target_reactivated,
         },
         performed_by_user_id=user.id,
     )
@@ -227,7 +244,12 @@ def attach_detached_source_item(
         related_page_id=str(source_reference.page_id) if source_reference.page_id is not None else None,
         related_chunk_id=str(source_reference.chunk_id) if source_reference.chunk_id is not None else None,
         input_summary={"detached_source_item_id": str(item.id), "target_object_id": str(target_object_id)},
-        output_summary={"human_review_id": str(review.id), "skipped_duplicate_source": skipped_duplicate_source},
+        output_summary={
+            "human_review_id": str(review.id),
+            "skipped_duplicate_source": skipped_duplicate_source,
+            "target_previous_review_status": previous_target_status if target_reactivated else None,
+            "target_new_review_status": "needs_review" if target_reactivated else None,
+        },
     )
     DatabaseAuditWriter(db).write(audit_event)
     JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(audit_event)

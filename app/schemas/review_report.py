@@ -28,6 +28,7 @@ class ReviewReportSource(BaseModel):
     document_id: UUID
     document_filename: str | None = None
     document_sha256_hash: str | None = None
+    document_lifecycle_status: str | None = None
     page_id: UUID | None
     chunk_id: UUID | None
     page_number: int | None
