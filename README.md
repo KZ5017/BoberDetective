@@ -124,6 +124,7 @@ Completed:
 - Manual contradiction candidate UI from two source-valid, non-rejected claims with readonly claim/source previews
 - Frontend visible text localized to Hungarian with labels for backend enum/internal values
 - End-to-end frontend/API smoke passed through case creation, TXT import, all MVP analysis modules, review queue filter, claim review, JSON export, export history backing endpoint, download, and Vite proxy
+- Source-bound `Kutatási találatok` workflow: `search_findings` creates source-cited research worklist items, users can set aside/restore/delete/bulk-delete them, and selected findings can be converted into structured claim/entity/event/missing item candidate objects
 
 PDF/OCR sample checks:
 
@@ -132,8 +133,8 @@ PDF/OCR sample checks:
 
 Next:
 
-- Design and implement a full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
-- Re-test document lifecycle behavior on a larger multi-document case
+- Cleanly retire the still-present raw chunk-based automatic extraction modules according to `Design_documents/13_legacy_analysis_module_retirement_plan.md`
+- After the legacy module removal is clean, design and implement a full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
 - Consider durable job supervision if indexing grows beyond FastAPI background tasks
 
 Frontend dev URL:
@@ -162,6 +163,8 @@ See:
 - `Design_documents/09_environment_verification_and_security_baseline.md`
 - `Design_documents/10_analysis_batch_processing_plan.md`
 - `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`
+- `Design_documents/12_source_bound_findings_model_plan.md`
+- `Design_documents/13_legacy_analysis_module_retirement_plan.md`
 
 ## Handoff notes
 
@@ -184,7 +187,7 @@ Initial backend scaffold exists under `app/` with:
 - JSONL audit writer skeleton
 - storage path resolver with path traversal protection
 - SQLAlchemy/psycopg DB layer
-- Alembic migration foundation through `0020_document_lifecycle_status`
+- Alembic migration foundation through `0024_research_findings_worklist`
 - `users`, `cases`, `case_users`, `audit_events` tables
 - case create/list API
 - DB + JSONL audit on case creation

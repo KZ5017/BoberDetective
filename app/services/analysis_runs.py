@@ -13,6 +13,7 @@ from app.models.document import DocumentChunkModel, DocumentModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.missing_item import MissingItemCandidateModel, MissingItemCandidateSourceModel
+from app.models.research_finding import ResearchFindingModel
 from app.models.source_reference import SourceReferenceModel
 from app.models.summary_item import SummaryItemModel, SummaryItemSourceModel
 from app.schemas.analysis import AnalysisRunOutputSummary, AnalysisRunSourceSummary
@@ -153,6 +154,16 @@ def analysis_output_summary(db: Session, item: AnalysisRunOutputModel) -> Analys
             review_status=candidate.review_status,
             source_validation_status=candidate.source_validation_status,
             source_count=_count_sources(db, ContradictionCandidateSourceModel.contradiction_candidate_id, candidate.id),
+        )
+    if item.output_type == "research_finding":
+        finding = db.get(ResearchFindingModel, item.output_object_id)
+        if finding is None:
+            return None
+        return AnalysisRunOutputSummary(
+            title=finding.title,
+            body_text=finding.finding_text,
+            source_validation_status=finding.source_validation_status,
+            source_count=1,
         )
     if item.output_type == "source_reference":
         source = db.get(SourceReferenceModel, item.output_object_id)

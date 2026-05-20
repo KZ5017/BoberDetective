@@ -37,21 +37,21 @@ SUPPORTED_EVENT_TYPES = {
 SUPPORTED_TIME_PRECISIONS = {"exact", "minute", "hour", "day", "month", "unknown"}
 MAX_EVENT_EXTRACTION_BATCH_SIZE = 2
 
-EXTRACT_EVENTS_SYSTEM_PROMPT = """Te egy forrashu iratelemzo komponens vagy.
-Csak a megadott SOURCE chunkokbol dolgozhatsz.
-Nem hasznalhatsz kulso tudast es nem egeszitheted ki a hianyzo tenyeket.
-Csak esemenyjelolteket adhatsz vissza; nem allithatod, hogy az esemeny bizonyosan megtortent, ha a forras csak allitja vagy hivatkozza.
-Nem donthetsz bunossegrol, jogi minositesrol, kockazatrol vagy szemelyi felelossegrol.
-Valaszolj kizarolag ervenyes JSON objektummal.
-A JSON stringekben minden belso dupla idezojelet kotelezo backslash karakterrel escape-elni.
-Minden events elemhez kotelezo a source_label es quote_text.
-quote_text mezot karakterpontosan masold ki a megfelelo SOURCE chunkbol: ne fordisd, ne javitsd, ne ekezetesitsd, ne normalizald.
-quote_text legyen rovid, legfeljebb 400 karakteres, pontos, osszefuggo idezet; ne masolj teljes bekezdeseket.
-Ha a valasztott idezet dupla idezojelet tartalmazna, inkabb valassz rovidebb, dupla idezojel nelkuli pontos idezetet ugyanabbol a forrasbol.
+EXTRACT_EVENTS_SYSTEM_PROMPT = """Te egy forráshű iratelemző komponens vagy.
+Csak a megadott SOURCE chunkokból dolgozhatsz.
+Nem használhatsz külső tudást és nem egészítheted ki a hiányzó tényeket.
+Csak eseményjelölteket adhatsz vissza; nem állíthatod, hogy az esemény bizonyosan megtörtént, ha a forrás csak állítja vagy hivatkozza.
+Nem dönthetsz bűnösségről, jogi minősítésről, kockázatról vagy személyi felelősségről.
+Válaszolj kizárólag érvényes JSON objektummal.
+A JSON stringekben minden belső dupla idézőjelet kötelező backslash karakterrel escape-elni.
+Minden events elemhez kötelező a source_label és quote_text.
+quote_text mezőt karakterpontosan másold ki a megfelelő SOURCE chunkból: ne fordítsd, ne javítsd, ne ékezetesítsd, ne normalizáld.
+quote_text legyen pontos, összefüggő idézet; ne másolj indokolatlanul teljes bekezdéseket.
+Ha a választott idézet dupla idézőjelet tartalmazna, inkább válassz rövidebb, dupla idézőjel nélküli pontos idézetet ugyanabból a forrásból.
 event_type csak ezek egyike lehet: call, meeting, statement, transfer, search, seizure, document_created, document_received, other.
 time_precision csak ezek egyike lehet: exact, minute, hour, day, month, unknown.
-Ha nincs eleg forras egy esemenyhez, ne tedd events koze; tedd az unsupported_events listaba.
-Elvart JSON alak:
+Ha nincs elég forrás egy eseményhez, ne tedd events közé; tedd az unsupported_events listába.
+Elvárt JSON alak:
 {"events":[{"event_type":"call","event_title":"...","event_description":"...","event_time_raw":"...","time_precision":"minute","location_text":null,"quote_text":"...","source_label":"chunk_1"}],"unsupported_events":["..."]}
 """
 
@@ -262,17 +262,23 @@ def build_extract_events_user_prompt(
     batch_index: int = 1,
     batch_count: int = 1,
 ) -> str:
-    focus_text = query.strip() if isinstance(query, str) and query.strip() else "Nincs kulon fokusz; a megadott forraschunkok esemenyjeloltjeit kell kinyerni."
+    focus_text = query.strip() if isinstance(query, str) and query.strip() else "Nincs külön fókusz."
     return (
         f"QUERY:\n{focus_text}\n\n"
         f"BATCH:\n{batch_index}/{batch_count}\n\n"
         f"SOURCE:\n{build_source_blocks(retrieved_chunks)}\n\n"
         "FELADAT:\n"
-        "Nyerd ki a QUERY szempontjabol relevans, forrassal alatamasztott esemenyjelolteket. "
-        "Ha nincs kulon fokusz, a batch forraschunkjaiban szereplo lenyeges, ellenorizheto esemenyjelolteket nyerd ki. "
-        "Legfeljebb 5 events elemet adj vissza ebbol a batchbol. "
-        "Az idezetek legyenek rovidek, pontosak, es teljes egeszukben szerepeljenek a megadott SOURCE chunkban. "
-        "Keruld a dupla idezojelet tartalmazo idezeteket; ha megis kell ilyen karakter, ervenyes JSON modon escape-eld."
+        "Nyerd ki a QUERY szempontjából releváns, forrással alátámasztott eseményjelölteket. "
+        "Minden lehetséges eseményjelöltet külön-külön vizsgálj meg a QUERY szempontjából. "
+        "Csak olyan eseményjelöltet adj vissza, amely önmagában és közvetlenül kapcsolódik a QUERY-ben megadott fókuszhoz. "
+        "Önmagában az, hogy egy SOURCE chunk bekerült a batchbe, nem elég ok eseményjelölt kinyerésére. "
+        "Az sem elég, hogy az eseményjelölt ugyanabban a történeti, nyomozati vagy dokumentumkörnyezetben szerepel, mint egy QUERY-hez kapcsolódó másik eseményjelölt. "
+        "Ne bővítsd a találatokat más, már kiválasztott eseményjelöltekhez való kapcsolódás alapján. "
+        "Ha egy SOURCE chunk tartalmaz ellenőrizhető eseményjelölteket, de azok nem kapcsolódnak önmagukban és közvetlenül a QUERY-hez, hagyd ki őket. "
+        "A quote_text ne legyen túl szűk: önmagában is tegye ellenőrizhetővé, hogy az event_title és event_description kire vagy mire vonatkozik, és mi történt. "
+        "Ha az esemény szereplője, tárgya, ideje, helye vagy oka csak az előző vagy következő mondatból derül ki, akkor a quote_text tartalmazza együtt ezeket a szükséges mondatokat is. "
+        "Ne válassz olyan quote_text idézetet, amelyből önmagában nem látszik, hogy az eseményjelöltet valóban alátámasztja, ha a SOURCE chunkban van egyértelműbb idézetrész. "
+        "Kerüld a dupla idézőjelet tartalmazó idézeteket; ha mégis kell ilyen karakter, érvényes JSON módon escape-eld."
     )
 
 
@@ -325,4 +331,4 @@ def validate_extracted_events(
         )
 
     unsupported_items = [item for item in unsupported_value if isinstance(item, str)]
-    return valid_events[:5], unsupported_items
+    return valid_events, unsupported_items

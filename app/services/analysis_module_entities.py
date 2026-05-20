@@ -35,21 +35,21 @@ SUPPORTED_ENTITY_TYPES = {
     "other",
 }
 
-EXTRACT_ENTITIES_SYSTEM_PROMPT = """Te egy forrashu iratelemzo komponens vagy.
-Csak a megadott SOURCE chunkokbol dolgozhatsz.
-Nem hasznalhatsz kulso tudast es nem egeszitheted ki a hianyzo tenyeket.
-Azonosithatsz szemelyeket, szervezeteket, helyszineket es strukturalt azonosito jellegu ertekeket.
-Nem adhatsz szerep-, felelosseg-, bunosseg- vagy kockazati minositest.
-Valaszolj kizarolag ervenyes JSON objektummal.
-A JSON stringekben minden belso dupla idezojelet kotelezo backslash karakterrel escape-elni.
-Minden entities elemhez legalabb egy mention kell.
-Minden mentionhoz kotelezo a source_label es quote_text.
-quote_text mezot karakterpontosan masold ki a megfelelo SOURCE chunkbol: ne fordisd, ne javitsd, ne ekezetesitsd, ne normalizald.
-quote_text legyen rovid, legfeljebb 300 karakteres, pontos, osszefuggo idezet; ne masolj teljes bekezdeseket.
-Ha a valasztott idezet dupla idezojelet tartalmazna, inkabb valassz rovidebb, dupla idezojel nelkuli pontos idezetet ugyanabbol a forrasbol.
+EXTRACT_ENTITIES_SYSTEM_PROMPT = """Te egy forráshű iratelemző komponens vagy.
+Csak a megadott SOURCE chunkokból dolgozhatsz.
+Nem használhatsz külső tudást és nem egészítheted ki a hiányzó tényeket.
+Azonosíthatsz személyeket, szervezeteket, helyszíneket és strukturált azonosító jellegű értékeket.
+Nem adhatsz szerep-, felelősség-, bűnösség- vagy kockázati minősítést.
+Válaszolj kizárólag érvényes JSON objektummal.
+A JSON stringekben minden belső dupla idézőjelet kötelező backslash karakterrel escape-elni.
+Minden entities elemhez legalább egy mention kell.
+Minden mentionhoz kötelező a source_label és quote_text.
+quote_text mezőt karakterpontosan másold ki a megfelelő SOURCE chunkból: ne fordítsd, ne javítsd, ne ékezetesítsd, ne normalizáld.
+quote_text legyen pontos, összefüggő idézet; ne másolj indokolatlanul teljes bekezdéseket.
+Ha a választott idézet dupla idézőjelet tartalmazna, inkább válassz rövidebb, dupla idézőjel nélküli pontos idézetet ugyanabból a forrásból.
 entity_type csak ezek egyike lehet: person, organization, location, phone, email, license_plate, case_reference, money_amount, document_reference, other.
-Ha nincs eleg forras egy entitashoz, ne tedd entities koze; tedd az unsupported_entities listaba.
-Elvart JSON alak:
+Ha nincs elég forrás egy entitáshoz, ne tedd entities közé; tedd az unsupported_entities listába.
+Elvárt JSON alak:
 {"entities":[{"entity_type":"person","canonical_name":"...","normalized_value":null,"description":null,"mentions":[{"surface_text":"...","quote_text":"...","source_label":"chunk_1"}]}],"unsupported_entities":["..."]}
 """
 
@@ -237,17 +237,23 @@ def build_extract_entities_user_prompt(
     batch_index: int = 1,
     batch_count: int = 1,
 ) -> str:
-    focus_text = query.strip() if isinstance(query, str) and query.strip() else "Nincs kulon fokusz; a megadott forraschunkok entitasjeloltjeit kell kinyerni."
+    focus_text = query.strip() if isinstance(query, str) and query.strip() else "Nincs külön fókusz."
     return (
         f"QUERY:\n{focus_text}\n\n"
         f"BATCH:\n{batch_index}/{batch_count}\n\n"
         f"SOURCE:\n{build_source_blocks(retrieved_chunks)}\n\n"
         "FELADAT:\n"
-        "Nyerd ki a QUERY szempontjabol relevans, forrassal alatamasztott entitasjelolteket. "
-        "Ha nincs kulon fokusz, a batch forraschunkjaiban szereplo lenyeges, ellenorizheto entitasjelolteket nyerd ki. "
-        "Legfeljebb 5 entities elemet adj vissza ebbol a batchbol, entitasonkent egy mentionnel. "
-        "Az idezetek legyenek rovidek, pontosak, es teljes egeszukben szerepeljenek a megadott SOURCE chunkban. "
-        "Keruld a dupla idezojelet tartalmazo idezeteket; ha megis kell ilyen karakter, ervenyes JSON modon escape-eld."
+        "Nyerd ki a QUERY szempontjából releváns, forrással alátámasztott entitásjelölteket. "
+        "Minden lehetséges entitásjelöltet külön-külön vizsgálj meg a QUERY szempontjából. "
+        "Csak olyan entitásjelöltet adj vissza, amely önmagában és közvetlenül kapcsolódik a QUERY-ben megadott fókuszhoz. "
+        "Önmagában az, hogy egy SOURCE chunk bekerült a batchbe, nem elég ok entitásjelölt kinyerésére. "
+        "Az sem elég, hogy az entitásjelölt ugyanabban a történeti, nyomozati vagy dokumentumkörnyezetben szerepel, mint egy QUERY-hez kapcsolódó másik entitásjelölt. "
+        "Ne bővítsd a találatokat más, már kiválasztott entitásjelöltekhez való kapcsolódás alapján. "
+        "Ha egy SOURCE chunk tartalmaz ellenőrizhető entitásjelölteket, de azok nem kapcsolódnak önmagukban és közvetlenül a QUERY-hez, hagyd ki őket. "
+        "A mention quote_text ne legyen túl szűk: önmagában is tegye ellenőrizhetővé, hogy a surface_text, canonical_name és description mire épül. "
+        "Ha az entitás azonosítása, típusa vagy leírása csak az előző vagy következő mondatból derül ki, akkor a quote_text tartalmazza együtt ezeket a szükséges mondatokat is. "
+        "Ne válassz olyan quote_text idézetet, amelyből önmagában nem látszik, hogy az entitásjelöltet valóban alátámasztja, ha a SOURCE chunkban van egyértelműbb idézetrész. "
+        "Kerüld a dupla idézőjelet tartalmazó idézeteket; ha mégis kell ilyen karakter, érvényes JSON módon escape-eld."
     )
 
 
@@ -302,4 +308,4 @@ def validate_extracted_entities(
         )
 
     unsupported_items = [item for item in unsupported_value if isinstance(item, str)]
-    return valid_entities[:5], unsupported_items
+    return valid_entities, unsupported_items

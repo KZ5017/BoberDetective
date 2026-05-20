@@ -142,6 +142,43 @@ export type ReviewReportSource = {
   relevance_rank: number | null;
 };
 
+export type SourceReferenceRead = {
+  id: string;
+  case_id: string;
+  document_id: string;
+  page_id: string | null;
+  chunk_id: string | null;
+  page_number: number | null;
+  quote_text: string;
+  quote_char_start: number | null;
+  quote_char_end: number | null;
+  citation_label: string | null;
+  confidence: string | number | null;
+  source_kind: string;
+  extraction_run_id: string | null;
+  created_by_user_id: string | null;
+  created_at: string;
+};
+
+export type ResearchFindingRead = {
+  id: string;
+  case_id: string;
+  analysis_run_id: string;
+  source_reference_id: string;
+  title: string;
+  finding_text: string;
+  suggested_type: "claim" | "event" | "entity" | "document_reference" | "other";
+  suggested_type_reason: string | null;
+  relevance_reason: string;
+  source_validation_status: string;
+  conversion_status: string;
+  target_object_type: string | null;
+  target_object_id: string | null;
+  created_at: string;
+  updated_at: string;
+  source_reference: SourceReferenceRead | null;
+};
+
 export type ReviewReportItem = {
   object_type: string;
   object_id: string;
@@ -293,6 +330,19 @@ export type AnalysisResponse = {
   summary_items: unknown[];
   contradiction_candidates: unknown[];
   missing_item_candidates: unknown[];
+  research_findings: Array<{
+    research_finding_id: string;
+    title: string;
+    finding_text: string;
+    suggested_type: string;
+    suggested_type_reason: string | null;
+    relevance_reason: string;
+    quote_text: string;
+    source_label: string;
+    source_reference_id: string;
+    document_id: string;
+    chunk_id: string;
+  }>;
 };
 
 export type ManualObjectType = "claim" | "entity" | "event" | "missing_item_candidate";
@@ -336,6 +386,10 @@ export type ManualObjectResponse = {
   };
   object_type: string;
   object_id: string;
+};
+
+export type ResearchFindingConvertResponse = ManualObjectResponse & {
+  finding: ResearchFindingRead;
 };
 
 export type ManualContradictionCandidatePayload = {
@@ -639,6 +693,50 @@ export function listEvents(caseId: string): Promise<{ data: EventRead[] }> {
 
 export function listMissingItemCandidates(caseId: string): Promise<{ data: MissingItemCandidateRead[] }> {
   return request(`/cases/${caseId}/missing-item-candidates`);
+}
+
+export function listResearchFindings(caseId: string): Promise<{ data: ResearchFindingRead[] }> {
+  return request(`/cases/${caseId}/research-findings`);
+}
+
+export function convertResearchFinding(
+  caseId: string,
+  findingId: string,
+  payload: ManualObjectFromSourcePayload
+): Promise<ResearchFindingConvertResponse> {
+  return request(`/cases/${caseId}/research-findings/${findingId}/convert`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function setAsideResearchFinding(caseId: string, findingId: string): Promise<{ finding: ResearchFindingRead }> {
+  return request(`/cases/${caseId}/research-findings/${findingId}/set-aside`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
+}
+
+export function restoreResearchFinding(caseId: string, findingId: string): Promise<{ finding: ResearchFindingRead }> {
+  return request(`/cases/${caseId}/research-findings/${findingId}/restore`, {
+    method: "POST"
+  });
+}
+
+export function deleteResearchFinding(caseId: string, findingId: string): Promise<void> {
+  return request(`/cases/${caseId}/research-findings/${findingId}`, {
+    method: "DELETE"
+  });
+}
+
+export function bulkDeleteResearchFindings(caseId: string, findingIds: string[]): Promise<{ deleted_count: number }> {
+  return request(`/cases/${caseId}/research-findings/bulk-delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ finding_ids: findingIds })
+  });
 }
 
 export function listDetachedSourceItems(caseId: string): Promise<{ data: DetachedSourceItemRead[] }> {

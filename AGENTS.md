@@ -149,6 +149,8 @@ Read these before making plans or edits:
 - `Design_documents/09_environment_verification_and_security_baseline.md`
 - `Design_documents/10_analysis_batch_processing_plan.md`
 - `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`
+- `Design_documents/12_source_bound_findings_model_plan.md`
+- `Design_documents/13_legacy_analysis_module_retirement_plan.md`
 
 ## Editing Guidance
 
@@ -185,7 +187,7 @@ As of the latest handoff:
   - secure storage path resolver,
   - SQLAlchemy/psycopg DB layer,
   - Alembic migration foundation,
-  - migrations through `0020_document_lifecycle_status`,
+  - migrations through `0024_research_findings_worklist`,
   - users/cases/case_users/audit_events tables,
   - documents/pages/chunks/source references,
   - analysis runs and source-cited analysis modules,
@@ -205,8 +207,8 @@ Current implementation caveats:
 - Configured chat-model load profile is `context_length=12288`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; chat model loading uses `POST /api/v1/system/llm/load-chat-model`.
 - Configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`; embedding model loading uses `POST /api/v1/system/llm/load-embedding-model` with `context_length=12288`, and embedding calls auto-ensure the configured model is loaded before `/v1/embeddings`. LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load.
 - LM Studio native chat calls auto-ensure the configured chat model is loaded; they reuse a matching loaded instance id or load the model with the configured profile when missing.
-- Latest test run: `215 passed`.
-- Latest Alembic state: `0020_document_lifecycle_status (head)`.
+- Latest test run: `230 passed`.
+- Latest Alembic state: `0024_research_findings_worklist (head)`.
 - Native-text PDF import uses configurable `BOBERDETECTIVE_PDF_PARSER`; the default `docling_then_pypdf` profile prefers Docling and falls back to local `pypdf`.
 - Current chunking strategy is page-local `char_window_v2`: it preserves processed page boundaries for source-location fidelity and prefers paragraph breaks before sentence-end breaks, line breaks, spaces, and hard character limits.
 - Docling is installed in `.venv`; explicit `BOBERDETECTIVE_PDF_PARSER=docling` import smoke passed with parser `docling` and `parse_document` validation `passed`.
@@ -279,8 +281,13 @@ Strategic next direction:
 - Backend analysis source filtering now accepts structured case-scope filters: `document_group_code`, `document_type_code`, and `document_ids`. The filter resolves to a concrete document set and is applied consistently to keyword, semantic, hybrid raw-chunk retrieval, semantic/hybrid index readiness checks, and background chunk indexing; selected-document scope remains the only mode with page ranges.
 - Frontend analysis source filtering now exposes those case-scope structured filters: optional document group, optional dependent document type, and concrete document checkbox selection. Selected-document scope remains the only mode with page ranges.
 - Document lifecycle/parking is implemented through migration `0020_document_lifecycle_status`: documents can be `active`, `excluded`, or `archived`, with status-change metadata, audit events, frontend controls, and safe early discard/delete only before the document becomes analysis/source material.
+- First `research_finding` backend foundation is implemented through migration `0021_research_findings`: table/model/schemas/internal service/read-only API and analysis-run output summary support.
+- Minimal LLM-backed source-bound finding search is implemented as backend module `search_findings` through migration `0022_search_findings_run_type`: it creates source references, persists `research_finding` records with non-binding `suggested_type`, records analysis run inputs/outputs, and keeps source provenance explicit.
+- First frontend workflow for research findings is implemented: `Kutatási találatok keresése` is available in the analysis panel and the `Kutatási találatok` panel sits above `Áttekintési jelentés`, listing persisted worklist findings with type suggestion, relevance reason, source/worklist status, and source-reference quote.
+- Human-controlled `research_finding` conversion is implemented: not-converted findings can be converted into structured claim/entity/event/missing item candidate objects by reusing the same source reference through the manual-entry path, creating a `manual_entry` provenance run, recording `research_finding_converted`, and storing `target_object_type` / `target_object_id` on the finding. Converted findings no longer appear in the active research-finding worklist.
+- Research findings are worklist items through migration `0024_research_findings_worklist`, not human-review objects: `research_findings.review_status` and `research_finding` as a `human_reviews.object_type` were removed. Worklist operations are set-aside, restore, single delete, and bulk delete; `ignored` means `félretéve`, not rejected.
 - Active documents are the only source material for new indexing, retrieval, analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge operations, and contradiction candidate creation/claim selection. Existing findings from inactive documents remain visible for historical review and show the source document lifecycle status.
-- Next target should be a dedicated, full `Audit naplo` API/panel backed by `audit_events`. Do not confuse it with the current frontend `Elemzesi elozmenyek` panel, which lists `analysis_runs`; import/OCR/chunking show there because they create provenance runs, while pure audit events such as `document_reclassified` and document lifecycle events should surface in the future audit log.
+- Next target should be the clean removal of the still-present raw chunk-based automatic extraction modules according to `Design_documents/13_legacy_analysis_module_retirement_plan.md`. Do not leave silent aliases, half-used module keys, or "legacy for later" code paths. A dedicated full `Audit naplo` API/panel backed by `audit_events` remains the next major direction after that cleanup.
 - Frontend work in this phase should only support the backend workflow: source scope, required focus for raw-chunk modules, batch limits, Hungarian labels, and clear status/error feedback.
 - Rationale: raw-chunk modules can now process document/case scopes, while contradiction detection should operate downstream from source-cited claims and keep `no source -> no claim` intact.
 

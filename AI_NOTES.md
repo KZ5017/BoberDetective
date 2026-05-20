@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 215 passed`, `alembic: 0020_document_lifecycle_status (head)`.
+- Current verification baseline: `pytest: 230 passed`, `alembic: 0024_research_findings_worklist (head)`.
 
 Initial implementation exists:
 
@@ -102,6 +102,11 @@ Initial implementation exists:
 - document lifecycle/parking is implemented with `active`, `excluded`, and `archived` states plus audit-tracked status changes; only active documents can be used as new source material for indexing, retrieval, analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge, and contradiction candidate creation/claim selection,
 - existing review findings from excluded/archived documents remain visible for historical review, and review report source details expose the source document lifecycle status,
 - early document discard/delete is allowed only before the document has become analysis/source material; otherwise documents should be excluded or archived rather than physically removed,
+- first `research_finding` backend foundation exists through migration `0021_research_findings`: `research_findings` table, SQLAlchemy model, schemas, internal create/list/get service, read-only list/detail API, and analysis-run output summary support,
+- minimal LLM-backed source-bound finding search exists as backend module `search_findings` through migration `0022_search_findings_run_type`; it creates source references, persists `research_finding` rows, records analysis run inputs/outputs, and treats `suggested_type` as non-binding,
+- first frontend workflow for research findings exists: `Kutatási találatok keresése` can be run from the analysis panel and the `Kutatási találatok` panel sits above `Áttekintési jelentés`, listing worklist findings with type suggestion, relevance reason, source validation/worklist status, and source-reference quote,
+- human-controlled `research_finding` conversion exists: the backend endpoint reuses the finding source reference through the manual-entry path, creates a structured claim/entity/event/missing item candidate, marks the finding `converted`, stores target object metadata, and writes a conversion audit event; converted findings are hidden from the active worklist and the created structured object carries the later review/source workflow,
+- research findings are now worklist items through migration `0024_research_findings_worklist`, not human-review objects; `research_findings.review_status` and the `research_finding` human-review object type were removed. Worklist operations are set aside, restore, single delete, and bulk delete. `ignored` means "félretéve", not rejected,
 - users can select readonly text from document chunks and create source-bound manual claim/entity/event/missing item candidate objects through `manual_entry` provenance runs,
 - detached source items can also create new source-bound manual claim/entity/event/missing item candidate objects and then store the created object as their handled target,
 - missing item candidate persistence, source linkage, API, review workflow, and review report inclusion,
@@ -138,6 +143,8 @@ Completed design documents:
 - `Design_documents/09_environment_verification_and_security_baseline.md`
 - `Design_documents/10_analysis_batch_processing_plan.md`
 - `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`
+- `Design_documents/12_source_bound_findings_model_plan.md`
+- `Design_documents/13_legacy_analysis_module_retirement_plan.md`
 
 ## Project Summary
 
@@ -260,21 +267,23 @@ Previously unverified items now checked:
 - Raw-chunk analysis source selection supports `page_start` / `page_end` filters only inside selected-document source scope. Page filtering uses overlap logic and is wired through keyword, semantic, and hybrid retrieval; it is not a separate source mode.
 - Whole-case raw-chunk analysis has no page-range fields or backend page-range requirement. Selected-document analysis defaults to document page bounds in the frontend; if API callers omit page fields for document scope, the backend uses the full document and rejects only out-of-document ranges.
 - User-side retrieval/analysis smoke after selected-document page-range filtering produced especially precise results, making this workflow the current preferred path for large documents when the user knows the approximate page interval.
+- Recent local-LLM quality testing showed that module-first raw chunk extraction is too rigid for the long-term workflow: `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` force object categories too early and can create noisy or artificial outputs. The new planned direction is source-bound `research_finding` records first, with human-controlled conversion into structured objects later.
+- The planned `research_finding` schema should be graph-view compatible from the start: keep source-reference -> finding -> structured-object relationships explicit and queryable, but do not introduce a graph database or graph UI prematurely.
 
 ## Suggested Next Steps
 
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Design and implement a full `Audit naplo` API/panel backed by `audit_events`; it should include lifecycle, taxonomy, source movement, review, import/OCR/chunking, export, and analysis-run audit events in one searchable place.
-3. Re-test document lifecycle behavior on a larger multi-document case, especially excluded/archived source visibility, active-only source use, and UI refresh after lifecycle changes.
-4. Consider durable job supervision if indexing grows beyond FastAPI background tasks.
+2. Cleanly retire the still-present raw chunk-based automatic extraction modules according to `Design_documents/13_legacy_analysis_module_retirement_plan.md`; avoid silent aliases, half-used module keys, or "legacy for later" code paths.
+3. Keep `search_findings` as the main source-bound research workflow and preserve the worklist -> structured object conversion path.
+4. After legacy removal, design and implement a full `Audit naplo` API/panel backed by `audit_events`; it should include lifecycle, taxonomy, source movement, review, import/OCR/chunking, export, and analysis-run audit events in one searchable place.
 
 Strategic rationale:
 
 - The frontend is currently usable enough for the MVP workflow and now has Hungarian visible labels.
 - The document ingestion foundation now handles native PDF parsing, explicit OCR, review-required states, confidence metadata, and medium scanned PDF uploads well enough to move forward.
-- The raw-chunk analysis modules are now batch-capable and live-smoke passed on document/case source modes.
+- The raw-chunk analysis modules are batch-capable and live-smoke passed on document/case source modes, but they are now retirement candidates rather than the future main workflow.
 - Large-case usability now uses structured document metadata for import/list display and analysis source filtering. The old free-text `documents.document_type` column/API field has been removed through `0019_drop_legacy_document_type`; do not reintroduce uncontrolled free-text document classification.
 - Document reclassification is available as an audit-tracked metadata-only operation: `PATCH /api/v1/cases/{case_id}/documents/{document_id}/taxonomy` validates the taxonomy pair, records `document_reclassified`, and intentionally leaves pages, chunks, source references, analysis runs, and review objects untouched.
 - Document lifecycle is now an active-source gate. Inactive documents remain historically visible where already cited, but must not become new source material unless restored to `active`.
@@ -302,7 +311,7 @@ Implementation status:
 - Initial FastAPI scaffold exists under `app/`.
 - Health endpoint works.
 - SQLAlchemy/psycopg DB layer exists.
-- Alembic migrations through `0020_document_lifecycle_status` are applied.
+- Alembic migrations through `0024_research_findings_worklist` are applied.
 - `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, `export_items`, `summary_items`, `summary_item_sources`, `contradiction_candidates`, `contradiction_candidate_sources`, `missing_item_candidates`, `missing_item_candidate_sources`, and `detached_source_items` tables exist.
 - Case create/list API works.
 - Case creation writes DB audit event and JSONL audit event.
@@ -479,7 +488,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `215 passed`.
+- Latest test run: `230 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

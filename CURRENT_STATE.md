@@ -13,6 +13,8 @@ Read these first:
 - `CURRENT_STATE.md`
 - `Design_documents/10_analysis_batch_processing_plan.md`
 - `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`
+- `Design_documents/12_source_bound_findings_model_plan.md`
+- `Design_documents/13_legacy_analysis_module_retirement_plan.md`
 
 Then run:
 
@@ -24,8 +26,8 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 215 passed
-alembic: 0020_document_lifecycle_status (head)
+pytest: 230 passed
+alembic: 0024_research_findings_worklist (head)
 ```
 
 ## What Works Now
@@ -34,7 +36,7 @@ alembic: 0020_document_lifecycle_status (head)
 - Minimal React/Vite frontend workbench scaffold under `frontend/`.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0020_document_lifecycle_status`.
+- Alembic migrations through `0024_research_findings_worklist`.
 - Immutable TXT import with page/chunk persistence.
 - Explicit imported-document processing validation run flow.
 - Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile, page persistence, and `parse_document` analysis run provenance.
@@ -84,6 +86,13 @@ alembic: 0020_document_lifecycle_status (head)
 - Early document discard/delete is available only for safely discardable documents before they become analysis/source material. Once chunks, source references, analysis inputs, or review consequences exist, documents are parked through `excluded` or `archived` instead of being physically removed.
 - Frontend source-search strategy selection is available for document/case modes too. `Szovegresz plafon` defaults to 20 and is capped at 30 for raw-chunk modules; the same cap is enforced by the backend. `Batch meret` controls how the selected source chunks are split into LLM calls. Semantic/hybrid index readiness is required before semantic/hybrid retrieval can run.
 - Analysis batch processing is planned in `Design_documents/10_analysis_batch_processing_plan.md`; the first backend slices now support batch-capable `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` with shared source selection and chunk batching.
+- Strategic analysis-model change is now planned in `Design_documents/12_source_bound_findings_model_plan.md` and `Design_documents/13_legacy_analysis_module_retirement_plan.md`: the raw chunk-based automatic extraction modules should be retired in favor of a source-bound `research_finding` workflow. The current raw modules still exist in code, but they should not be treated as the long-term target architecture.
+- First `research_finding` backend foundation exists through migration `0021_research_findings`: `research_findings` table, SQLAlchemy model, schemas, internal create/list/get service, read-only list/detail API, and analysis-run output summary support.
+- Minimal LLM-backed source-bound finding search exists as backend module `search_findings` through migration `0022_search_findings_run_type`. It uses the same focus text, source scope, retrieval strategy, `Szovegresz plafon`, and batch-size source-selection foundation as the raw-chunk modules, but persists source-cited `research_finding` records with non-binding `suggested_type`.
+- First frontend workflow for research findings exists: the analysis module selector exposes `Kutatási találatok keresése`, runs through the normal source-scope/retrieval controls, refreshes `research_findings`, and shows a `Kutatási találatok` panel above the `Áttekintési jelentés` panel with type suggestion, relevance reason, source validation/worklist status, and the source-reference quote.
+- Human-controlled `research_finding` conversion exists: `POST /api/v1/cases/{case_id}/research-findings/{finding_id}/convert` reuses the finding source reference, creates a structured claim/entity/event/missing item candidate through the manual-entry path, records a `manual_entry` provenance run plus `research_finding_converted` audit event, and marks the finding as `converted` with `target_object_type` / `target_object_id`. Converted findings no longer appear in the active research-finding worklist; the structured object carries the ongoing review/source workflow.
+- Research findings are now explicit worklist items through migration `0024_research_findings_worklist`, not human-review objects. The `research_findings.review_status` column and `research_finding` human-review object type were removed. Worklist operations are `set-aside`, `restore`, single delete, and bulk delete; `ignored` means "félretéve", not rejected. The frontend exposes `Félreteszem`, `Vissza az aktív listába`, `Törlésre jelölés`, and `Jelöltek törlése`.
+- The planned `research_finding` model should remain graph-view compatible: preserve source-reference -> finding -> structured-object relationships so a later graph visualization can be built without redesigning the core data model. This is a schema/design constraint, not a near-term graph database requirement.
 - Latest live batch analysis smoke passed:
   - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
   - `case` source mode selected 6 chunks across the smoke case, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
@@ -339,9 +348,9 @@ Latest document-processing/PDF smoke:
 
 Recommended order:
 
-1. Design and implement a full `Audit naplo` workflow/API/panel backed by `audit_events`. Keep it conceptually separate from the current `Elemzesi elozmenyek` panel, which lists `analysis_runs`, not all audit events.
-2. Re-test document lifecycle behavior on a larger multi-document case, especially excluded/archived source visibility, active-only search/index/analysis, and frontend refresh behavior after lifecycle changes.
-3. Consider persistent/background job supervision beyond FastAPI `BackgroundTasks` before very long multi-hundred-page indexing workloads.
+1. Cleanly retire the still-present raw chunk-based automatic extraction modules according to `Design_documents/13_legacy_analysis_module_retirement_plan.md`; avoid leaving half-used legacy module paths, silent aliases, or "legacy for later" code.
+2. Keep `search_findings` as the main source-bound research workflow and preserve the research finding worklist -> structured object conversion path.
+3. After the legacy module removal is clean, design and implement a full `Audit naplo` workflow/API/panel backed by `audit_events`. Keep it conceptually separate from the current `Elemzesi elozmenyek` panel, which lists `analysis_runs`, not all audit events.
 
 Rationale:
 
@@ -349,7 +358,7 @@ Rationale:
 - Structured document taxonomy is now the preferred foundation for large-case source narrowing; do not build new filtering behavior on free-text document type values.
 - Document reclassification is intentionally audit-only plus metadata-only; the next audit-log UI should surface `document_reclassified` events and their optional comments from `audit_events`.
 - Document lifecycle is now an active-source gate. Inactive documents must remain historically visible where already cited, but must not become new source material unless restored to `active`.
-- The raw-chunk analysis modules are now batch-capable and live-smoke passed on document/case source modes.
+- The raw-chunk analysis modules are batch-capable and live-smoke passed on document/case source modes, but recent user-side quality testing showed the module-first extraction model is too rigid for the local Hungarian LLM workflow. Treat them as retirement candidates, not as the future main workflow.
 - Contradiction detection is downstream of source-cited claims, so it should remain claim-pair based and preserve `no source -> no claim` through claim/source-reference provenance.
 
 ## Important Local Notes

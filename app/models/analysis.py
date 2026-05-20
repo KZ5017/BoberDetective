@@ -17,7 +17,7 @@ class AnalysisRunModel(Base):
             "'chunk_document', 'embed_chunks', 'index_chunks', 'validate_document_processing', "
             "'extract_entities', 'extract_events', "
             "'extract_claims', 'detect_contradictions', 'detect_missing_items', 'summarize_case', "
-            "'answer_with_citations', 'export_bundle', 'llm_smoke', 'manual_entry'"
+            "'search_findings', 'answer_with_citations', 'export_bundle', 'llm_smoke', 'manual_entry'"
             ")",
             name="ck_analysis_runs_run_type",
         ),
@@ -92,7 +92,7 @@ class AnalysisRunOutputModel(Base):
     __table_args__ = (
         CheckConstraint(
             "output_type in ('document', 'page', 'chunk', 'entity', 'mention', 'event', 'claim', 'contradiction_candidate', "
-            "'missing_item_candidate', 'export', 'summary_item', 'source_reference')",
+            "'missing_item_candidate', 'export', 'summary_item', 'source_reference', 'research_finding')",
             name="ck_analysis_run_outputs_output_type",
         ),
         CheckConstraint("output_position is null or output_position >= 0", name="ck_analysis_run_outputs_position_non_negative"),

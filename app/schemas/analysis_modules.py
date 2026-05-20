@@ -117,6 +117,20 @@ class AnalysisModuleMissingItemCandidate(BaseModel):
     chunk_id: UUID
 
 
+class AnalysisModuleResearchFinding(BaseModel):
+    research_finding_id: UUID
+    title: str
+    finding_text: str
+    suggested_type: str
+    suggested_type_reason: str | None
+    relevance_reason: str
+    quote_text: str
+    source_label: str
+    source_reference_id: UUID
+    document_id: UUID
+    chunk_id: UUID
+
+
 class AnalysisModuleRunResponse(BaseModel):
     analysis_run_id: UUID
     module_key: str
@@ -127,6 +141,7 @@ class AnalysisModuleRunResponse(BaseModel):
     summary_items: list[AnalysisModuleSummaryItem] = []
     contradiction_candidates: list[AnalysisModuleContradictionCandidate] = []
     missing_item_candidates: list[AnalysisModuleMissingItemCandidate] = []
+    research_findings: list[AnalysisModuleResearchFinding] = []
     unsupported_items: list[str]
     selected_chunk_ids: list[UUID]
     validation_status: str

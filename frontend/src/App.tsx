@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   CheckCircle2,
@@ -38,12 +38,15 @@ import {
   ManualObjectFromSourcePayload,
   ManualContradictionCandidatePayload,
   MissingItemCandidateRead,
+  ResearchFindingRead,
   ReviewReport,
   ReviewReportFilterValues,
   ReviewReportItem,
   ReviewReportSource,
   RetrievalStrategy,
   attachDetachedSourceItem,
+  bulkDeleteResearchFindings,
+  convertResearchFinding,
   createCase,
   createDocumentChunks,
   createExport,
@@ -69,6 +72,7 @@ import {
   listEvents,
   listExports,
   listMissingItemCandidates,
+  listResearchFindings,
   loadChatModel,
   loadEmbeddingModel,
   mergeEvent,
@@ -76,8 +80,10 @@ import {
   mergeMissingItemCandidate,
   moveObjectSource,
   reviewObject,
+  restoreResearchFinding,
   runAnalysis,
   runDocumentOcr,
+  setAsideResearchFinding,
   startChunkIndexJob,
   updateDocumentLifecycle,
   updateDocumentTaxonomy
@@ -88,6 +94,7 @@ const modules = [
   "extract_events",
   "extract_entities",
   "summarize_case",
+  "search_findings",
   "detect_contradiction_candidates",
   "detect_missing_items"
 ];
@@ -140,6 +147,9 @@ const busyLabels: Record<string, string> = {
   "detached-source-discard": "Leválasztott forráshivatkozás irrelevánsnak jelölése",
   "manual-object": "Kézi találat rögzítése",
   "manual-contradiction": "Kézi ellentmondásjelölt rögzítése",
+  "finding-convert": "Kutatási találat átalakítása",
+  "finding-review": "Kutatási találat ellenőrzése",
+  "finding-ignore": "Kutatási találat figyelmen kívül hagyása",
   "chunk-index": "Chunk indexeles",
   "llm-smoke": "LLM modell allapot",
   "chat-load": "Chat modell betoltese",
@@ -151,6 +161,7 @@ const moduleLabels: Record<string, string> = {
   extract_events: "Események kinyerése",
   extract_entities: "Entitások kinyerése",
   summarize_case: "Ugyosszefoglalo keszitese",
+  search_findings: "Kutatási találatok keresése",
   detect_contradiction_candidates: "Ellentmondásjelöltek keresése",
   detect_missing_items: "Hiányzó iratok keresése",
   manual_entry: "Kezi rogzitese"
@@ -189,6 +200,14 @@ const manualObjectTypeLabels: Record<ManualObjectType, string> = {
   entity: "Entitás",
   event: "Esemény",
   missing_item_candidate: "Hiányzó iratjelölt"
+};
+
+const researchFindingTypeLabels: Record<string, string> = {
+  claim: "Állítás jellegű",
+  event: "Esemény jellegű",
+  entity: "Entitás jellegű",
+  document_reference: "Iratra utaló",
+  other: "Egyéb találat"
 };
 
 const contradictionTypeLabels: Record<ManualContradictionCandidatePayload["contradiction_type"], string> = {
@@ -255,6 +274,7 @@ export function App() {
   const [entities, setEntities] = useState<EntityRead[]>([]);
   const [events, setEvents] = useState<EventRead[]>([]);
   const [missingItemCandidates, setMissingItemCandidates] = useState<MissingItemCandidateRead[]>([]);
+  const [researchFindings, setResearchFindings] = useState<ResearchFindingRead[]>([]);
   const [detachedSourceItems, setDetachedSourceItems] = useState<DetachedSourceItemRead[]>([]);
   const [manualContradictionClaims, setManualContradictionClaims] = useState<ReviewReportItem[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<DocumentRead | null>(null);
@@ -298,6 +318,8 @@ export function App() {
   const [reportSearch, setReportSearch] = useState("");
   const [report, setReport] = useState<ReviewReport | null>(null);
   const [selectedReportItem, setSelectedReportItem] = useState<ReviewReportItem | null>(null);
+  const objectDetailPanelRef = useRef<HTMLElement | null>(null);
+  const researchFindingsPanelRef = useRef<HTMLElement | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [lastExport, setLastExport] = useState<ExportDetail | null>(null);
   const [reviewComments, setReviewComments] = useState<Record<string, string>>({});
@@ -306,6 +328,10 @@ export function App() {
   const [detachedSourceTargets, setDetachedSourceTargets] = useState<Record<string, string>>({});
   const [detachedManualTypes, setDetachedManualTypes] = useState<Record<string, ManualObjectType>>({});
   const [detachedManualFields, setDetachedManualFields] = useState<Record<string, Record<string, string>>>({});
+  const [researchFindingManualTypes, setResearchFindingManualTypes] = useState<Record<string, ManualObjectType>>({});
+  const [researchFindingManualFields, setResearchFindingManualFields] = useState<Record<string, Record<string, string>>>({});
+  const [showSetAsideResearchFindings, setShowSetAsideResearchFindings] = useState(false);
+  const [researchFindingsMarkedForDeletion, setResearchFindingsMarkedForDeletion] = useState<string[]>([]);
   const [manualSource, setManualSource] = useState<{
     documentId: string;
     documentName: string;
@@ -317,6 +343,7 @@ export function App() {
     quoteEnd: number;
     citationLabel: string;
   } | null>(null);
+  const manualSourcePanelRef = useRef<HTMLDetailsElement | null>(null);
   const [manualObjectType, setManualObjectType] = useState<ManualObjectType>("claim");
   const [manualFields, setManualFields] = useState<Record<string, string>>({});
   const [manualContradiction, setManualContradiction] = useState<ManualContradictionCandidatePayload>({
@@ -406,7 +433,8 @@ export function App() {
     moduleKey === "extract_events" ||
     moduleKey === "extract_entities" ||
     moduleKey === "summarize_case" ||
-    moduleKey === "detect_missing_items";
+    moduleKey === "detect_missing_items" ||
+    moduleKey === "search_findings";
   const isContradictionModule = moduleKey === "detect_contradiction_candidates";
   const effectiveAnalysisSourceMode: AnalysisSourceMode = canUseBatchScope ? analysisSourceMode : "case";
   const showStructuredAnalysisFilters = canUseBatchScope && effectiveAnalysisSourceMode === "case";
@@ -456,6 +484,18 @@ export function App() {
     if (!queryText) return report.items;
     return report.items.filter((item) => reportItemMatchesSearch(item, queryText));
   }, [report, reportSearch]);
+  const setAsideResearchFindingCount = useMemo(
+    () => researchFindings.filter((finding) => finding.conversion_status === "ignored").length,
+    [researchFindings]
+  );
+  const visibleResearchFindings = useMemo(
+    () =>
+      researchFindings.filter(
+        (finding) => showSetAsideResearchFindings || finding.conversion_status !== "ignored"
+      ),
+    [researchFindings, showSetAsideResearchFindings]
+  );
+  const markedResearchFindingCount = researchFindingsMarkedForDeletion.length;
 
   useEffect(() => {
     void refreshCases();
@@ -527,6 +567,15 @@ export function App() {
     const allowedIds = new Set(analysisDocumentFilterOptions.map((document) => document.id));
     setAnalysisDocumentIds((current) => current.filter((documentId) => allowedIds.has(documentId)));
   }, [analysisDocumentFilterOptions]);
+
+  useEffect(() => {
+    const deletableIds = new Set(
+      researchFindings
+        .filter((finding) => finding.conversion_status !== "converted")
+        .map((finding) => finding.id)
+    );
+    setResearchFindingsMarkedForDeletion((current) => current.filter((findingId) => deletableIds.has(findingId)));
+  }, [researchFindings]);
 
   useEffect(() => {
     if (!showAnalysisPageRange) {
@@ -634,7 +683,18 @@ export function App() {
   async function refreshCaseData(showNotice = true) {
     if (!selectedCaseId) return;
     await perform("case-data", async () => {
-      const [documentsResponse, runsResponse, exportsResponse, reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+      const [
+        documentsResponse,
+        runsResponse,
+        exportsResponse,
+        reportResponse,
+        manualClaimsResponse,
+        entitiesResponse,
+        eventsResponse,
+        missingItemsResponse,
+        researchFindingsResponse,
+        detachedSourcesResponse
+      ] = await Promise.all([
         listDocuments(selectedCaseId),
         listAnalysisRuns(selectedCaseId),
         listExports(selectedCaseId),
@@ -643,6 +703,7 @@ export function App() {
         listEntities(selectedCaseId),
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId),
+        listResearchFindings(selectedCaseId),
         listDetachedSourceItems(selectedCaseId)
       ]);
       setDocuments(documentsResponse.data);
@@ -651,6 +712,7 @@ export function App() {
       setEntities(entitiesResponse.data);
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
+      setResearchFindings(researchFindingsResponse.data);
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       setReport(reportResponse);
@@ -793,6 +855,9 @@ export function App() {
     });
     setManualFields({});
     setNotice("Forráshivatkozás kijelölve kézi rögzítéshez.");
+    window.setTimeout(() => {
+      manualSourcePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   }
 
   async function handleDocumentOcr(document: DocumentRead) {
@@ -895,13 +960,23 @@ export function App() {
       };
       const response = await runAnalysis(selectedCaseId, moduleKey, payload);
       setAnalysis(response);
-      const [reportResponse, manualClaimsResponse, runsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+      const [
+        reportResponse,
+        manualClaimsResponse,
+        runsResponse,
+        entitiesResponse,
+        eventsResponse,
+        missingItemsResponse,
+        researchFindingsResponse,
+        detachedSourcesResponse
+      ] = await Promise.all([
         getReviewReport(selectedCaseId, reportFilters),
         getManualContradictionClaims(selectedCaseId),
         listAnalysisRuns(selectedCaseId),
         listEntities(selectedCaseId),
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId),
+        listResearchFindings(selectedCaseId),
         listDetachedSourceItems(selectedCaseId)
       ]);
       setReport(reportResponse);
@@ -909,8 +984,14 @@ export function App() {
       setEntities(entitiesResponse.data);
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
+      setResearchFindings(researchFindingsResponse.data);
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
+      if (response.module_key === "search_findings") {
+        setTimeout(() => {
+          researchFindingsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 50);
+      }
       setNotice("Elemzes lefutott, jelentés frissitve.");
       setLastActionSummary(
         `${labelModule(response.module_key)}: ${analysisSourceSummaryLabel(effectiveAnalysisSourceMode, analysisDocumentIds.length)}, ${labelValidationStatus(response.validation_status)}, ${analysisSourceMetric(response)}, ${analysisOutputCount(response)} kimenet`
@@ -1367,6 +1448,10 @@ export function App() {
     setDetachedManualFields((current) => ({ ...current, [itemId]: { ...(current[itemId] ?? {}), [key]: value } }));
   }
 
+  function updateResearchFindingManualField(findingId: string, key: string, value: string) {
+    setResearchFindingManualFields((current) => ({ ...current, [findingId]: { ...(current[findingId] ?? {}), [key]: value } }));
+  }
+
   async function handleCreateManualObjectFromDetachedSource(item: DetachedSourceItemRead) {
     if (!selectedCaseId) return;
     const type = detachedManualTypes[item.id] ?? "claim";
@@ -1378,6 +1463,78 @@ export function App() {
       await refreshReviewStateAfterSourceChange(response.object_id);
       setNotice("Leválasztott forráshivatkozásból új találat létrehozva.");
       setLastActionSummary(`${labelObjectType(response.object_type)}: leválasztott forráshivatkozásból rögzítve.`);
+    });
+  }
+
+  async function handleConvertResearchFinding(finding: ResearchFindingRead) {
+    if (!selectedCaseId || finding.conversion_status === "converted") return;
+    const type = researchFindingManualTypes[finding.id] ?? suggestedResearchFindingManualType(finding);
+    const fields = researchFindingManualFields[finding.id] ?? {};
+    await perform("finding-convert", async () => {
+      const response = await convertResearchFinding(selectedCaseId, finding.id, manualObjectFieldsPayload(type, fields));
+      setResearchFindingManualFields((current) => ({ ...current, [finding.id]: {} }));
+      setResearchFindingManualTypes((current) => ({ ...current, [finding.id]: suggestedResearchFindingManualType(finding) }));
+      const [findingsResponse, reportResponse, manualClaimsResponse, runsResponse, entitiesResponse, eventsResponse, missingItemsResponse] = await Promise.all([
+        listResearchFindings(selectedCaseId),
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listAnalysisRuns(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId)
+      ]);
+      setResearchFindings(findingsResponse.data);
+      setReport(reportResponse);
+      setAnalysisRuns(runsResponse.data);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(reportResponse.items.find((item) => item.object_id === response.object_id) ?? null);
+      setNotice("Kutatási találat strukturált objektummá alakítva.");
+      setLastActionSummary(`${labelObjectType(response.object_type)}: kutatási találatból létrehozva.`);
+    });
+  }
+
+  async function handleSetAsideResearchFinding(finding: ResearchFindingRead) {
+    if (!selectedCaseId || finding.conversion_status === "converted") return;
+    await perform("finding-set-aside", async () => {
+      const response = await setAsideResearchFinding(selectedCaseId, finding.id);
+      setResearchFindings((current) => current.map((item) => (item.id === finding.id ? response.finding : item)));
+      setNotice("Kutatási találat félretéve.");
+      setLastActionSummary(`${response.finding.title}: félretéve.`);
+    });
+  }
+
+  async function handleRestoreResearchFinding(finding: ResearchFindingRead) {
+    if (!selectedCaseId || finding.conversion_status === "converted") return;
+    await perform("finding-restore", async () => {
+      const response = await restoreResearchFinding(selectedCaseId, finding.id);
+      setResearchFindings((current) => current.map((item) => (item.id === finding.id ? response.finding : item)));
+      setNotice("Kutatási találat visszakerült az aktív listába.");
+      setLastActionSummary(`${response.finding.title}: újra aktív.`);
+    });
+  }
+
+  function toggleResearchFindingDeletionMark(finding: ResearchFindingRead) {
+    if (finding.conversion_status === "converted") return;
+    setResearchFindingsMarkedForDeletion((current) =>
+      current.includes(finding.id)
+        ? current.filter((findingId) => findingId !== finding.id)
+        : [...current, finding.id]
+    );
+  }
+
+  async function handleBulkDeleteResearchFindings() {
+    if (!selectedCaseId || researchFindingsMarkedForDeletion.length === 0) return;
+    const count = researchFindingsMarkedForDeletion.length;
+    if (!window.confirm(`Törlöd a kijelölt kutatási találatokat?\n\nKijelölt elemek száma: ${count}`)) return;
+    await perform("finding-delete", async () => {
+      const response = await bulkDeleteResearchFindings(selectedCaseId, researchFindingsMarkedForDeletion);
+      setResearchFindings((current) => current.filter((item) => !researchFindingsMarkedForDeletion.includes(item.id)));
+      setResearchFindingsMarkedForDeletion([]);
+      setNotice("Kijelölt kutatási találatok törölve a munkalistából.");
+      setLastActionSummary(`${response.deleted_count} kutatási találat törölve.`);
     });
   }
 
@@ -1435,7 +1592,7 @@ export function App() {
         <pre>{item.body_text ?? ""}</pre>
         <div className="source-list">
           {item.sources.slice(0, 3).map((source, index) => (
-            <details key={source.source_link_id ?? source.source_reference_id} className="source-detail" open={index === 0}>
+            <details key={source.source_link_id ?? source.source_reference_id} className="source-detail">
               <summary>
                 {index + 1}. forráshivatkozás: {source.document_filename ?? "irat"} {source.page_number ? `${source.page_number}. oldal` : ""}{" "}
                 {source.chunk_index !== null ? `${source.chunk_index}. szövegrész` : ""}
@@ -1620,7 +1777,9 @@ export function App() {
     return (
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
         <label>
-          Összevonás célja
+          <span className="merge-label-line">
+            Összevonás célja: <span className="field-hint">(Csak azonos típusú, nem javított, érvényes forráshivatkozású entitások választhatók célként.)</span>
+          </span>
           <select
             value={mergeTargets[item.object_id] ?? ""}
             onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
@@ -1632,7 +1791,6 @@ export function App() {
               </option>
             ))}
           </select>
-          <span className="field-hint">Csak azonos típusú, nem javított, érvényes forráshivatkozású entitások választhatók célként.</span>
         </label>
         <button
           className="secondary-button"
@@ -1660,7 +1818,9 @@ export function App() {
     return (
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
         <label>
-          Összevonás célja
+          <span className="merge-label-line">
+            Összevonás célja: <span className="field-hint">(Csak azonos típusú, nem javított, érvényes forráshivatkozású események választhatók célként.)</span>
+          </span>
           <select
             value={mergeTargets[item.object_id] ?? ""}
             onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
@@ -1672,7 +1832,6 @@ export function App() {
               </option>
             ))}
           </select>
-          <span className="field-hint">Csak azonos típusú, nem javított, érvényes forráshivatkozású események választhatók célként.</span>
         </label>
         <button
           className="secondary-button"
@@ -1700,7 +1859,9 @@ export function App() {
     return (
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
         <label>
-          Összevonás célja
+          <span className="merge-label-line">
+            Összevonás célja: <span className="field-hint">(Csak azonos típusú, nem javított, érvényes forráshivatkozású hiányzó iratjelöltek választhatók célként.)</span>
+          </span>
           <select
             value={mergeTargets[item.object_id] ?? ""}
             onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
@@ -1712,7 +1873,6 @@ export function App() {
               </option>
             ))}
           </select>
-          <span className="field-hint">Csak azonos típusú, nem javított, érvényes forráshivatkozású hiányzó iratjelöltek választhatók célként.</span>
         </label>
         <button
           className="secondary-button"
@@ -1723,6 +1883,13 @@ export function App() {
         </button>
       </div>
     );
+  }
+
+  function handleSelectReportItem(item: ReviewReportItem) {
+    setSelectedReportItem(item);
+    window.setTimeout(() => {
+      objectDetailPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   }
 
   return (
@@ -1824,30 +1991,34 @@ export function App() {
               {documents.length === 0 && <p className="muted">Nincs importalt irat.</p>}
               {documents.length > 0 && filteredDocuments.length === 0 && <p className="muted">Nincs a keresésnek megfelelo irat.</p>}
               {filteredDocuments.map((document) => (
-                <article key={document.id} className="compact-item">
-                  <strong>{document.original_filename}</strong>
-                  <span>
-                    {labelDocumentTaxonomy(document)} | {labelProcessingStatus(document.processing_status)} | {labelDocumentLifecycleStatus(document.lifecycle_status)} | {formatBytes(document.file_size_bytes)}
-                  </span>
-                  <code>{document.sha256_hash}</code>
-                  <div className="button-row">
-                    <button onClick={() => handleDocumentDetail(document)} disabled={Boolean(busy)}>
-                      Reszletek
-                    </button>
-                    {canRunOcr(document) && (
-                      <>
-                        <button onClick={() => handleDocumentOcr(document)} disabled={Boolean(busy)}>
-                          <Play size={18} /> {labelOcrAction(document)}
-                        </button>
-                        <span>{document.ocr_recommendation?.message}</span>
-                      </>
-                    )}
-                    {canCreateChunks(document) && (
-                      <button onClick={() => handleCreateDocumentChunks(document)} disabled={Boolean(busy)}>
-                        Szovegreszek letrehozasa
-                      </button>
+                <article key={document.id} className="compact-item document-list-item">
+                  <div className="document-list-main">
+                    <strong>{document.original_filename}</strong>
+                    <span>
+                      {labelDocumentTaxonomy(document)} | {labelProcessingStatus(document.processing_status)} | {labelDocumentLifecycleStatus(document.lifecycle_status)} | {formatBytes(document.file_size_bytes)}
+                    </span>
+                    <code>{document.sha256_hash}</code>
+                    {(canRunOcr(document) || canCreateChunks(document)) && (
+                      <div className="button-row document-list-extra-actions">
+                        {canRunOcr(document) && (
+                          <>
+                            <button onClick={() => handleDocumentOcr(document)} disabled={Boolean(busy)}>
+                              <Play size={18} /> {labelOcrAction(document)}
+                            </button>
+                            <span>{document.ocr_recommendation?.message}</span>
+                          </>
+                        )}
+                        {canCreateChunks(document) && (
+                          <button onClick={() => handleCreateDocumentChunks(document)} disabled={Boolean(busy)}>
+                            Szovegreszek letrehozasa
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
+                  <button className="document-detail-button" onClick={() => handleDocumentDetail(document)} disabled={Boolean(busy)}>
+                    Reszletek
+                  </button>
                 </article>
               ))}
             </div>
@@ -2024,7 +2195,7 @@ export function App() {
                     <p>Ellenorizd az oldalak szoveget, majd ezzel hozd letre a tovabbi kereseshez es elemzeshez szukseges szovegreszeket.</p>
                   </div>
                 )}
-                <details open>
+                <details>
                   <summary>Oldalak</summary>
                   <div className="detail-list">
                     {documentPages.map((page) => (
@@ -2069,12 +2240,18 @@ export function App() {
                   </div>
                 </details>
                 {manualSource && (
-                  <details open>
-                    <summary>Új találat forráshivatkozásból</summary>
+                  <section className="manual-source-panel" ref={manualSourcePanelRef}>
+                    <h3>Új találat forráshivatkozásból</h3>
                     <div className="manual-entry-panel">
                       <label>
                         Kijelölt forráshivatkozás
-                        <textarea readOnly value={manualSource.quoteText} aria-label="Kijelölt forráshivatkozás readonly előnézet" />
+                        <textarea
+                          className="manual-source-preview"
+                          readOnly
+                          rows={6}
+                          value={manualSource.quoteText}
+                          aria-label="Kijelölt forráshivatkozás readonly előnézet"
+                        />
                       </label>
                       <span className="field-hint">
                         {manualSource.citationLabel} | idézet {formatRange(manualSource.quoteStart, manualSource.quoteEnd)}
@@ -2099,7 +2276,7 @@ export function App() {
                         </button>
                       </div>
                     </div>
-                  </details>
+                  </section>
                 )}
               </div>
             )}
@@ -2524,6 +2701,14 @@ export function App() {
                   <span>{analysis.unsupported_items.length} nem tamogatott</span>
                   <span>{analysisOutputCount(analysis)} kimenet</span>
                 </div>
+                {analysis.module_key === "search_findings" && (
+                  <button
+                    className="secondary-button"
+                    onClick={() => researchFindingsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  >
+                    Ugrás a kutatási találatokhoz
+                  </button>
+                )}
                 <code>{analysis.analysis_run_id}</code>
               </div>
             )}
@@ -2537,13 +2722,15 @@ export function App() {
             <div className="compact-list">
               {analysisRuns.length === 0 && <p className="muted">Nincs elemzesi futas.</p>}
               {analysisRuns.slice(0, 8).map((run) => (
-                <article key={run.id} className="compact-item">
-                  <strong>{labelModule(run.run_type)}</strong>
-                  <span>{labelRunStatus(run.status)} | {run.validation_status ? labelValidationStatus(run.validation_status) : "nincs validacio"} | {run.model_name ?? "nincs modell"}</span>
-                  <span>{new Date(run.started_at).toLocaleString()} {run.finished_at ? `-> ${new Date(run.finished_at).toLocaleTimeString()}` : ""}</span>
-                  {run.error_message && <p className="error-text">{run.error_message}</p>}
-                  <code>{run.id}</code>
-                  <button onClick={() => handleAnalysisRunDetail(run)} disabled={Boolean(busy)}>
+                <article key={run.id} className="compact-item analysis-run-list-item">
+                  <div className="analysis-run-list-main">
+                    <strong>{labelModule(run.run_type)}</strong>
+                    <span>{labelRunStatus(run.status)} | {run.validation_status ? labelValidationStatus(run.validation_status) : "nincs validacio"} | {run.model_name ?? "nincs modell"}</span>
+                    <span>{new Date(run.started_at).toLocaleString()} {run.finished_at ? `-> ${new Date(run.finished_at).toLocaleTimeString()}` : ""}</span>
+                    {run.error_message && <p className="error-text">{run.error_message}</p>}
+                    <code>{run.id}</code>
+                  </div>
+                  <button className="analysis-run-detail-button" onClick={() => handleAnalysisRunDetail(run)} disabled={Boolean(busy)}>
                     Reszletek
                   </button>
                 </article>
@@ -2568,7 +2755,7 @@ export function App() {
                 </div>
                 <code>{analysisRunDetail.run.id}</code>
                 {analysisRunDetail.run.error_message && <p className="error-text">{analysisRunDetail.run.error_message}</p>}
-                <details open>
+                <details>
                   <summary>Bemenetek</summary>
                   <div className="detail-list">
                     {analysisRunDetail.inputs.map((input) => (
@@ -2600,6 +2787,139 @@ export function App() {
           </div>
 
           <div className="review-column">
+          <section className="panel research-findings-panel" ref={researchFindingsPanelRef}>
+            <div className="section-heading">
+              <h2>Kutatási találatok</h2>
+              <Search size={20} />
+            </div>
+            <p className="module-note">
+              A találatok forráshivatkozáshoz kötött keresési munkadarabok. Végleges, ellenőrizhető objektummá az átalakítás után válnak.
+            </p>
+            <div className="finding-toolbar">
+              <button
+                type="button"
+                onClick={() => setShowSetAsideResearchFindings((current) => !current)}
+                disabled={setAsideResearchFindingCount === 0}
+              >
+                {showSetAsideResearchFindings ? "Félretettek elrejtése" : `Félretettek mutatása (${setAsideResearchFindingCount})`}
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDeleteResearchFindings}
+                disabled={Boolean(busy) || markedResearchFindingCount === 0}
+              >
+                Jelöltek törlése ({markedResearchFindingCount})
+              </button>
+            </div>
+            {visibleResearchFindings.length === 0 && <p className="muted">Nincs aktív kutatási találat ebben a munkalistában.</p>}
+            {visibleResearchFindings.length > 0 && (
+              <div className="research-finding-list">
+                {visibleResearchFindings.map((finding) => {
+                  const sourceDocument = documents.find((document) => document.id === finding.source_reference?.document_id);
+                  const conversionType = researchFindingManualTypes[finding.id] ?? suggestedResearchFindingManualType(finding);
+                  const conversionFields = researchFindingManualFields[finding.id] ?? {};
+                  const isMarkedForDeletion = researchFindingsMarkedForDeletion.includes(finding.id);
+                  return (
+                    <article
+                      key={finding.id}
+                      className={`research-finding-card ${finding.conversion_status === "ignored" ? "is-set-aside" : ""} ${
+                        isMarkedForDeletion ? "is-marked-delete" : ""
+                      }`}
+                    >
+                      <div className="research-finding-header">
+                        <div>
+                          <h3>{finding.title}</h3>
+                          <p>{finding.finding_text}</p>
+                        </div>
+                        <span className="status-pill">{labelResearchFindingType(finding.suggested_type)}</span>
+                      </div>
+                      <div className="tags">
+                        <span>{labelSourceValidationStatus(finding.source_validation_status)}</span>
+                        <span>{labelResearchFindingConversionStatus(finding.conversion_status)}</span>
+                      </div>
+                      <p className="field-hint">Relevancia: {finding.relevance_reason}</p>
+                      {finding.suggested_type_reason && <p className="field-hint">Típusjavaslat oka: {finding.suggested_type_reason}</p>}
+                      <div className="finding-actions">
+                        {finding.conversion_status === "ignored" ? (
+                          <button type="button" onClick={() => handleRestoreResearchFinding(finding)} disabled={Boolean(busy)}>
+                            Vissza az aktív listába
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleSetAsideResearchFinding(finding)}
+                            disabled={Boolean(busy) || finding.conversion_status === "converted"}
+                          >
+                            Félreteszem
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => toggleResearchFindingDeletionMark(finding)}
+                          disabled={Boolean(busy)}
+                        >
+                          {isMarkedForDeletion ? "Törlésre jelölve" : "Törlésre jelölés"}
+                        </button>
+                      </div>
+                      {finding.source_reference && (
+                        <details className="source-detail">
+                          <summary>
+                            Forráshivatkozás: {sourceDocument?.original_filename ?? "irat"} {finding.source_reference.page_number ? `${finding.source_reference.page_number}. oldal` : ""}
+                          </summary>
+                          <div className="source-meta">
+                            <span>{finding.source_reference.citation_label ?? "nincs hivatkozási címke"}</span>
+                            <span>idézet {formatRange(finding.source_reference.quote_char_start, finding.source_reference.quote_char_end)}</span>
+                          </div>
+                          <blockquote>{finding.source_reference.quote_text}</blockquote>
+                          <code>{finding.source_reference_id}</code>
+                        </details>
+                      )}
+                      {finding.conversion_status !== "converted" && (
+                        <details className="source-detail">
+                          <summary>Átalakítás strukturált találattá</summary>
+                          <div className="form-row">
+                            <label>
+                              Cél típusa
+                              <select
+                                value={conversionType}
+                                onChange={(event) =>
+                                  setResearchFindingManualTypes((current) => ({
+                                    ...current,
+                                    [finding.id]: event.target.value as ManualObjectType
+                                  }))
+                                }
+                              >
+                                {(Object.keys(manualObjectTypeLabels) as ManualObjectType[]).map((type) => (
+                                  <option key={type} value={type}>
+                                    {manualObjectTypeLabels[type]}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                          {renderManualObjectFieldsFor(
+                            conversionType,
+                            conversionFields,
+                            (key, value) => updateResearchFindingManualField(finding.id, key, value)
+                          )}
+                          <button onClick={() => handleConvertResearchFinding(finding)} disabled={Boolean(busy)}>
+                            Strukturált találat létrehozása
+                          </button>
+                        </details>
+                      )}
+                      {finding.conversion_status === "converted" && finding.target_object_type && finding.target_object_id && (
+                        <p className="field-hint">
+                          Átalakítva: {labelObjectType(finding.target_object_type)} | {finding.target_object_id}
+                        </p>
+                      )}
+                      <code>{finding.id}</code>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
           <section className="panel report-panel">
             <div className="section-heading">
               <h2>Áttekintési jelentés</h2>
@@ -2666,15 +2986,12 @@ export function App() {
                         <span>{item.reviews.length} ellenőrzés</span>
                         <span>{formatSourceReferenceCount(item.sources.length)}</span>
                       </div>
-                      <button className="secondary-button" onClick={() => setSelectedReportItem(item)}>
+                      <button className="secondary-button" onClick={() => handleSelectReportItem(item)}>
                         Részletek
                       </button>
-                      {renderEntityMergeControls(item, true)}
-                      {renderEventMergeControls(item, true)}
-                      {renderMissingItemMergeControls(item, true)}
                       <div className="source-list">
                         {item.sources.map((source, index) => (
-                          <details key={source.source_link_id ?? source.source_reference_id} className="source-detail" open={index === 0}>
+                          <details key={source.source_link_id ?? source.source_reference_id} className="source-detail">
                             <summary>
                               {index + 1}. forráshivatkozás: {source.document_filename ?? "irat"} {source.page_number ? `${source.page_number}. oldal` : ""} {source.chunk_index !== null ? `${source.chunk_index}. szövegrész` : ""}
                             </summary>
@@ -2695,18 +3012,9 @@ export function App() {
                           </details>
                         ))}
                       </div>
-                      {item.reviews.length > 0 && (
-                        <div className="history">
-                          {item.reviews.map((review) => (
-                            <div key={review.id}>
-                              <strong>{labelAction(review.action_type)}</strong>
-                              <span>{review.new_review_status ? labelReviewStatus(review.new_review_status) : "megjegyzés"}</span>
-                              <span>{new Date(review.performed_at).toLocaleString()}</span>
-                              {review.review_comment && <p>{review.review_comment}</p>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      {renderEntityMergeControls(item, true)}
+                      {renderEventMergeControls(item, true)}
+                      {renderMissingItemMergeControls(item, true)}
                       <div className="review-row">
                         <input
                           value={reviewComments[item.object_id] ?? ""}
@@ -2842,7 +3150,7 @@ export function App() {
             </button>
           </section>
 
-          <section className="panel detail-panel object-detail-panel">
+          <section className="panel detail-panel object-detail-panel" ref={objectDetailPanelRef}>
             <div className="section-heading">
               <h2>Találat részletei</h2>
               <Search size={20} />
@@ -2873,14 +3181,25 @@ export function App() {
                 {renderEntityMergeControls(selectedReportItem)}
                 {renderEventMergeControls(selectedReportItem)}
                 {renderMissingItemMergeControls(selectedReportItem)}
-                <details open>
+                <details>
                   <summary>Forráshivatkozások</summary>
                   <div className="detail-list">
                     {selectedReportItem.sources.map((source, index) => (
                       <article key={source.source_link_id ?? source.source_reference_id} className="text-sample">
                         <strong>{index + 1}. {source.document_filename ?? "irat"}</strong>
-                        <span>{source.citation_label ?? "nincs hivatkozás"} | idézet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
-                        <pre>{source.quote_text}</pre>
+                        <div className="source-meta">
+                          <span>{labelSupportType(source.support_type)}</span>
+                          <span>sorrend {source.relevance_rank ?? index}</span>
+                          <span>{source.citation_label ?? "nincs hivatkozási címke"}</span>
+                          {source.document_lifecycle_status && source.document_lifecycle_status !== "active" && (
+                            <span>forrás irat állapota: {labelDocumentLifecycleStatus(source.document_lifecycle_status)}</span>
+                          )}
+                          <span>idézet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
+                          <span>szövegkörnyezet {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
+                        </div>
+                        <blockquote>{source.quote_text}</blockquote>
+                        {source.source_text_excerpt && <p className="excerpt">{source.source_text_excerpt}</p>}
+                        {source.document_sha256_hash && <code className="hash">{source.document_sha256_hash}</code>}
                         {renderSourceDetachButton(selectedReportItem, source)}
                       </article>
                     ))}
@@ -2890,7 +3209,7 @@ export function App() {
                   <summary>Ellenőrzési előzmények</summary>
                   <div className="detail-list">
                     {selectedReportItem.reviews.map((review) => (
-                      <article key={review.id} className="compact-item">
+                      <article key={review.id} className="review-history-item">
                         <strong>{labelAction(review.action_type)}</strong>
                         <span>{review.new_review_status ? labelReviewStatus(review.new_review_status) : "megjegyzés"} | {new Date(review.performed_at).toLocaleString()}</span>
                         {review.review_comment && <p>{review.review_comment}</p>}
@@ -3057,7 +3376,8 @@ function analysisOutputCount(response: AnalysisResponse) {
     response.entities.length +
     response.summary_items.length +
     response.contradiction_candidates.length +
-    response.missing_item_candidates.length
+    response.missing_item_candidates.length +
+    response.research_findings.length
   );
 }
 
@@ -3077,7 +3397,8 @@ function analysisFocusPlaceholder(moduleKey: string, isContradictionModule: bool
     extract_events: "Add meg, milyen esemenyekre vagy idoszakra fokuszaljon.",
     extract_entities: "Add meg, milyen szemelyre, szervezetre, helyre vagy azonosítora fokuszaljon.",
     summarize_case: "Add meg, milyen témáról készüljön forráshű összefoglaló.",
-    detect_missing_items: "Add meg, milyen hivatkozott iratot, mellekletet vagy bizonyitekfajtat keressen."
+    detect_missing_items: "Add meg, milyen hivatkozott iratot, mellekletet vagy bizonyitekfajtat keressen.",
+    search_findings: "Add meg, milyen forráshű kutatási találatokat keressen."
   };
   return placeholders[moduleKey] ?? "Add meg a fókuszt a forráshivatkozott elemzéshez.";
 }
@@ -3194,6 +3515,26 @@ function labelReviewStatus(value: string) {
 
 function labelSourceValidationStatus(value: string) {
   return sourceValidationLabels[value] ?? value;
+}
+
+function labelResearchFindingType(value: string) {
+  return researchFindingTypeLabels[value] ?? value;
+}
+
+function labelResearchFindingConversionStatus(value: string) {
+  const labels: Record<string, string> = {
+    not_converted: "Aktív munkalista-elem",
+    converted: "Átalakítva",
+    ignored: "Félretéve"
+  };
+  return labels[value] ?? value;
+}
+
+function suggestedResearchFindingManualType(finding: ResearchFindingRead): ManualObjectType {
+  if (finding.suggested_type === "entity") return "entity";
+  if (finding.suggested_type === "event") return "event";
+  if (finding.suggested_type === "document_reference") return "missing_item_candidate";
+  return "claim";
 }
 
 function reportItemMatchesSearch(item: ReviewReportItem, queryText: string) {
@@ -3471,6 +3812,7 @@ function labelAnalysisOutputType(value: string) {
     entity: "Entitás",
     mention: "Említés",
     source_reference: "Forráshivatkozás",
+    research_finding: "Kutatási találat",
     summary_item: "Összefoglaló elem",
     contradiction_candidate: "Ellentmondásjelölt",
     missing_item_candidate: "Hiányzó iratjelölt"

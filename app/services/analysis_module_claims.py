@@ -34,16 +34,16 @@ SUPPORTED_CLAIM_TYPES = {
     "unknown",
 }
 
-EXTRACT_CLAIMS_SYSTEM_PROMPT = """Te egy forrashu iratelemzo komponens vagy.
-Csak a megadott SOURCE chunkokbol dolgozhatsz.
-Nem hasznalhatsz kulso tudast es nem egeszitheted ki a hianyzo tenyeket.
-Nem donthetsz bunossegrol, jogi minositesrol, kockazatrol vagy szemelyi felelossegrol.
-Nem allapithatod meg, hogy egy allitas igaz; csak azt rogzitheted, hogy a forras mit allit vagy tartalmaz.
-Valaszolj kizarolag ervenyes JSON objektummal.
-Minden claims elemhez kotelezo a source_label es quote_text.
-quote_text mezot karakterpontosan masold ki a megfelelo SOURCE chunkbol: ne fordisd, ne javitsd, ne ekezetesitsd, ne normalizald.
-Ha nincs eleg forras egy allitashoz, ne tedd claims koze; tedd az unsupported_claims listaba.
-Elvart JSON alak:
+EXTRACT_CLAIMS_SYSTEM_PROMPT = """Te egy forráshű iratelemző komponens vagy.
+Csak a megadott SOURCE chunkokból dolgozhatsz.
+Nem használhatsz külső tudást és nem egészítheted ki a hiányzó tényeket.
+Nem dönthetsz bűnösségről, jogi minősítésről, kockázatról vagy személyi felelősségről.
+Nem állapíthatod meg, hogy egy állítás igaz; csak azt rögzítheted, hogy a forrás mit állít vagy tartalmaz.
+Válaszolj kizárólag érvényes JSON objektummal.
+Minden claims elemhez kötelező a source_label és quote_text.
+quote_text mezőt karakterpontosan másold ki a megfelelő SOURCE chunkból: ne fordítsd, ne javítsd, ne ékezetesítsd, ne normalizáld.
+Ha nincs elég forrás egy állításhoz, ne tedd claims közé; tedd az unsupported_claims listába.
+Elvárt JSON alak:
 {"claims":[{"claim_type":"document_fact","claim_text":"...","quote_text":"...","source_label":"chunk_1"}],"unsupported_claims":["..."]}
 """
 
@@ -358,15 +358,22 @@ def build_extract_claims_user_prompt(
     batch_index: int = 1,
     batch_count: int = 1,
 ) -> str:
-    focus_text = query.strip() if isinstance(query, str) and query.strip() else "Nincs kulon fokusz; a megadott forraschunkok fontos allitasait kell kinyerni."
+    focus_text = query.strip() if isinstance(query, str) and query.strip() else "Nincs külön fókusz."
     return (
         f"QUERY:\n{focus_text}\n\n"
         f"BATCH:\n{batch_index}/{batch_count}\n\n"
         f"SOURCE:\n{build_source_blocks(retrieved_chunks)}\n\n"
         "FELADAT:\n"
-        "Nyerd ki a QUERY szempontjabol relevans, forrassal alatamasztott allitasokat. "
-        "Ha nincs kulon fokusz, a batch forraschunkjaiban szereplo lenyeges, ellenorizheto allitasokat nyerd ki. "
-        "Legfeljebb 5 claims elemet adj vissza ebbol a batchbol."
+        "Nyerd ki a QUERY szempontjából releváns, forrással alátámasztott állításokat. "
+        "Minden lehetséges állítást külön-külön vizsgálj meg a QUERY szempontjából. "
+        "Csak olyan állítást adj vissza, amely önmagában és közvetlenül kapcsolódik a QUERY-ben megadott fókuszhoz. "
+        "Önmagában az, hogy egy SOURCE chunk bekerült a batchbe, nem elég ok állítás kinyerésére. "
+        "Az sem elég, hogy az állítás ugyanabban a történeti, nyomozati vagy dokumentumkörnyezetben szerepel, mint egy QUERY-hez kapcsolódó másik állítás. "
+        "Ne bővítsd a találatokat más, már kiválasztott állításokhoz való kapcsolódás alapján. "
+        "Ha egy SOURCE chunk tartalmaz ellenőrizhető állításokat, de azok nem kapcsolódnak önmagukban és közvetlenül a QUERY-hez, hagyd ki őket. "
+        "A quote_text ne legyen túl szűk: önmagában is tegye ellenőrizhetővé, hogy a claim_text kire vagy mire vonatkozik, és mi az állítás lényege. "
+        "Ha az állítás alanya, tárgya vagy oka csak az előző vagy következő mondatból derül ki, akkor a quote_text tartalmazza együtt ezeket a szükséges mondatokat is. "
+        "Ne válassz olyan quote_text idézetet, amelyből önmagában nem látszik, hogy a claim_text állítást valóban alátámasztja, ha a SOURCE chunkban van egyértelműbb idézetrész."
     )
 
 
@@ -411,4 +418,4 @@ def validate_extracted_claims(
         )
 
     unsupported_items = [item for item in unsupported_value if isinstance(item, str)]
-    return valid_claims[:5], unsupported_items
+    return valid_claims, unsupported_items

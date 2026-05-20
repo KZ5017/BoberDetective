@@ -66,6 +66,25 @@ def create_manual_object_from_detached_source(
         raise
 
 
+def create_manual_object_from_source_reference(
+    db: Session,
+    case_id: UUID,
+    source_reference_id: UUID,
+    payload: ManualObjectFromSourceCreate,
+    input_kind: str = "manual_existing_source_selection",
+) -> tuple[UUID, SourceReferenceModel, str, UUID]:
+    source_reference = db.get(SourceReferenceModel, source_reference_id)
+    if source_reference is None or source_reference.case_id != case_id:
+        raise ManualEntryError("Source reference not found for this case")
+
+    run = _start_manual_run(db, case_id, payload)
+    try:
+        return _create_manual_object_for_source(db, case_id, payload, run, source_reference, input_kind)
+    except Exception as exc:
+        finish_analysis_run(db, run, status="failed", validation_status="failed", error_message=str(exc))
+        raise
+
+
 def _start_manual_run(db: Session, case_id: UUID, payload: ManualObjectFields):
     run = start_analysis_run(
         db,

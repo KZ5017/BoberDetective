@@ -27,11 +27,13 @@ from app.services.analysis_modules import (
     validate_extracted_contradiction_candidates,
     validate_extracted_entities,
     validate_extracted_events,
+    validate_extracted_findings,
     validate_extracted_missing_item_candidates,
     validate_extracted_summary_items,
 )
 from app.services.analysis_module_events import _effective_event_batch_size, build_extract_events_user_prompt
 from app.services.analysis_module_entities import build_extract_entities_user_prompt
+from app.services.analysis_module_findings import build_search_findings_user_prompt
 from app.services.analysis_module_summaries import build_summarize_case_user_prompt
 from app.services.analysis_module_missing_items import build_detect_missing_items_user_prompt
 from app.services.llm import LLMChatCompletion
@@ -408,7 +410,7 @@ def test_split_retrieved_chunks_and_batch_metadata_are_deterministic() -> None:
 def test_build_extract_claims_user_prompt_handles_empty_focus_and_batch_metadata() -> None:
     prompt = build_extract_claims_user_prompt(None, [_retrieved_chunk("chunk_1", "A forras allitasa.")], 2, 4)
 
-    assert "Nincs kulon fokusz" in prompt
+    assert "Nincs külön fókusz" in prompt
     assert "BATCH:\n2/4" in prompt
     assert "chunk_1:" in prompt
 
@@ -416,11 +418,11 @@ def test_build_extract_claims_user_prompt_handles_empty_focus_and_batch_metadata
 def test_build_extract_events_user_prompt_handles_empty_focus_and_batch_metadata() -> None:
     prompt = build_extract_events_user_prompt(None, [_retrieved_chunk("chunk_1", "18:42-kor hivas tortent.")], 3, 5)
 
-    assert "Nincs kulon fokusz" in prompt
+    assert "Nincs külön fókusz" in prompt
     assert "BATCH:\n3/5" in prompt
     assert "chunk_1:" in prompt
-    assert "Az idezetek legyenek rovidek" in prompt
-    assert "Keruld a dupla idezojelet" in prompt
+    assert "quote_text ne legyen túl szűk" in prompt
+    assert "Kerüld a dupla idézőjelet" in prompt
 
 
 def test_extract_events_caps_effective_batch_size_for_local_llm_stability() -> None:
@@ -432,11 +434,76 @@ def test_extract_events_caps_effective_batch_size_for_local_llm_stability() -> N
 def test_build_extract_entities_user_prompt_handles_empty_focus_and_batch_metadata() -> None:
     prompt = build_extract_entities_user_prompt(None, [_retrieved_chunk("chunk_1", "Kovacs Anna megjelent.")], 2, 3)
 
-    assert "Nincs kulon fokusz" in prompt
+    assert "Nincs külön fókusz" in prompt
     assert "BATCH:\n2/3" in prompt
     assert "chunk_1:" in prompt
-    assert "Az idezetek legyenek rovidek" in prompt
-    assert "Keruld a dupla idezojelet" in prompt
+    assert "quote_text ne legyen túl szűk" in prompt
+    assert "Kerüld a dupla idézőjelet" in prompt
+
+
+def test_build_search_findings_user_prompt_is_source_bound_and_type_flexible() -> None:
+    prompt = build_search_findings_user_prompt(
+        "matrózzal kapcsolatos releváns találatok",
+        [_retrieved_chunk("chunk_1", "A matróz benézett az ablakon.")],
+        1,
+        2,
+    )
+
+    assert "QUERY:\nmatrózzal kapcsolatos releváns találatok" in prompt
+    assert "BATCH:\n1/2" in prompt
+    assert "chunk_1:" in prompt
+    assert "Ne erőltesd, hogy a találat állítás, esemény vagy entitás legyen" in prompt
+    assert "suggested_type" in prompt
+
+
+def test_validate_extracted_findings_accepts_exact_source_quote_and_normalizes_unknown_type() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "A matróz benézett az ablakon, majd megijedt.")]
+
+    findings, unsupported = validate_extracted_findings(
+        {
+            "findings": [
+                {
+                    "title": "Matróz az ablaknál",
+                    "finding_text": "A matróz benézett az ablakon.",
+                    "suggested_type": "scene",
+                    "suggested_type_reason": "Inkább eseményszerű, de nem biztos.",
+                    "relevance_reason": "A fókusz a matróz cselekményeire irányult.",
+                    "quote_text": "A matróz benézett az ablakon",
+                    "source_label": "chunk_1",
+                }
+            ],
+            "unsupported_findings": ["nincs elég forrás"],
+        },
+        chunks,
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["suggested_type"] == "other"
+    assert unsupported == ["nincs elég forrás"]
+
+
+def test_validate_extracted_findings_skips_quote_outside_source_chunk() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "A forrásban ez a mondat szerepel.")]
+
+    findings, unsupported = validate_extracted_findings(
+        {
+            "findings": [
+                {
+                    "title": "Nem forráshű találat",
+                    "finding_text": "Olyasmi, ami nincs a forrásban.",
+                    "suggested_type": "claim",
+                    "relevance_reason": "A fókuszhoz kapcsolódna.",
+                    "quote_text": "Ez nincs a chunkban.",
+                    "source_label": "chunk_1",
+                }
+            ],
+            "unsupported_findings": [],
+        },
+        chunks,
+    )
+
+    assert findings == []
+    assert unsupported == []
 
 
 def test_build_summarize_case_user_prompt_handles_empty_focus_and_batch_metadata() -> None:

@@ -4,6 +4,14 @@
 
 ### Added
 
+- Added `Design_documents/12_source_bound_findings_model_plan.md`, defining the planned source-bound `research_finding` model: query-driven source findings first, non-binding type suggestion second, and human-controlled conversion into structured objects.
+- Added `Design_documents/13_legacy_analysis_module_retirement_plan.md`, defining a clean retirement path for the raw chunk-based automatic extraction modules without silent aliases or leftover legacy code paths.
+- Added graph-view compatibility as an explicit planning constraint for the future `research_finding` schema, preserving source-reference -> finding -> structured-object relationships without introducing a graph database yet.
+- Added the first `research_finding` backend foundation: SQLAlchemy model, schemas, internal create/list/get service, read-only list/detail API, analysis-run output summary support, and Alembic migration `0021_research_findings`.
+- Added the first LLM-backed source-bound finding search backend module, `search_findings`, which creates source references, persists `research_finding` records with non-binding `suggested_type`, records analysis run provenance, and is enabled by Alembic migration `0022_search_findings_run_type`.
+- Added the first frontend workflow for source-bound research findings: `Kutatási találatok keresése` is selectable in the analysis panel, persisted findings refresh after runs, and the `Kutatási találatok` panel shows type suggestion, relevance reason, source/worklist status, and source-reference quotes.
+- Added human-controlled research-finding conversion: `research_finding` records can be converted into structured claim/entity/event/missing item candidate objects by reusing the same source reference through the manual-entry path, preserving provenance and marking the finding with target object metadata.
+- Added research-finding worklist controls: findings can be set aside, restored to the active list, marked for deletion, and bulk-deleted. Converted findings disappear from the active worklist while the created structured object keeps the source-bound workflow.
 - Added document lifecycle/parking support with `active`, `excluded`, and `archived` states, status-change metadata, audit events, frontend controls, and Alembic migration `0020_document_lifecycle_status`.
 - Added safe early document discard/delete for documents that have not yet become analysis/source material; documents with chunks, source references, analysis inputs, or review consequences are parked through exclude/archive instead of physical deletion.
 - Added active-document enforcement across new source-producing workflows: indexing, retrieval, raw-chunk analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge, and contradiction candidate creation/claim selection.
@@ -12,8 +20,10 @@
 
 ### Changed
 
-- Updated the verification baseline to `215 passed` and Alembic head `0020_document_lifecycle_status`.
-- Recorded the next larger direction as a full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing history.
+- Recorded the strategic analysis-model direction change: raw chunk-based automatic `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` should be treated as retirement candidates rather than the future main workflow.
+- Converted `research_finding` from a review object into a worklist layer through migration `0024_research_findings_worklist`: removed `research_findings.review_status`, removed `research_finding` from `human_reviews`, and kept review/export behavior on converted structured objects instead.
+- Updated the verification baseline to `230 passed` and Alembic head `0024_research_findings_worklist`.
+- Recorded the next larger direction as clean removal of the still-present raw chunk-based automatic extraction modules according to `Design_documents/13_legacy_analysis_module_retirement_plan.md`; the full `Audit naplo` API/panel remains the following major direction after that cleanup.
 
 ## 2026-05-14
 
