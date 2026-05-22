@@ -1,5 +1,15 @@
 # CHANGELOG.md
 
+## 2026-05-22
+
+### Changed
+
+- Retired the legacy raw chunk-based automatic extraction modules from active code paths: `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` are no longer accepted by backend dispatch and no longer appear in the frontend module selector.
+- Removed the retired modules' service files, response schema entries, frontend response-count fields, and prompt/validation tests. Old module keys now return `Unsupported analysis module`.
+- Kept `search_findings` as the active source-bound research workflow and `detect_contradiction_candidates` as the downstream claim-pair workflow.
+- Added `search_findings` to document discard analysis-history protection so a finding search run can block unsafe early document discard even when evaluated through run history.
+- Updated the verification baseline to `217 passed` and Alembic head `0024_research_findings_worklist`.
+
 ## 2026-05-20
 
 ### Added
@@ -23,7 +33,7 @@
 - Recorded the strategic analysis-model direction change: raw chunk-based automatic `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` should be treated as retirement candidates rather than the future main workflow.
 - Converted `research_finding` from a review object into a worklist layer through migration `0024_research_findings_worklist`: removed `research_findings.review_status`, removed `research_finding` from `human_reviews`, and kept review/export behavior on converted structured objects instead.
 - Updated the verification baseline to `230 passed` and Alembic head `0024_research_findings_worklist`.
-- Recorded the next larger direction as clean removal of the still-present raw chunk-based automatic extraction modules according to `Design_documents/13_legacy_analysis_module_retirement_plan.md`; the full `Audit naplo` API/panel remains the following major direction after that cleanup.
+- Recorded the next larger direction as clean removal of the then still-present raw chunk-based automatic extraction modules according to `Design_documents/13_legacy_analysis_module_retirement_plan.md`; the full `Audit naplo` API/panel remains the following major direction after that cleanup.
 
 ## 2026-05-14
 

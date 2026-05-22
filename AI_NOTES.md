@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 230 passed`, `alembic: 0024_research_findings_worklist (head)`.
+- Current verification baseline: `pytest: 217 passed`, `alembic: 0024_research_findings_worklist (head)`.
 
 Initial implementation exists:
 
@@ -55,7 +55,7 @@ Initial implementation exists:
 - LLMProvider abstraction with LM Studio/OpenAI-compatible model-list smoke,
 - analysis run provenance foundation,
 - synthetic LLM model benchmark script,
-- first generalized analysis module endpoint with `extract_claims` and `extract_events`,
+- generalized analysis module endpoint now centered on `search_findings` plus downstream `detect_contradiction_candidates`,
 - event persistence foundation,
 - case review report API,
 - JSON review report export foundation,
@@ -64,34 +64,32 @@ Initial implementation exists:
 - event review workflow foundation,
 - shared review service helper,
 - entity persistence foundation,
-- `extract_entities` module foundation,
+- historical entity/event/claim raw extraction foundations have been retired from active module dispatch,
 - entity review workflow foundation,
 - review report filtering by object type, review status, and source validation status,
 - review report export filters through `report_filters`,
 - expanded review report source details with document metadata, offsets, chunk/page metadata, and bounded source excerpts,
-- analysis module service split into common retrieval/JSON helpers and module-specific claim/event/entity/summary services,
+- analysis module service split now keeps common retrieval/JSON helpers, source-bound `search_findings`, and downstream claim-pair contradiction detection,
 - source-cited summary item persistence, source linkage, API, review workflow, and review report inclusion,
-- `summarize_case` analysis module foundation with quote validation and summary item persistence,
+- legacy raw chunk modules (`extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`) have been removed from active backend dispatch, frontend module selection, response schemas, module-specific service files, and prompt/validation tests; API calls with those old module keys return `Unsupported analysis module`,
 - analysis module retrieval fallback for broader natural-language Hungarian prompts,
 - local chunk indexing foundation through LM Studio/OpenAI-compatible embeddings and model-specific Qdrant collections, with `embed_chunks` analysis run provenance and chunk-level embedding metadata; model switches make chunks eligible for reindexing instead of incorrectly treating an old-model vector id as current,
 - background chunk indexing through `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; the endpoint creates an `embed_chunks` analysis run and returns immediately, while FastAPI `BackgroundTasks` performs the LM Studio/Qdrant work,
 - embedding index creation uses `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` defaulting to `8`, so large documents are embedded and upserted in smaller LM Studio/Qdrant batches instead of one memory-heavy request,
 - chunk index status is available through `GET /api/v1/cases/{case_id}/indexes/chunks/status`; it supports whole-case, selected-document, and structured case-scope subsets (`document_ids`, `document_group_code`, `document_type_code`), and the frontend uses it to show semantic index readiness, latest run progress, and block semantic/hybrid focused analysis until the active source scope is indexed with the configured embedding model,
-- hybrid retrieval foundation through keyword, semantic, and hybrid strategies; batch-capable raw-chunk analysis modules can receive `retrieval_strategy`, and analysis run chunk inputs record `retrieval_match_type`,
-- configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`; embedding calls auto-ensure this model is loaded through LM Studio before `/v1/embeddings`; the previous 8B smoke loaded with `context_length=12288`, reindexed 49 Morgue PDF chunks into `boberdetective_chunks_text_embedding_qwen3_embedding_8b`, returned semantic hybrid-search hits, and a focused `extract_claims` smoke recorded `retrieval_strategy=hybrid` plus `retrieval_match_type=semantic` in analysis run provenance,
-- live `summarize_case` smoke passed with the original broad query after retrieval fallback,
+- hybrid retrieval foundation through keyword, semantic, and hybrid strategies; `search_findings` can receive `retrieval_strategy`, and analysis run chunk inputs record `retrieval_match_type`,
+- configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`; embedding calls auto-ensure this model is loaded through LM Studio before `/v1/embeddings`; older raw-module smokes remain historical notes only,
 - contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion,
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs,
 - live `detect_contradiction_candidates` smoke passed on a two-claim time conflict sample,
 - `detect_contradiction_candidates` now treats fewer than two source-valid claims as a clean `validation_status=warning` precondition result, records claim-selection metadata as analysis run input, and avoids an unnecessary LLM call,
 - `detect_contradiction_candidates` now builds deterministic backend-selected claim pairs, applies safe fetch/pair limits, supports meaningful focus filtering over claim/source text, records selected pair mappings in analysis run metadata, and rejects model output that references unselected pairs,
-- `detect_contradiction_candidates` requires focus text. It uses `contradiction_candidate_limit` for its candidate cap, while raw-chunk modules use `max_chunks`. Its focus filter works on already extracted claim text/source quotes, keeps Hungarian accents, accepts non-stopword terms from two characters, and does not use the chunk semantic/hybrid retrieval selector,
+- `detect_contradiction_candidates` requires focus text. It uses `contradiction_candidate_limit` for its candidate cap. Its focus filter works on already extracted claim text/source quotes, keeps Hungarian accents, accepts non-stopword terms from two characters, and does not use the chunk semantic/hybrid retrieval selector,
 - contradiction candidate validation now deduplicates same claim-pair/type candidates, caps most model-proposed `high` severities to `medium`, and replaces model-written titles/descriptions with conservative pair-bound text generated from the two selected source-cited claims,
 - `detect_contradiction_candidates` supports `claim_review_scope`; default `reviewable` uses source-valid claims with review status `new`, `needs_review`, `verified`, or `corrected`, excluding `rejected`,
 - `detect_contradiction_candidates` now requires explicit contradiction qualification: persisted candidates need `is_contradiction_candidate=true` and a concrete `conflict_basis`; contextual/non-conflicting pairs are rejected or carried as unsupported items,
 - manual contradiction candidate creation now exists as a separate claim-pair workflow: the frontend exposes `Kezi ellentmondasjelolt`, only source-valid/non-rejected claims are selectable, selected claim text and sources are readonly-previewed, and the backend persists the candidate through a `manual_entry` analysis run,
-- historical deduplication now skips already persisted, content-matched review outputs across repeated analysis runs for claims, events, summary items, missing item candidates, and contradiction candidates,
-- entity extraction automatically merges only exact/normalized repeated entities into the existing entity review object and links additional occurrences as mentions/sources,
+- historical deduplication still matters for existing structured objects; new raw-module auto-creation has been retired in favor of finding conversion and manual source-bound object creation,
 - ambiguous entity identity decisions should be handled through the explicit entity merge workflow, not by automatic alias guessing,
 - frontend entity merge is available both from report item cards and the object detail panel; merge target selection uses the full case entity list, not only currently filtered report items,
 - event merge follows the same human-reviewed pattern: `event_merged` audit event, source links moved to the target event, source event marked `corrected`, and frontend merge controls use the full case event list,
@@ -110,8 +108,7 @@ Initial implementation exists:
 - users can select readonly text from document chunks and create source-bound manual claim/entity/event/missing item candidate objects through `manual_entry` provenance runs,
 - detached source items can also create new source-bound manual claim/entity/event/missing item candidate objects and then store the created object as their handled target,
 - missing item candidate persistence, source linkage, API, review workflow, and review report inclusion,
-- `detect_missing_items` analysis module foundation over source-cited chunk quotes,
-- live `detect_missing_items` smoke passed on a referenced attachment/photo documentation sample,
+- missing item candidate review/export/manual workflows remain available, but the raw `detect_missing_items` analysis module has been retired,
 - missing item candidate JSON/HTML export smoke coverage,
 - analysis retrieval fallback improvement for short/inflected Hungarian query terms,
 - minimal React/Vite frontend workbench scaffold,
@@ -121,7 +118,7 @@ Initial implementation exists:
 - frontend document list and analysis run history views,
 - frontend document page/chunk and analysis run input/output drill-down with human-readable selected-source and output summaries,
 - frontend TXT/PDF import selection and OCR action for review-required/no-page PDF documents,
-- frontend source scope controls for batch-capable `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items`,
+- frontend source scope controls now serve `search_findings`; old raw module options have been removed from the module selector,
 - frontend contradiction-candidate UI now reflects the claim-pair workflow: the analysis panel requires focus and exposes claim review scope plus contradiction candidate cap for contradiction detection, claim-selection metrics and selected pairs are rendered in analysis run details, analysis summaries show claim-pair based execution, and review report items include a conservative review note,
 - frontend analysis focus text starts empty for every module; module-specific examples are placeholders only and are not sent as query text unless the user types actual text,
 - frontend review filter controls and object detail panel,
@@ -275,9 +272,9 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Cleanly retire the still-present raw chunk-based automatic extraction modules according to `Design_documents/13_legacy_analysis_module_retirement_plan.md`; avoid silent aliases, half-used module keys, or "legacy for later" code paths.
+2. Finish documentation cleanup around the retired raw module workflow; older historical notes may remain, but active capability lists should point to `search_findings`.
 3. Keep `search_findings` as the main source-bound research workflow and preserve the worklist -> structured object conversion path.
-4. After legacy removal, design and implement a full `Audit naplo` API/panel backed by `audit_events`; it should include lifecycle, taxonomy, source movement, review, import/OCR/chunking, export, and analysis-run audit events in one searchable place.
+4. Design and implement a full `Audit naplo` API/panel backed by `audit_events`; it should include lifecycle, taxonomy, source movement, review, import/OCR/chunking, export, and analysis-run audit events in one searchable place.
 
 Strategic rationale:
 
@@ -395,22 +392,19 @@ Implementation status:
 - Claim review writes append-only `human_reviews` records and `claim_review_recorded` audit events.
 - Live review smoke result: claim moved to `verified`, review history count 1.
 - Generalized analysis module execution now exists through `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}`.
-- Currently supported module keys: `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`, `detect_contradiction_candidates`.
-- Analysis module implementation is split across `app/services/analysis_module_common.py`, `analysis_module_claims.py`, `analysis_module_events.py`, `analysis_module_entities.py`, `analysis_module_summaries.py`, `analysis_module_missing_items.py`, and `analysis_module_contradictions.py`; `analysis_modules.py` remains the thin public facade for API and compatibility imports.
-- The `extract_claims` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_claims_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists claims, records outputs, and finishes the analysis run.
-- The `extract_events` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_events_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists events/event_sources, records outputs, and finishes the analysis run.
-- The `extract_entities` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `extract_entities_v1` prompt, validates each returned mention quote against the labeled source chunk, creates source references, persists entities/entity_mentions, records outputs, and finishes the analysis run.
-- The `summarize_case` module performs keyword chunk retrieval, records query/chunk inputs, calls LM Studio native with the `summarize_case_v1` prompt, validates each returned quote against the labeled source chunk, creates source references, persists summary_items/summary_item_sources, records outputs, and finishes the analysis run.
+- Currently supported analysis module keys: `search_findings`, `detect_contradiction_candidates`.
+- Analysis module implementation is split across `app/services/analysis_module_common.py`, `analysis_module_findings.py`, and `analysis_module_contradictions.py`; `analysis_modules.py` remains the thin public facade.
+- The retired raw module keys (`extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`) are no longer accepted by the backend and no longer appear in the frontend module selector.
+- The `search_findings` module performs source-bound retrieval, records query/chunk inputs, calls LM Studio native with the flexible finding prompt, validates returned quotes against labeled source chunks, creates source references, persists research finding worklist items, records outputs, and finishes the analysis run.
 - The `detect_contradiction_candidates` module takes existing source-cited claims, builds deterministic selected claim pairs, records claim-selection/pair metadata and selected claims as analysis inputs, calls LM Studio native with the `detect_contradiction_candidates_v1` prompt only when at least one selected pair exists, validates returned claim labels against the selected pair set, persists contradiction_candidates/contradiction_candidate_sources, records outputs, and finishes the analysis run.
 - Empty/precondition smoke result: on a case with 0 source-valid claims, `detect_contradiction_candidates` returned `HTTP 200`, `validation_status=warning`, 0 candidates, an unsupported item explaining that at least two source-valid claims are required, and an analysis run `filter` input with `input_kind=claim_selection`.
 - Claim-rich pair-selection smoke result: on case `a9ccf14e-093d-40db-970e-856e19df826f`, focused query `Kovacs Anna Nagy Peter telefonhivas` selected 8 fetched claims, 6 focus-matched claims, 8 backend-selected pairs, returned `HTTP 200`, `validation_status=passed`, and 2 `time_conflict` candidates.
 - Latest contradiction quality smoke on the same case returned conservative deterministic titles, pair-bound descriptions from the two selected claim texts, and `severity_hint=medium` for time conflicts.
 - Latest contradiction qualification smoke returned `HTTP 200`; the model marked some selected pairs as unsupported because they were related but not conflicting, while time-conflict-like pairs were still persisted as conservative `medium` candidates.
-- Live `detect_contradiction_candidates` smoke result: imported a TXT sample with two different phone call times, `extract_claims` produced 2 source-cited claims, contradiction detection returned `analysis 200`, `validation_status=passed`, 1 `time_conflict` candidate with 2 source references.
+- Historical `detect_contradiction_candidates` smoke result used claims produced by the former raw module path. Current smokes should use manually created or finding-converted claims before running contradiction detection.
 - Review report smoke for `object_type=contradiction_candidate` returned the candidate with expanded source details.
 - Analysis module retrieval now tries the original query, a normalized significant-term query, and individual normalized terms. This keeps the public search API strict while making analysis modules less brittle for natural Hungarian prompts.
-- Live `summarize_case` smoke result: the original broad/accented query now returned `analysis 200`, `validation_status=passed`, 3 persisted summary items, all `needs_review` and `source_valid`.
-- Review report smoke for `object_type=summary_item` returned 3 source-cited summary items with expanded source details.
+- Historical `summarize_case` smokes no longer describe an active module; summary item APIs remain for existing/manual structured objects until a separate summary workflow is designed.
 - Unsupported module keys are rejected before execution.
 - Event list/detail works through `GET /api/v1/cases/{case_id}/events` and `GET /api/v1/cases/{case_id}/events/{event_id}`.
 - Event review works through `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`.
@@ -437,9 +431,7 @@ Implementation status:
 - Missing item candidate creation requires a same-case analysis run and at least one same-case source reference.
 - Missing item candidate reviews use append-only `human_reviews` with `object_type=missing_item_candidate`.
 - Missing item candidates are included in the case review report and can be selected through `object_type=missing_item_candidate`.
-- `detect_missing_items` works through `POST /api/v1/cases/{case_id}/analysis/modules/detect_missing_items`.
-- `detect_missing_items` uses keyword chunk retrieval, LM Studio native execution, quote validation, source-reference creation, missing-item candidate persistence, and analysis run provenance.
-- Live `detect_missing_items` smoke result: `analysis 200`, `validation_status=passed`, 2 persisted `attachment` candidates, both `needs_review` and `source_valid`; review report `object_type=missing_item_candidate` returned 2 items.
+- The raw `detect_missing_items` analysis module has been removed. Missing item candidates can still exist as structured review objects through manual/finding-conversion workflows.
 - Missing item candidate export smoke result: JSON and HTML review report exports with `object_type=missing_item_candidate`, `needs_review`, and `require_source_valid=true` each created 1 tracked export item; downloads included `missing_item_candidate`.
 - Analysis retrieval now strips common short Hungarian accusative suffixes, so terms such as `mellekletet` and `kamerafelvetelt` can fall back to `melleklet` and `kamerafelvetel`.
 - The formerly failing short query `Keress hivatkozott mellekletet.` now succeeds in live smoke: `analysis 200`, `validation_status=passed`, 1 source-cited `attachment` candidate.
@@ -461,10 +453,9 @@ Implementation status:
   `setsid sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1" < /dev/null &`
   Always confirm with `ss -ltnp | grep 5173` and a Windows-side `curl.exe -I http://localhost:5173`.
 - Frontend verification: `npm run build` passed after contradiction claim-pair UI updates.
-- End-to-end frontend/API smoke passed through live backend and Vite dev server: case creation, TXT import, document/chunk/search checks, all MVP analysis modules, review report/filter, claim review, JSON export/list/download, frontend index, and Vite `/api` proxy.
-- Raw-chunk analysis no longer falls back to first current case chunks when retrieval has no hits; it now returns a clear source-selection error instead of sending unrelated chunks to the LLM.
-- Live `extract_claims` module smoke result: `analysis 200`, `validation_status=passed`, 2 persisted claims.
-- Live `extract_events` module smoke result: `analysis 200`, `validation_status=passed`, 1 persisted event.
+- End-to-end frontend/API smoke history passed through live backend and Vite dev server: case creation, TXT import, document/chunk/search checks, review report/filter, claim review, JSON export/list/download, frontend index, and Vite `/api` proxy.
+- Source-bound finding search no longer falls back to first current case chunks when retrieval has no hits; it returns a clear source-selection error instead of sending unrelated chunks to the LLM.
+- Historical `extract_claims` / `extract_events` smoke results are pre-retirement notes only; those modules are no longer active.
 - Keyword search now uses sanitized prefix `to_tsquery` terms so simple Hungarian suffix cases like `kapu` matching `kaput` are less brittle.
 - Case review report works through `GET /api/v1/cases/{case_id}/review-report`.
 - The review report is read-only and returns combined claim/entity/event items with review status, source validation status, source references, quote text, analysis run id, and review history.
@@ -488,7 +479,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `230 passed`.
+- Latest test run: `217 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

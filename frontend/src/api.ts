@@ -324,12 +324,7 @@ export type AnalysisResponse = {
   validation_status: string;
   selected_chunk_ids: string[];
   unsupported_items: string[];
-  claims: unknown[];
-  events: unknown[];
-  entities: unknown[];
-  summary_items: unknown[];
   contradiction_candidates: unknown[];
-  missing_item_candidates: unknown[];
   research_findings: Array<{
     research_finding_id: string;
     title: string;

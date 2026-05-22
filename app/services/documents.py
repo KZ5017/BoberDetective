@@ -99,6 +99,7 @@ NON_DISCARDABLE_RUN_TYPES = {
     "manual_entry",
     "embed_chunks",
     "index_chunks",
+    "search_findings",
 }
 
 

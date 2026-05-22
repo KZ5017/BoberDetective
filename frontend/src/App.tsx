@@ -89,15 +89,7 @@ import {
   updateDocumentTaxonomy
 } from "./api";
 
-const modules = [
-  "extract_claims",
-  "extract_events",
-  "extract_entities",
-  "summarize_case",
-  "search_findings",
-  "detect_contradiction_candidates",
-  "detect_missing_items"
-];
+const modules = ["search_findings", "detect_contradiction_candidates"];
 
 const objectTypes = [
   "",
@@ -148,8 +140,6 @@ const busyLabels: Record<string, string> = {
   "manual-object": "Kézi találat rögzítése",
   "manual-contradiction": "Kézi ellentmondásjelölt rögzítése",
   "finding-convert": "Kutatási találat átalakítása",
-  "finding-review": "Kutatási találat ellenőrzése",
-  "finding-ignore": "Kutatási találat figyelmen kívül hagyása",
   "chunk-index": "Chunk indexeles",
   "llm-smoke": "LLM modell allapot",
   "chat-load": "Chat modell betoltese",
@@ -157,13 +147,8 @@ const busyLabels: Record<string, string> = {
 };
 
 const moduleLabels: Record<string, string> = {
-  extract_claims: "Állítások kinyerése",
-  extract_events: "Események kinyerése",
-  extract_entities: "Entitások kinyerése",
-  summarize_case: "Ugyosszefoglalo keszitese",
   search_findings: "Kutatási találatok keresése",
   detect_contradiction_candidates: "Ellentmondásjelöltek keresése",
-  detect_missing_items: "Hiányzó iratok keresése",
   manual_entry: "Kezi rogzitese"
 };
 
@@ -293,7 +278,7 @@ export function App() {
   const [documentGroupCode, setDocumentGroupCode] = useState("uncategorized");
   const [documentTypeCode, setDocumentTypeCode] = useState("uncategorized");
   const [documentListSearch, setDocumentListSearch] = useState("");
-  const [moduleKey, setModuleKey] = useState("detect_missing_items");
+  const [moduleKey, setModuleKey] = useState("search_findings");
   const [query, setQuery] = useState("");
   const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("case");
   const [analysisDocumentId, setAnalysisDocumentId] = useState("");
@@ -428,13 +413,7 @@ export function App() {
     () => manualContradictionClaimOptions.find((item) => item.object_id === manualContradiction.claim_id_b) ?? null,
     [manualContradiction.claim_id_b, manualContradictionClaimOptions]
   );
-  const canUseBatchScope =
-    moduleKey === "extract_claims" ||
-    moduleKey === "extract_events" ||
-    moduleKey === "extract_entities" ||
-    moduleKey === "summarize_case" ||
-    moduleKey === "detect_missing_items" ||
-    moduleKey === "search_findings";
+  const canUseBatchScope = moduleKey === "search_findings";
   const isContradictionModule = moduleKey === "detect_contradiction_candidates";
   const effectiveAnalysisSourceMode: AnalysisSourceMode = canUseBatchScope ? analysisSourceMode : "case";
   const showStructuredAnalysisFilters = canUseBatchScope && effectiveAnalysisSourceMode === "case";
@@ -3370,15 +3349,7 @@ function formatDuration(totalSeconds: number) {
 }
 
 function analysisOutputCount(response: AnalysisResponse) {
-  return (
-    response.claims.length +
-    response.events.length +
-    response.entities.length +
-    response.summary_items.length +
-    response.contradiction_candidates.length +
-    response.missing_item_candidates.length +
-    response.research_findings.length
-  );
+  return response.contradiction_candidates.length + response.research_findings.length;
 }
 
 function analysisSourceMetric(response: AnalysisResponse) {
@@ -3393,11 +3364,6 @@ function analysisFocusPlaceholder(moduleKey: string, isContradictionModule: bool
     return "Add meg, milyen temaju allitasok kozott keressen ellentmondasjelolteket.";
   }
   const placeholders: Record<string, string> = {
-    extract_claims: "Add meg, milyen állításokat keressen a forráshivatkozásokhoz.",
-    extract_events: "Add meg, milyen esemenyekre vagy idoszakra fokuszaljon.",
-    extract_entities: "Add meg, milyen szemelyre, szervezetre, helyre vagy azonosítora fokuszaljon.",
-    summarize_case: "Add meg, milyen témáról készüljön forráshű összefoglaló.",
-    detect_missing_items: "Add meg, milyen hivatkozott iratot, mellekletet vagy bizonyitekfajtat keressen.",
     search_findings: "Add meg, milyen forráshű kutatási találatokat keressen."
   };
   return placeholders[moduleKey] ?? "Add meg a fókuszt a forráshivatkozott elemzéshez.";

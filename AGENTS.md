@@ -207,7 +207,7 @@ Current implementation caveats:
 - Configured chat-model load profile is `context_length=12288`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; chat model loading uses `POST /api/v1/system/llm/load-chat-model`.
 - Configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`; embedding model loading uses `POST /api/v1/system/llm/load-embedding-model` with `context_length=12288`, and embedding calls auto-ensure the configured model is loaded before `/v1/embeddings`. LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load.
 - LM Studio native chat calls auto-ensure the configured chat model is loaded; they reuse a matching loaded instance id or load the model with the configured profile when missing.
-- Latest test run: `230 passed`.
+- Latest test run: `217 passed`.
 - Latest Alembic state: `0024_research_findings_worklist (head)`.
 - Native-text PDF import uses configurable `BOBERDETECTIVE_PDF_PARSER`; the default `docling_then_pypdf` profile prefers Docling and falls back to local `pypdf`.
 - Current chunking strategy is page-local `char_window_v2`: it preserves processed page boundaries for source-location fidelity and prefers paragraph breaks before sentence-end breaks, line breaks, spaces, and hard character limits.
@@ -221,15 +221,14 @@ Current implementation caveats:
 - OCR now stores average Tesseract confidence when available and flags low-confidence OCR pages as `low_ocr_confidence`.
 - Document page API returns OCR confidence as a numeric value and handles Decimal-backed DB values.
 - Default upload limit is 50 MiB through `BOBERDETECTIVE_MAX_UPLOAD_BYTES`.
-- Analysis batch processing is planned in `Design_documents/10_analysis_batch_processing_plan.md`; raw-chunk analysis modules are batch-capable with clean source scopes and required focus text.
-- `extract_events` caps its effective batch size at 2 chunks for local LLM stability even when the requested UI/API batch size is higher; latest semantic live regression with query `gyilkossággal esettel kapcsolatos események`, `max_chunks=10`, and requested `batch_size=5` completed without timeout in about 262s.
+- Analysis batch processing is captured in `Design_documents/10_analysis_batch_processing_plan.md`; the active raw-source analysis path is now `search_findings` with clean source scopes and required focus text.
+- Legacy raw chunk automatic modules (`extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`) have been removed from active backend dispatch, frontend module selection, response schemas, module-specific service files, and prompt/validation tests. API calls with those old module keys return `Unsupported analysis module`.
 - `detect_contradiction_candidates` is intentionally claim-pair based rather than raw chunk batch-based; it records claim-selection and selected-pair metadata, returns a warning without LLM execution when fewer than two source-valid claims or no selected pairs exist, and rejects model output that references unselected claim pairs.
 - `detect_contradiction_candidates` requires focus text and uses a dedicated `contradiction_candidate_limit` cap. Its focus filter is claim-level keyword/substring matching over claim text plus source quote, keeps Hungarian accents, and accepts non-stopword terms from two characters; it does not use chunk semantic/hybrid retrieval.
 - Contradiction candidate output is normalized before persistence: same pair/type duplicates are skipped, most model-proposed `high` severities are capped to `medium`, and titles/descriptions are deterministic conservative text based on the selected source-cited claim pair.
 - Contradiction detection supports `claim_review_scope`; default `reviewable` excludes rejected claims and includes source-valid `new`, `needs_review`, `verified`, and `corrected` claims.
 - Contradiction detection requires explicit qualification before persistence: `is_contradiction_candidate=true` and a concrete `conflict_basis`; contextual/non-conflicting pairs should become unsupported items, not saved candidates.
-- Repeated analysis runs now skip already persisted, content-matched review outputs for claims, events, summary items, missing item candidates, and contradiction candidates instead of creating duplicate review objects.
-- Entity extraction automatically merges only exact/normalized repeated entities into the existing entity review object and links additional occurrences as mentions/sources.
+- Repeated analysis safeguards remain relevant for existing structured objects, but new raw-module auto-creation has been retired in favor of finding conversion and manual source-bound object creation.
 - Ambiguous entity identity decisions should be handled through the explicit entity merge workflow, not by automatic alias guessing.
 - Frontend entity merge controls are available on report item cards and the object detail panel; target choices come from the full case entity list.
 - Event merge follows the same human-reviewed pattern, with target choices from the full case event list.
@@ -239,10 +238,10 @@ Current implementation caveats:
 - Users can create source-bound manual objects from selected document chunk text through `manual_entry` provenance runs; the selected quote is read-only in the frontend and revalidated by the backend source-reference flow.
 - Detached source items can also be used as the source for new manual claim/entity/event/missing item candidate objects, then marked handled with the created object target.
 - Manual contradiction candidates can be created from two source-valid, non-rejected claims through a dedicated `Kezi ellentmondasjelolt` panel; selected claim text and sources are shown as read-only previews and the created candidate is tracked through `manual_entry` analysis run provenance.
-- Latest live analysis smoke: `detect_missing_items` produced 2 source-cited `attachment` candidates and review report inclusion.
+- Historical `detect_missing_items` smoke remains a pre-retirement note only; the raw module is no longer active.
 - Latest export smoke: missing item candidates are included in JSON/HTML review report exports with tracked export items.
 - Latest retrieval smoke: `Keress hivatkozott mellekletet.` now succeeds after Hungarian suffix fallback tuning.
-- Latest frontend/API smoke: live backend plus Vite dev server passed case creation, TXT import, all MVP analysis modules, review queue filter, claim review, JSON export/list/download, frontend index, and `/api` proxy.
+- Latest frontend/API smoke history covers live backend plus Vite dev server, case creation, TXT import, review queue filter, claim review, JSON export/list/download, frontend index, and `/api` proxy.
 - Minimal React/Vite frontend scaffold exists under `frontend/`.
 - Frontend review actions exist for review report items through allowlisted API paths.
 - Frontend report items show source details and review history.
@@ -259,21 +258,21 @@ Current implementation caveats:
 Strategic next direction:
 
 - Continue hardening the backend analysis foundation rather than deep frontend polishing.
-- Retrieval/indexing foundation has started: chunk indexing uses local LM Studio/OpenAI-compatible embeddings plus model-specific Qdrant collections, skips only chunks indexed with the currently configured embedding model, and raw-chunk analysis modules can request `keyword`, `semantic`, or `hybrid` retrieval.
+- Retrieval/indexing foundation has started: chunk indexing uses local LM Studio/OpenAI-compatible embeddings plus model-specific Qdrant collections, skips only chunks indexed with the currently configured embedding model, and `search_findings` can request `keyword`, `semantic`, or `hybrid` retrieval.
 - Embedding index creation uses `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` defaulting to `8`; keep it conservative on the current 32 GB workstation to avoid LM Studio timeout/RAM spikes.
 - Background chunk indexing is exposed through `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; it creates an `embed_chunks` analysis run and returns immediately while FastAPI `BackgroundTasks` performs the embedding/Qdrant work.
 - Chunk index readiness is exposed through `GET /api/v1/cases/{case_id}/indexes/chunks/status`; frontend semantic/hybrid runs are blocked until the active source scope is fully indexed with the configured embedding model, and the same status response exposes latest-run input/output progress. The status endpoint and background index job support the same structured source-subset fields as case-scope analysis: `document_ids`, `document_group_code`, and `document_type_code`.
-- Latest Qwen3 embedding smoke loaded `text-embedding-qwen3-embedding-8b`, reindexed 49 chunks from the Morgue PDF into `boberdetective_chunks_text_embedding_qwen3_embedding_8b`, returned semantic hybrid-search hits, and a focused `extract_claims` run recorded hybrid/semantic retrieval provenance. The current configured embedding default has since been reduced to `text-embedding-qwen3-embedding-4b@q6_k`; reindex before comparing new retrieval results.
+- Latest Qwen3 embedding smoke loaded `text-embedding-qwen3-embedding-8b`, reindexed 49 chunks from the Morgue PDF into `boberdetective_chunks_text_embedding_qwen3_embedding_8b`, and returned semantic hybrid-search hits. The current configured embedding default has since been reduced to `text-embedding-qwen3-embedding-4b@q6_k`; reindex before comparing new retrieval results.
 - Latest empty-state model-load smoke accepted the current reduced profile: `text-embedding-qwen3-embedding-4b` loaded in 3.461s and `qwen/qwen3.5-9b` loaded in 16.942s with `eval_batch_size=6144`.
 - Latest 4B embedding reindex smoke succeeded with `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE=8`: 49 Morgue PDF chunks were indexed into `boberdetective_chunks_text_embedding_qwen3_embedding_4b` in about 120s.
 - Latest background indexing smoke succeeded: a 16-chunk forced Morgue PDF reindex returned immediately, status polling showed `0/16 -> 8/16 -> 16/16`, and the run finished `succeeded` / `passed`.
 - User-side semantic/hybrid retrieval smoke after switching to `text-embedding-qwen3-embedding-4b@q6_k` found no obvious quality regression so far.
 - First hybrid ranking calibration slice is implemented: hybrid source retrieval now combines keyword score, semantic score, exact phrase evidence, and keyword/semantic overlap.
-- Document/case source modes now use retrieval-aware source selection from explicit focus text; empty focus is rejected for raw-chunk modules so large documents/cases are not processed blindly.
-- Raw-chunk modules use `max_chunks` as the source-selection cap in every source mode; the frontend label is `Szovegresz plafon`, it defaults to 20, and backend/frontend validation cap it at 30. `batch_size` only controls how selected chunks are split into LLM calls.
-- Raw-chunk source-selection query variants keep Hungarian accents and accept non-stopword terms from two characters; the original focus text remains the first retrieval query.
-- Raw-chunk analysis source selection supports `page_start` / `page_end` filters only inside selected-document source scope. Page filtering uses overlap logic and applies to keyword, semantic, and hybrid retrieval; it is not a separate source mode.
-- Whole-case raw-chunk analysis has no page-range fields or backend page-range requirement. Selected-document analysis defaults to document page bounds in the frontend; if API callers omit page fields for document scope, the backend uses the full document and rejects only out-of-document ranges.
+- Document/case finding source modes use retrieval-aware source selection from explicit focus text; empty focus is rejected so large documents/cases are not processed blindly.
+- `search_findings` uses `max_chunks` as the source-selection cap in every source mode; the frontend label is `Szovegresz plafon`, it defaults to 20, and backend/frontend validation cap it at 30. `batch_size` only controls how selected chunks are split into LLM calls.
+- Source-selection query variants keep Hungarian accents and accept non-stopword terms from two characters; the original focus text remains the first retrieval query.
+- `search_findings` source selection supports `page_start` / `page_end` filters only inside selected-document source scope. Page filtering uses overlap logic and applies to keyword, semantic, and hybrid retrieval; it is not a separate source mode.
+- Whole-case finding search has no page-range fields or backend page-range requirement. Selected-document analysis defaults to document page bounds in the frontend; if API callers omit page fields for document scope, the backend uses the full document and rejects only out-of-document ranges.
 - Latest user-side retrieval/analysis smoke after selected-document page-range filtering produced especially precise results, so keep this workflow central for large documents when the user knows the approximate page interval.
 - Document taxonomy/source-filtering planning is captured in `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`: introduce stable document group/type codes, migrate existing/free-form types to `uncategorized`, validate imports through a central taxonomy registry/API, then use group/type/document filters to narrow analysis source scope for large cases.
 - First taxonomy backend slice is implemented: central registry in `app/core/document_taxonomy.py`, `GET /api/v1/document-taxonomy`, document table fields `document_group_code` and `document_type_code`, import-time taxonomy validation, default `uncategorized / uncategorized`, migration `0018_document_taxonomy`, and legacy free-text `documents.document_type` removal through `0019_drop_legacy_document_type`.
@@ -287,9 +286,9 @@ Strategic next direction:
 - Human-controlled `research_finding` conversion is implemented: not-converted findings can be converted into structured claim/entity/event/missing item candidate objects by reusing the same source reference through the manual-entry path, creating a `manual_entry` provenance run, recording `research_finding_converted`, and storing `target_object_type` / `target_object_id` on the finding. Converted findings no longer appear in the active research-finding worklist.
 - Research findings are worklist items through migration `0024_research_findings_worklist`, not human-review objects: `research_findings.review_status` and `research_finding` as a `human_reviews.object_type` were removed. Worklist operations are set-aside, restore, single delete, and bulk delete; `ignored` means `félretéve`, not rejected.
 - Active documents are the only source material for new indexing, retrieval, analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge operations, and contradiction candidate creation/claim selection. Existing findings from inactive documents remain visible for historical review and show the source document lifecycle status.
-- Next target should be the clean removal of the still-present raw chunk-based automatic extraction modules according to `Design_documents/13_legacy_analysis_module_retirement_plan.md`. Do not leave silent aliases, half-used module keys, or "legacy for later" code paths. A dedicated full `Audit naplo` API/panel backed by `audit_events` remains the next major direction after that cleanup.
-- Frontend work in this phase should only support the backend workflow: source scope, required focus for raw-chunk modules, batch limits, Hungarian labels, and clear status/error feedback.
-- Rationale: raw-chunk modules can now process document/case scopes, while contradiction detection should operate downstream from source-cited claims and keep `no source -> no claim` intact.
+- Next target should be documentation cleanup around the retired raw module workflow, then a dedicated full `Audit naplo` API/panel backed by `audit_events`.
+- Frontend work in this phase should support the active backend workflow: source scope, required focus for `search_findings`, batch limits, Hungarian labels, and clear status/error feedback.
+- Rationale: `search_findings` is now the main source-bound research workflow, while contradiction detection remains downstream from source-cited claims and keeps `no source -> no claim` intact.
 
 ## Security Baseline
 

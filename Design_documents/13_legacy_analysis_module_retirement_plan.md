@@ -2,9 +2,20 @@
 
 ## 0. Aktualisitas
 
-Frissitve: 2026-05-21.
+Frissitve: 2026-05-22.
 
 Ez a dokumentum mar a munkalista-alapu kutatasi talalat modellt koveti. A `research_finding` nem reviewolhato/exportalhato szakmai objektum, hanem atmeneti keresesi munkadarab. A review reportba es a tovabbi szakmai workflow-kba csak az atalakitas utan letrejovo strukturalt objektum kerul.
+
+Aktualis kivezetesi allapot:
+
+```text
+aktiv backend dispatch: search_findings, detect_contradiction_candidates
+eltavolitott raw modulok: extract_claims, extract_events, extract_entities, summarize_case, detect_missing_items
+frontend modulvalaszto: csak kutatasi talalatok es ellentmondasjeloltek
+regi module_key viselkedes: Unsupported analysis module
+```
+
+2026-05-22-re a korabbi nyers chunk-alapu modulok aktiv kodutjai, frontend opcioi, response schema mezoi, modul-specifikus service fajljai es prompt/validacios tesztjei el lettek tavolitva. A torteneti adatbazis run type engedelyezes es a torteneti changelog/design megjegyzesek megmaradhatnak, de nem jelentenek aktiv workflow-t.
 
 Aktualis UI-sorrend:
 
@@ -439,9 +450,9 @@ A kivezetes akkor tekintheto tisztanak, ha:
 - az uj finding workflow forraskotott munkalista, amelybol audit es review alapu strukturalt objektum hozhato letre,
 - a strukturalt objektumok letrehozasa emberi donteshez vagy finding-konverziohoz kotott.
 
-## 15. Code Inventory - jelenlegi kivezetesi terkep
+## 15. Code Inventory - torteneti kivezetesi terkep
 
-Ez a fejezet a 2026-05-20 koruli kodallapot alapjan rogziti, hol elnek a kivezetendo nyers automatikus modulok. Ez nem implementacios diff, hanem bontasi terkep.
+Ez a fejezet a 2026-05-20 koruli kodallapot alapjan rogziti, hol eltek a kivezetendo nyers automatikus modulok. 2026-05-22 utan ez torteneti bontasi terkep, nem aktualis aktiv kod-inventory.
 
 ### 15.1 Backend facade es module dispatch
 

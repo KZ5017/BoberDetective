@@ -17,32 +17,31 @@ from app.services.analysis_module_contradictions import (
     claim_review_statuses_for_scope,
     select_claim_pairs_for_contradiction_detection,
 )
-from app.services.analysis_module_claims import build_extract_claims_user_prompt, parse_claims_json_lenient, parse_claims_json_with_repair
 from app.services.analysis_modules import (
     AnalysisModuleError,
     RetrievedChunk,
     analysis_retrieval_queries,
     parse_llm_json_object,
-    validate_extracted_claims,
+    run_analysis_module,
     validate_extracted_contradiction_candidates,
-    validate_extracted_entities,
-    validate_extracted_events,
     validate_extracted_findings,
-    validate_extracted_missing_item_candidates,
-    validate_extracted_summary_items,
 )
-from app.services.analysis_module_events import _effective_event_batch_size, build_extract_events_user_prompt
-from app.services.analysis_module_entities import build_extract_entities_user_prompt
 from app.services.analysis_module_findings import build_search_findings_user_prompt
-from app.services.analysis_module_summaries import build_summarize_case_user_prompt
-from app.services.analysis_module_missing_items import build_detect_missing_items_user_prompt
-from app.services.llm import LLMChatCompletion
 from app.services.search import KeywordSearchHit
 
 
 def test_analysis_module_request_rejects_legacy_limit_field() -> None:
     with pytest.raises(ValidationError):
         AnalysisModuleRunRequest(query="fokusz", limit=5)
+
+
+@pytest.mark.parametrize(
+    "module_key",
+    ["extract_claims", "extract_events", "extract_entities", "summarize_case", "detect_missing_items"],
+)
+def test_retired_raw_chunk_module_keys_are_rejected(module_key: str) -> None:
+    with pytest.raises(AnalysisModuleError, match="Unsupported analysis module"):
+        run_analysis_module(None, uuid4(), module_key, AnalysisModuleRunRequest(query="fokusz"))  # type: ignore[arg-type]
 
 
 def test_analysis_module_request_rejects_invalid_page_range() -> None:
@@ -118,53 +117,6 @@ def test_parse_llm_json_object_accepts_extra_text_around_json_object() -> None:
 def test_parse_llm_json_object_rejects_array() -> None:
     with pytest.raises(AnalysisModuleError):
         parse_llm_json_object("[]")
-
-
-def test_parse_claims_json_with_repair_recovers_unescaped_quote_text() -> None:
-    class FakeRepairProvider:
-        def chat_completion(self, model, messages, *, temperature=0.1, max_tokens=800):
-            assert model == "chat-model"
-            assert temperature == 0.0
-            assert "HIBAS JSON-SZERU VALASZ" in messages[-1].content
-            return LLMChatCompletion(
-                model=model,
-                content=(
-                    '{"claims":[{"claim_type":"document_fact","claim_text":"Anyagi lenyek voltak.",'
-                    '"quote_text":"\\"anyagi lenyek\\" voltak","source_label":"chunk_1"}],'
-                    '"unsupported_claims":[]}'
-                ),
-            )
-
-    payload = parse_claims_json_with_repair(
-        '{"claims":[{"claim_type":"document_fact","claim_text":"Anyagi lenyek voltak.",'
-        '"quote_text":""anyagi lenyek" voltak","source_label":"chunk_1"}],"unsupported_claims":[]}',
-        FakeRepairProvider(),
-        "chat-model",
-    )
-
-    assert payload["claims"][0]["quote_text"] == '"anyagi lenyek" voltak'
-
-
-def test_parse_claims_json_lenient_recovers_quote_text_with_internal_comma_quote() -> None:
-    raw_content = """
-{
-"claims": [
-{
-"claim_type": "document_fact",
-"claim_text": "Dupin szerint a gyilkossag elkovetoje kulonos hangon beszelt.",
-"quote_text": "a , kulonos, rikacsolo ( vagy erdes) hanggal", azzal az egyenetlenul hangzo beszedel,",
-"source_label": "chunk_2"
-}
-],
-"unsupported_claims": []
-}
-"""
-
-    payload = parse_claims_json_lenient(raw_content)
-
-    assert payload is not None
-    assert payload["claims"][0]["quote_text"] == 'a , kulonos, rikacsolo ( vagy erdes) hanggal", azzal az egyenetlenul hangzo beszedel,'
-    assert payload["claims"][0]["source_label"] == "chunk_2"
 
 
 def test_analysis_retrieval_queries_extracts_source_like_keywords_from_hungarian_prompt() -> None:
@@ -407,40 +359,6 @@ def test_split_retrieved_chunks_and_batch_metadata_are_deterministic() -> None:
     assert lookup[chunks[0].chunk.id]["chunk_labels"] == ["chunk_1", "chunk_2", "chunk_3"]
 
 
-def test_build_extract_claims_user_prompt_handles_empty_focus_and_batch_metadata() -> None:
-    prompt = build_extract_claims_user_prompt(None, [_retrieved_chunk("chunk_1", "A forras allitasa.")], 2, 4)
-
-    assert "Nincs külön fókusz" in prompt
-    assert "BATCH:\n2/4" in prompt
-    assert "chunk_1:" in prompt
-
-
-def test_build_extract_events_user_prompt_handles_empty_focus_and_batch_metadata() -> None:
-    prompt = build_extract_events_user_prompt(None, [_retrieved_chunk("chunk_1", "18:42-kor hivas tortent.")], 3, 5)
-
-    assert "Nincs külön fókusz" in prompt
-    assert "BATCH:\n3/5" in prompt
-    assert "chunk_1:" in prompt
-    assert "quote_text ne legyen túl szűk" in prompt
-    assert "Kerüld a dupla idézőjelet" in prompt
-
-
-def test_extract_events_caps_effective_batch_size_for_local_llm_stability() -> None:
-    assert _effective_event_batch_size(10) == 2
-    assert _effective_event_batch_size(5) == 2
-    assert _effective_event_batch_size(1) == 1
-
-
-def test_build_extract_entities_user_prompt_handles_empty_focus_and_batch_metadata() -> None:
-    prompt = build_extract_entities_user_prompt(None, [_retrieved_chunk("chunk_1", "Kovacs Anna megjelent.")], 2, 3)
-
-    assert "Nincs külön fókusz" in prompt
-    assert "BATCH:\n2/3" in prompt
-    assert "chunk_1:" in prompt
-    assert "quote_text ne legyen túl szűk" in prompt
-    assert "Kerüld a dupla idézőjelet" in prompt
-
-
 def test_build_search_findings_user_prompt_is_source_bound_and_type_flexible() -> None:
     prompt = build_search_findings_user_prompt(
         "matrózzal kapcsolatos releváns találatok",
@@ -504,27 +422,6 @@ def test_validate_extracted_findings_skips_quote_outside_source_chunk() -> None:
 
     assert findings == []
     assert unsupported == []
-
-
-def test_build_summarize_case_user_prompt_handles_empty_focus_and_batch_metadata() -> None:
-    prompt = build_summarize_case_user_prompt(None, [_retrieved_chunk("chunk_1", "A forras lenyeges allitast tartalmaz.")], 2, 6)
-
-    assert "Nincs kulon fokusz" in prompt
-    assert "BATCH:\n2/6" in prompt
-    assert "chunk_1:" in prompt
-    assert "Legfeljebb 3 summary_items" in prompt
-    assert "csak azt foglalja ossze" in prompt
-    assert "Keruld a dupla idezojelet" in prompt
-
-
-def test_build_detect_missing_items_user_prompt_handles_empty_focus_and_batch_metadata() -> None:
-    prompt = build_detect_missing_items_user_prompt(None, [_retrieved_chunk("chunk_1", "A 3. szamu melleklet hivatkozott.")], 2, 5)
-
-    assert "Nincs kulon fokusz" in prompt
-    assert "BATCH:\n2/5" in prompt
-    assert "chunk_1:" in prompt
-    assert "Ne allitsd, hogy az elem tenylegesen hianyzik" in prompt
-    assert "Keruld a dupla idezojelet" in prompt
 
 
 def test_build_detect_contradictions_user_prompt_handles_empty_focus() -> None:
@@ -709,206 +606,6 @@ def test_detect_contradictions_returns_warning_when_llm_json_is_invalid(monkeypa
     assert response.contradiction_candidates == []
     assert "nem volt ervenyes JSON" in response.unsupported_items[0]
     assert run.output_summary["llm_json_error"] == "LLM returned invalid JSON"
-
-
-def test_validate_extracted_claims_requires_quote_in_labeled_chunk() -> None:
-    chunks = [
-        _retrieved_chunk("chunk_1", "A jegyzokonyv szerint telefonhivas tortent."),
-        _retrieved_chunk("chunk_2", "Masik forras masik tartalommal."),
-    ]
-    payload = {
-        "claims": [
-            {
-                "claim_type": "document_fact",
-                "claim_text": "Telefonhivas tortent.",
-                "quote_text": "telefonhivas tortent",
-                "source_label": "chunk_1",
-            },
-            {
-                "claim_type": "document_fact",
-                "claim_text": "Rossz chunk.",
-                "quote_text": "telefonhivas tortent",
-                "source_label": "chunk_2",
-            },
-        ],
-        "unsupported_claims": ["nincs eleg forras"],
-    }
-
-    valid_claims, unsupported = validate_extracted_claims(payload, chunks)
-
-    assert len(valid_claims) == 1
-    assert valid_claims[0]["source_label"] == "chunk_1"
-    assert unsupported == ["nincs eleg forras"]
-
-
-def test_validate_extracted_claims_normalizes_unknown_claim_type() -> None:
-    chunks = [_retrieved_chunk("chunk_1", "A forras szerint adat szerepel.")]
-    payload = {
-        "claims": [
-            {
-                "claim_type": "accusation",
-                "claim_text": "Adat szerepel.",
-                "quote_text": "adat szerepel",
-                "source_label": "chunk_1",
-            }
-        ],
-        "unsupported_claims": [],
-    }
-
-    valid_claims, _ = validate_extracted_claims(payload, chunks)
-
-    assert valid_claims[0]["claim_type"] == "unknown"
-
-
-def test_validate_extracted_events_requires_quote_in_labeled_chunk() -> None:
-    chunks = [_retrieved_chunk("chunk_1", "18:42-kor telefonhivas tortent Kovacs Anna es Nagy Peter kozott.")]
-    payload = {
-        "events": [
-            {
-                "event_type": "call",
-                "event_title": "Telefonhivas",
-                "event_description": "A forras telefonhivast emlit.",
-                "event_time_raw": "18:42-kor",
-                "time_precision": "minute",
-                "location_text": None,
-                "quote_text": "18:42-kor telefonhivas tortent",
-                "source_label": "chunk_1",
-            }
-        ],
-        "unsupported_events": [],
-    }
-
-    valid_events, unsupported = validate_extracted_events(payload, chunks)
-
-    assert len(valid_events) == 1
-    assert valid_events[0]["event_type"] == "call"
-    assert unsupported == []
-
-
-def test_validate_extracted_events_normalizes_unknown_values() -> None:
-    chunks = [_retrieved_chunk("chunk_1", "A forras szerint esemeny tortent.")]
-    payload = {
-        "events": [
-            {
-                "event_type": "accusation",
-                "event_title": "Esemeny",
-                "time_precision": "certain",
-                "quote_text": "esemeny tortent",
-                "source_label": "chunk_1",
-            }
-        ],
-        "unsupported_events": ["nincs pontos ido"],
-    }
-
-    valid_events, unsupported = validate_extracted_events(payload, chunks)
-
-    assert valid_events[0]["event_type"] == "other"
-    assert valid_events[0]["time_precision"] == "unknown"
-    assert unsupported == ["nincs pontos ido"]
-
-
-def test_validate_extracted_entities_requires_quote_in_labeled_chunk() -> None:
-    chunks = [_retrieved_chunk("chunk_1", "Kovacs Anna es Nagy Peter kozott telefonhivas tortent.")]
-    payload = {
-        "entities": [
-            {
-                "entity_type": "person",
-                "canonical_name": "Kovacs Anna",
-                "normalized_value": None,
-                "description": None,
-                "mentions": [
-                    {
-                        "surface_text": "Kovacs Anna",
-                        "quote_text": "Kovacs Anna",
-                        "source_label": "chunk_1",
-                    }
-                ],
-            }
-        ],
-        "unsupported_entities": [],
-    }
-
-    valid_entities, unsupported = validate_extracted_entities(payload, chunks)
-
-    assert len(valid_entities) == 1
-    assert valid_entities[0]["entity_type"] == "person"
-    assert valid_entities[0]["surface_text"] == "Kovacs Anna"
-    assert unsupported == []
-
-
-def test_validate_extracted_entities_normalizes_unknown_type() -> None:
-    chunks = [_retrieved_chunk("chunk_1", "ABC-123 rendszam szerepel a forrasban.")]
-    payload = {
-        "entities": [
-            {
-                "entity_type": "suspect",
-                "canonical_name": "ABC-123",
-                "mentions": [
-                    {
-                        "surface_text": "ABC-123",
-                        "quote_text": "ABC-123",
-                        "source_label": "chunk_1",
-                    }
-                ],
-            }
-        ],
-        "unsupported_entities": ["nincs szerepminosites"],
-    }
-
-    valid_entities, unsupported = validate_extracted_entities(payload, chunks)
-
-    assert valid_entities[0]["entity_type"] == "other"
-    assert unsupported == ["nincs szerepminosites"]
-
-
-def test_validate_extracted_summary_items_requires_quote_in_labeled_chunk() -> None:
-    chunks = [_retrieved_chunk("chunk_1", "Az irat szerint a hivas 18:42-kor tortent.")]
-    payload = {
-        "summary_items": [
-            {
-                "summary_type": "case_overview",
-                "title": "Telefonhivas",
-                "body_text": "A forras egy 18:42-kor tortent hivast emlit.",
-                "quote_text": "hivas 18:42-kor tortent",
-                "source_label": "chunk_1",
-                "confidence": "medium",
-                "support_type": "direct",
-            }
-        ],
-        "unsupported_summary_items": [],
-    }
-
-    valid_items, unsupported = validate_extracted_summary_items(payload, chunks)
-
-    assert len(valid_items) == 1
-    assert valid_items[0]["summary_type"] == "case_overview"
-    assert str(valid_items[0]["confidence"]) == "0.6000"
-    assert unsupported == []
-
-
-def test_validate_extracted_summary_items_normalizes_unknown_values() -> None:
-    chunks = [_retrieved_chunk("chunk_1", "A dokumentum ugyiratot emlit.")]
-    payload = {
-        "summary_items": [
-            {
-                "summary_type": "risk_score",
-                "title": "Ugyirat",
-                "body_text": "A dokumentum ugyiratot emlit.",
-                "quote_text": "dokumentum ugyiratot emlit",
-                "source_label": "chunk_1",
-                "confidence": 1.5,
-                "support_type": "unsupported",
-            }
-        ],
-        "unsupported_summary_items": ["nincs kockazati kovetkeztetes"],
-    }
-
-    valid_items, unsupported = validate_extracted_summary_items(payload, chunks)
-
-    assert valid_items[0]["summary_type"] == "other"
-    assert valid_items[0]["support_type"] == "direct"
-    assert valid_items[0]["confidence"] is None
-    assert unsupported == ["nincs kockazati kovetkeztetes"]
 
 
 def test_validate_extracted_contradiction_candidates_requires_two_labeled_claims() -> None:
@@ -1136,52 +833,3 @@ def test_validate_extracted_contradiction_candidates_replaces_overstated_model_d
     assert "A forras szerint az irat 3 oldalas." in valid_candidates[0]["description"]
     assert "A forras szerint az irat 8 oldalas." in valid_candidates[0]["description"]
 
-
-def test_validate_extracted_missing_item_candidates_requires_quote_in_labeled_chunk() -> None:
-    chunks = [_retrieved_chunk("chunk_1", "Az irat szerint a 3. szamu melleklet tartalmazza a kamerafelvetelt.")]
-    payload = {
-        "missing_item_candidates": [
-            {
-                "missing_item_type": "attachment",
-                "referenced_item_text": "3. szamu melleklet",
-                "description": "A forras a 3. szamu mellekletre hivatkozik, amely kulon ellenorizendo.",
-                "expected_document_type": "melleklet",
-                "quote_text": "3. szamu melleklet tartalmazza a kamerafelvetelt",
-                "source_label": "chunk_1",
-                "confidence": "medium",
-            }
-        ],
-        "unsupported_missing_item_candidates": [],
-    }
-
-    valid_candidates, unsupported = validate_extracted_missing_item_candidates(payload, chunks)
-
-    assert len(valid_candidates) == 1
-    assert valid_candidates[0]["missing_item_type"] == "attachment"
-    assert str(valid_candidates[0]["confidence"]) == "0.6000"
-    assert unsupported == []
-
-
-def test_validate_extracted_missing_item_candidates_normalizes_unknown_values() -> None:
-    chunks = [_retrieved_chunk("chunk_1", "A forras egy meg nem nevezett tovabbi dokumentumra hivatkozik.")]
-    payload = {
-        "missing_item_candidates": [
-            {
-                "missing_item_type": "verdict",
-                "referenced_item_text": "tovabbi dokumentum",
-                "description": "A forras tovabbi dokumentumra hivatkozik.",
-                "expected_document_type": 42,
-                "quote_text": "tovabbi dokumentumra hivatkozik",
-                "source_label": "chunk_1",
-                "confidence": 2,
-            }
-        ],
-        "unsupported_missing_item_candidates": ["nincs megallapitas hianyrol"],
-    }
-
-    valid_candidates, unsupported = validate_extracted_missing_item_candidates(payload, chunks)
-
-    assert valid_candidates[0]["missing_item_type"] == "other"
-    assert valid_candidates[0]["expected_document_type"] is None
-    assert valid_candidates[0]["confidence"] is None
-    assert unsupported == ["nincs megallapitas hianyrol"]

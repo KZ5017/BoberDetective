@@ -98,14 +98,14 @@ Completed:
 - Live `detect_missing_items` smoke passed on referenced attachment/photo documentation sample
 - Missing item candidate JSON/HTML export smoke coverage
 - Analysis retrieval fallback improved for short/inflected Hungarian queries such as `mellekletet`
-- Raw-chunk analysis modules now require explicit focus text and fail clearly when retrieval finds no matching source chunk, avoiding blind processing on large cases
+- Source-bound finding search requires explicit focus text and fails clearly when retrieval finds no matching source chunk, avoiding blind processing on large cases
 - Local chunk indexing through LM Studio/OpenAI-compatible embeddings and Qdrant, with `embed_chunks` analysis run provenance
 - Explicit LM Studio embedding model load workflow; the default local embedding model is `text-embedding-qwen3-embedding-4b@q6_k`
 - Model-specific Qdrant chunk collections, so switching embedding models does not mix vector dimensions
 - Batched embedding index creation through `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` to avoid oversized LM Studio embedding requests
 - Background chunk indexing with frontend progress polling, so larger LM Studio/Qdrant indexing work does not depend on one long HTTP request
 - Chunk index readiness and latest-run progress status for the configured embedding model, surfaced in the frontend before semantic/hybrid analysis runs and scoped to the current selected document or structured case-scope document subset
-- Keyword/semantic/hybrid retrieval for batch-capable raw-chunk analysis modules across selected-document and whole-case source scopes
+- Keyword/semantic/hybrid retrieval for `search_findings` across selected-document and whole-case source scopes
 - Minimal React/Vite workbench frontend scaffold
 - Frontend review actions for review report items
 - Frontend source detail and review history display for report items
@@ -113,7 +113,7 @@ Completed:
 - Frontend document list and analysis run history views
 - Frontend document page/chunk and analysis run input/output drill-down with human-readable selected-source and output summaries
 - Frontend TXT/PDF import selection and OCR action for review-required/no-page PDF documents
-- Frontend source scope controls for batch-capable raw-chunk analysis modules
+- Frontend source scope controls for `search_findings`
 - Frontend structured document taxonomy controls for import/list display and whole-case analysis source filtering by document group, document type, and selected document list
 - Document lifecycle controls for active/excluded/archived documents, plus safe early discard for documents that have not yet become analysis/source material
 - Active-document gate for new indexing, retrieval, analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source movement, merge workflows, and contradiction candidate creation
@@ -123,8 +123,9 @@ Completed:
 - Frontend export history and review report filter controls
 - Manual contradiction candidate UI from two source-valid, non-rejected claims with readonly claim/source previews
 - Frontend visible text localized to Hungarian with labels for backend enum/internal values
-- End-to-end frontend/API smoke passed through case creation, TXT import, all MVP analysis modules, review queue filter, claim review, JSON export, export history backing endpoint, download, and Vite proxy
+- End-to-end frontend/API smoke history covers case creation, TXT import, review queue filtering, claim review, JSON export, export history backing endpoint, download, and Vite proxy
 - Source-bound `Kutatási találatok` workflow: `search_findings` creates source-cited research worklist items, users can set aside/restore/delete/bulk-delete them, and selected findings can be converted into structured claim/entity/event/missing item candidate objects
+- Retired raw chunk extraction modules (`extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`) are no longer active backend/frontend workflows
 
 PDF/OCR sample checks:
 
@@ -133,8 +134,8 @@ PDF/OCR sample checks:
 
 Next:
 
-- Cleanly retire the still-present raw chunk-based automatic extraction modules according to `Design_documents/13_legacy_analysis_module_retirement_plan.md`
-- After the legacy module removal is clean, design and implement a full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
+- Finish documentation cleanup around the retired raw module workflow; active capability lists should point to `search_findings`
+- Design and implement a full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
 - Consider durable job supervision if indexing grows beyond FastAPI background tasks
 
 Frontend dev URL:
@@ -202,20 +203,17 @@ Initial backend scaffold exists under `app/` with:
 - `analysis_runs`, `analysis_run_inputs`, and `analysis_run_outputs` tables
 - analysis run list/detail API
 - `scripts/run_llm_benchmark.py` for local model comparison
-- `detect_missing_items` analysis module with quote validation, source-reference creation, missing-item candidate persistence, and analysis run provenance
 - source-cited analysis smoke API with Qwen native reasoning-off
 - `claims` and `claim_sources` persistence with source reference linkage
 - `human_reviews` append-only review history for claims
-- generalized `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}` endpoint, currently supporting `extract_claims`, `extract_events`, `extract_entities`, and `summarize_case`
-- batch-capable raw-chunk analysis modules with `case` and `document` source modes plus required focus text and chunk batch metadata
-- module-specific analysis services under `app/services/analysis_module_*.py`
+- generalized `POST /api/v1/cases/{case_id}/analysis/modules/{module_key}` endpoint, currently supporting `search_findings` and `detect_contradiction_candidates`
+- source-bound finding search with `case` and `document` source modes plus required focus text and chunk batch metadata
+- active module-specific analysis services under `app/services/analysis_module_findings.py` and `app/services/analysis_module_contradictions.py`
 - entity list/detail API
 - entity review API with append-only human review history
-- `extract_entities` analysis module
 - `events` and `event_sources` persistence with source reference linkage
 - event list/detail API
 - event review API with append-only human review history
-- `extract_events` analysis module
 - case review report API at `GET /api/v1/cases/{case_id}/review-report` with optional `object_type`, `review_status`, and `source_validation_status` filters plus expanded source details
 - JSON/HTML review report export API with claim/entity/event item tracking, optional `report_filters`, expanded source details, and download endpoint
 - summary item list/create/detail/review API
