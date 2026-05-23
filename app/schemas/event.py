@@ -15,11 +15,9 @@ class EventRead(BaseModel):
     event_type: str
     event_title: str
     event_description: str | None
-    event_time_raw: str | None
     event_time_start: datetime | None
     event_time_end: datetime | None
     time_precision: str | None
-    location_text: str | None
     confidence: Decimal | None
     created_by_analysis_run_id: UUID
     source_validation_status: str

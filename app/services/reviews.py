@@ -55,6 +55,22 @@ def review_status_for_action(
     raise ReviewValidationError("Unsupported review action")
 
 
+def ensure_review_status_transition(
+    action_type: str,
+    previous_status: str,
+    new_status: str | None,
+    error_factory: Callable[[str], Exception] | None = None,
+) -> None:
+    if new_status is None:
+        return
+    if new_status != previous_status:
+        return
+    message = "Review action would not change status"
+    if error_factory is not None:
+        raise error_factory(message)
+    raise ReviewValidationError(message)
+
+
 def record_object_review(
     db: Session,
     *,
@@ -67,6 +83,7 @@ def record_object_review(
     review_comment: str | None,
     audit_event_type: str,
 ) -> HumanReviewModel:
+    ensure_review_status_transition(action_type, previous_status, new_status)
     user = get_or_create_dev_user(db)
     review = HumanReviewModel(
         case_id=case_id,

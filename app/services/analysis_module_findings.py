@@ -23,20 +23,19 @@ from app.services.source_references import create_source_reference_for_run
 
 
 SUPPORTED_FINDING_TYPES = {"claim", "event", "entity", "document_reference", "other"}
+SEARCH_FINDINGS_MAX_OUTPUT_TOKENS = 6000
 
 SEARCH_FINDINGS_SYSTEM_PROMPT = """Te egy forráshű kutatási találatkereső komponens vagy.
-Csak a megadott SOURCE chunkokból dolgozhatsz.
+Csak a megadott forrásszövegekből dolgozhatsz.
 Nem használhatsz külső tudást és nem egészítheted ki a hiányzó tényeket.
+Maradj tárgyilagos: ne feltételezz, ne következtess, és ne adj hozzá olyan értelmezést, amelyet a forrás nem támaszt alá közvetlenül.
 Nem dönthetsz bűnösségről, jogi minősítésről, kockázatról vagy személyi felelősségről.
 Nem kell minden találatot állításnak, eseménynek vagy entitásnak minősítened.
-Ha a találat nem sorolható biztosan egy konkrét típusba, használd az other suggested_type értéket.
+Ha egy találat nem sorolható biztosan konkrét típusba, használj általános típust.
 Válaszolj kizárólag érvényes JSON objektummal.
-Minden findings elemhez kötelező a source_label és quote_text.
-quote_text mezőt karakterpontosan másold ki a megfelelő SOURCE chunkból: ne fordítsd, ne javítsd, ne ékezetesítsd, ne normalizáld.
-quote_text legyen pontos, összefüggő idézet, amely önmagában is ellenőrizhetővé teszi a találat lényegét.
-Ha nincs elég forrás egy találathoz, ne tedd findings közé; tedd az unsupported_findings listába.
+Ha nincs elég közvetlen forrás egy találathoz, ne tedd a findings listába; tedd az unsupported_findings listába.
 Elvárt JSON alak:
-{"findings":[{"title":"...","finding_text":"...","suggested_type":"other","suggested_type_reason":"...","relevance_reason":"...","quote_text":"...","source_label":"chunk_1"}],"unsupported_findings":["..."]}
+{"findings":[{"title":"...","finding_text":"...","suggested_type":"other","suggested_type_reason":"...","relevance_reason":"...","quote_text":"...","source_label":"chunk_1"}],"unsupported_findings":[{"title":"...","finding_text":"...","suggested_type":"other","suggested_type_reason":"...","relevance_reason":"...","quote_text":"...","source_label":"chunk_1","unsupported_reason":"..."}]}
 """
 
 
@@ -82,8 +81,6 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
         unsupported_items: list[str] = []
         failed_batch_count = 0
         processed_batch_count = 0
-        duplicate_skipped_count = 0
-        dedup_keys: set[tuple[str, str, str]] = set()
 
         for batch_index, batch in enumerate(batches, start=1):
             try:
@@ -98,7 +95,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                         ),
                     ],
                     temperature=0.1,
-                    max_tokens=1800,
+                    max_tokens=SEARCH_FINDINGS_MAX_OUTPUT_TOKENS,
                 )
                 parsed = parse_llm_json_object(completion.content)
                 valid_findings, batch_unsupported = validate_extracted_findings(parsed, batch)
@@ -110,16 +107,6 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                 continue
 
             for finding in valid_findings:
-                dedup_key = (
-                    _normalize_for_dedup(finding["title"]),
-                    _normalize_for_dedup(finding["finding_text"]),
-                    _normalize_for_dedup(finding["quote_text"]),
-                )
-                if dedup_key in dedup_keys:
-                    duplicate_skipped_count += 1
-                    continue
-                dedup_keys.add(dedup_key)
-
                 output_position = len(response_findings)
                 source_reference = create_source_reference_for_run(
                     db,
@@ -144,6 +131,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                     relevance_reason=finding["relevance_reason"],
                     source_reference_id=source_reference.id,
                     analysis_run_id=run.id,
+                    llm_support_status=finding["llm_support_status"],
                 )
                 add_analysis_run_output(db, run.id, "research_finding", persisted_finding.id, output_position)
                 response_findings.append(
@@ -154,6 +142,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                         suggested_type=persisted_finding.suggested_type,
                         suggested_type_reason=persisted_finding.suggested_type_reason,
                         relevance_reason=persisted_finding.relevance_reason,
+                        llm_support_status=persisted_finding.llm_support_status,
                         quote_text=finding["quote_text"],
                         source_label=finding["source_label"],
                         source_reference_id=source_reference.id,
@@ -194,7 +183,6 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                 "processed_batch_count": processed_batch_count,
                 "failed_batch_count": failed_batch_count,
                 "created_research_finding_count": len(response_findings),
-                "duplicate_skipped_count": duplicate_skipped_count,
                 "unsupported_count": len(unsupported_items),
             },
         )
@@ -230,13 +218,25 @@ def build_search_findings_user_prompt(
         "Keresd meg a QUERY szempontjából releváns, forrással alátámasztott kutatási találatokat. "
         "Minden lehetséges találatot külön-külön vizsgálj meg a QUERY szempontjából. "
         "Csak olyan találatot adj vissza, amely önmagában és közvetlenül kapcsolódik a QUERY-ben megadott fókuszhoz. "
+        "Ha a kapcsolat csak laza, közvetett, kontextuális vagy magyarázkodást igényel, ne add vissza találatként; tedd az unsupported_findings listába. "
+        "Ha több, egymástól elkülönülő, közvetlenül forrásolt találat van, add vissza őket külön elemekként. "
+        "Ne állj meg egyetlen találatnál, ha a batch több releváns forráshelyet tartalmaz. "
+        "A title legyen rövid, tárgyilagos és forráshű: csak a quote_text által közvetlenül alátámasztott kapcsolatot vagy tényt nevezze meg. "
+        "A finding_text ne feltételezzen, ne következtessen, és ne mondjon többet annál, mint amit a quote_text közvetlenül alátámaszt. "
+        "Ha a forrás csak kapcsolatot, reakciót, jelenlétet, ismeretet vagy elmondást támaszt alá, akkor a title és a finding_text is csak ezt rögzítse. "
+        "Ne nevezz meg senkit elkövetőként, gyilkosként, bűnösként vagy felelősként, hacsak a quote_text ezt szó szerint és közvetlenül nem állítja. "
+        "Ne minősíts egy megszólalót tanúnak, vallomástevőnek, szakértőnek, sértettnek vagy más eljárási szereplőnek, hacsak a quote_text ezt közvetlenül alá nem támasztja. "
+        "Ha a QUERY tanúkra, vallomásokra vagy eljárási szerepekre vonatkozik, ne adj vissza puszta párbeszédet, narrátori megjegyzést vagy háttérjelenetet találatként csak azért, mert lazán kapcsolódik a témához. "
+        "A relevance_reason ne általános kontextust említsen; konkrétan azt indokolja, hogy a quote_text mely része kapcsolódik közvetlenül a QUERY fókuszához. "
         "Önmagában az, hogy egy SOURCE chunk bekerült a batchbe, nem elég ok találat kinyerésére. "
         "Ne erőltesd, hogy a találat állítás, esemény vagy entitás legyen. "
         "Ha a találat típusa nem egyértelmű, suggested_type értéke legyen other. "
         "A suggested_type csak javaslat, nem döntés. "
-        "A relevance_reason röviden magyarázza meg, hogy a találat miért kapcsolódik közvetlenül a QUERY fókuszához. "
+        "Minden findings elemhez kötelező a source_label és quote_text. "
+        "A quote_text mezőt karakterpontosan másold ki a megfelelő SOURCE chunkból: ne fordítsd, ne javítsd, ne ékezetesítsd, ne normalizáld. "
         "A quote_text ne legyen túl szűk: önmagában is tegye ellenőrizhetővé, hogy a finding_text kire vagy mire vonatkozik, és mi a találat lényege. "
-        "Ha a találat alanya, tárgya vagy oka csak az előző vagy következő mondatból derül ki, akkor a quote_text tartalmazza együtt ezeket a szükséges mondatokat is."
+        "Ha a találat alanya, tárgya vagy oka csak az előző vagy következő mondatból derül ki, akkor a quote_text tartalmazza együtt ezeket a szükséges mondatokat is. "
+        "Ne másolj teljes chunkot vagy indokolatlanul hosszú szakaszt quote_text mezőbe; célzott, összefüggő, általában 1-4 mondatos idézetet adj."
     )
 
 
@@ -251,42 +251,75 @@ def validate_extracted_findings(
 
     chunks_by_label = {retrieved.label: retrieved for retrieved in retrieved_chunks}
     valid_findings: list[dict[str, Any]] = []
+    unsupported_items: list[str] = []
     for item in findings_value:
-        if not isinstance(item, dict):
+        finding = _validated_finding_item(item, chunks_by_label, llm_support_status="confirmed")
+        if finding is None:
+            source_label = item.get("source_label") if isinstance(item, dict) else None
+            unsupported_items.append(f"Skipped finding with invalid source_label or quote_text from {source_label}")
             continue
-        title = item.get("title")
-        finding_text = item.get("finding_text")
-        suggested_type = item.get("suggested_type", "other")
-        suggested_type_reason = item.get("suggested_type_reason")
-        relevance_reason = item.get("relevance_reason")
-        quote_text = item.get("quote_text")
-        source_label = item.get("source_label")
-        if suggested_type not in SUPPORTED_FINDING_TYPES:
-            suggested_type = "other"
-        if not all(isinstance(value, str) for value in [title, finding_text, relevance_reason, quote_text, source_label]):
-            continue
-        if title.strip() == "" or finding_text.strip() == "" or relevance_reason.strip() == "" or quote_text.strip() == "":
-            continue
-        retrieved = chunks_by_label.get(source_label)
-        if retrieved is None or quote_text not in retrieved.chunk.chunk_text:
-            continue
-        valid_findings.append(
-            {
-                "title": title,
-                "finding_text": finding_text,
-                "suggested_type": suggested_type,
-                "suggested_type_reason": suggested_type_reason if isinstance(suggested_type_reason, str) and suggested_type_reason.strip() else None,
-                "relevance_reason": relevance_reason,
-                "quote_text": quote_text,
-                "source_label": source_label,
-                "chunk": retrieved.chunk,
-                "document_name": retrieved.document_name,
-            }
-        )
+        valid_findings.append(finding)
 
-    unsupported_items = [item for item in unsupported_value if isinstance(item, str)]
+    for item in unsupported_value:
+        if isinstance(item, str):
+            unsupported_items.append(item)
+            continue
+        finding = _validated_finding_item(item, chunks_by_label, llm_support_status="unconfirmed")
+        if finding is None:
+            source_label = item.get("source_label") if isinstance(item, dict) else None
+            unsupported_items.append(f"Skipped unsupported finding with invalid source_label or quote_text from {source_label}")
+            continue
+        valid_findings.append(finding)
     return valid_findings, unsupported_items
 
 
-def _normalize_for_dedup(value: str) -> str:
-    return " ".join(value.casefold().split())
+def _validated_finding_item(
+    item: Any,
+    chunks_by_label: dict[str, RetrievedChunk],
+    *,
+    llm_support_status: str,
+) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    title = item.get("title")
+    finding_text = item.get("finding_text")
+    suggested_type = item.get("suggested_type", "other")
+    suggested_type_reason = item.get("suggested_type_reason")
+    relevance_reason = item.get("relevance_reason")
+    quote_text = item.get("quote_text")
+    source_label = item.get("source_label")
+    if suggested_type not in SUPPORTED_FINDING_TYPES:
+        suggested_type = "other"
+    if not all(isinstance(value, str) for value in [title, finding_text, relevance_reason, quote_text, source_label]):
+        return None
+    if title.strip() == "" or finding_text.strip() == "" or relevance_reason.strip() == "" or quote_text.strip() == "":
+        return None
+    retrieved = chunks_by_label.get(source_label)
+    if retrieved is None:
+        return None
+    resolved_quote = _resolve_quote_text(retrieved.chunk.chunk_text, quote_text)
+    if resolved_quote is None:
+        return None
+    return {
+        "title": title,
+        "finding_text": finding_text,
+        "suggested_type": suggested_type,
+        "suggested_type_reason": suggested_type_reason if isinstance(suggested_type_reason, str) and suggested_type_reason.strip() else None,
+        "relevance_reason": relevance_reason,
+        "quote_text": resolved_quote,
+        "source_label": source_label,
+        "chunk": retrieved.chunk,
+        "document_name": retrieved.document_name,
+        "llm_support_status": llm_support_status,
+    }
+
+
+def _resolve_quote_text(source_text: str, quote_text: str) -> str | None:
+    if quote_text in source_text:
+        return quote_text
+    normalized_quote = " ".join(quote_text.split())
+    if normalized_quote == "":
+        return None
+    if normalized_quote in source_text:
+        return normalized_quote
+    return None

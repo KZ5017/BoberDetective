@@ -107,8 +107,6 @@ def merge_entity(
 
     source_entity = get_entity(db, case_id, source_entity_id)
     target_entity = get_entity(db, case_id, target_entity_id)
-    if source_entity.entity_type != target_entity.entity_type:
-        raise EntityValidationError("Only entities with the same type can be merged")
     if target_entity.review_status == "corrected":
         raise EntityValidationError("Corrected entities cannot be merge targets")
 
@@ -289,9 +287,6 @@ def move_entity_mention(
 
     source_entity = get_entity(db, case_id, source_entity_id)
     target_entity = get_entity(db, case_id, target_entity_id)
-    if source_entity.entity_type != target_entity.entity_type:
-        raise EntityValidationError("Only entities with the same type can receive this source")
-
     mention = db.get(EntityMentionModel, mention_id)
     if mention is None or mention.case_id != case_id or mention.entity_id != source_entity.id:
         raise EntityValidationError("Entity mention not found for this entity")

@@ -152,6 +152,9 @@ export type SourceReferenceRead = {
   quote_text: string;
   quote_char_start: number | null;
   quote_char_end: number | null;
+  source_text_excerpt: string | null;
+  source_text_excerpt_char_start: number | null;
+  source_text_excerpt_char_end: number | null;
   citation_label: string | null;
   confidence: string | number | null;
   source_kind: string;
@@ -171,6 +174,7 @@ export type ResearchFindingRead = {
   suggested_type_reason: string | null;
   relevance_reason: string;
   source_validation_status: string;
+  llm_support_status: "confirmed" | "unconfirmed";
   conversion_status: string;
   target_object_type: string | null;
   target_object_id: string | null;
@@ -185,6 +189,8 @@ export type ReviewReportItem = {
   title: string;
   body_text: string | null;
   subtype: string;
+  event_time_start: string | null;
+  time_precision: string | null;
   review_status: string;
   source_validation_status: string;
   sources: ReviewReportSource[];
@@ -250,17 +256,31 @@ export type EntityRead = {
   updated_at: string;
 };
 
+export type ClaimRead = {
+  id: string;
+  case_id: string;
+  claim_type: string;
+  claim_title: string;
+  claim_text: string;
+  claim_time_raw: string | null;
+  claim_time_normalized: string | null;
+  confidence: string | number | null;
+  created_by_analysis_run_id: string;
+  source_validation_status: string;
+  review_status: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type EventRead = {
   id: string;
   case_id: string;
   event_type: string;
   event_title: string;
   event_description: string | null;
-  event_time_raw: string | null;
   event_time_start: string | null;
   event_time_end: string | null;
   time_precision: string | null;
-  location_text: string | null;
   confidence: string | number | null;
   created_by_analysis_run_id: string;
   source_validation_status: string;
@@ -275,7 +295,6 @@ export type MissingItemCandidateRead = {
   missing_item_type: string;
   referenced_item_text: string;
   description: string;
-  expected_document_type: string | null;
   confidence: string | number | null;
   created_by_analysis_run_id: string;
   source_validation_status: string;
@@ -332,6 +351,7 @@ export type AnalysisResponse = {
     suggested_type: string;
     suggested_type_reason: string | null;
     relevance_reason: string;
+    llm_support_status: string;
     quote_text: string;
     source_label: string;
     source_reference_id: string;
@@ -355,6 +375,7 @@ export type ManualObjectPayload = {
   };
   object_type: ManualObjectType;
   claim_type?: string;
+  claim_title?: string | null;
   claim_text?: string | null;
   entity_type?: string | null;
   canonical_name?: string | null;
@@ -363,12 +384,10 @@ export type ManualObjectPayload = {
   event_type?: string | null;
   event_title?: string | null;
   event_description?: string | null;
-  event_time_raw?: string | null;
+  event_time_start?: string | null;
   time_precision?: string | null;
-  location_text?: string | null;
   missing_item_type?: string | null;
   referenced_item_text?: string | null;
-  expected_document_type?: string | null;
 };
 
 export type ManualObjectFromSourcePayload = Omit<ManualObjectPayload, "source_reference">;
@@ -472,7 +491,6 @@ const reviewPathByType: Record<string, (caseId: string, objectId: string) => str
   claim: (caseId, objectId) => `/cases/${caseId}/claims/${objectId}/reviews`,
   event: (caseId, objectId) => `/cases/${caseId}/events/${objectId}/reviews`,
   entity: (caseId, objectId) => `/cases/${caseId}/entities/${objectId}/reviews`,
-  summary_item: (caseId, objectId) => `/cases/${caseId}/summary-items/${objectId}/reviews`,
   contradiction_candidate: (caseId, objectId) => `/cases/${caseId}/contradiction-candidates/${objectId}/reviews`,
   missing_item_candidate: (caseId, objectId) => `/cases/${caseId}/missing-item-candidates/${objectId}/reviews`
 };
@@ -546,6 +564,19 @@ export function mergeMissingItemCandidate(
   });
 }
 
+export function mergeClaim(
+  caseId: string,
+  sourceClaimId: string,
+  targetClaimId: string,
+  reviewComment?: string
+): Promise<unknown> {
+  return request(`/cases/${caseId}/claims/${sourceClaimId}/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_claim_id: targetClaimId, review_comment: reviewComment || null })
+  });
+}
+
 export function detachObjectSource(
   caseId: string,
   objectType: string,
@@ -554,6 +585,7 @@ export function detachObjectSource(
   reviewComment?: string
 ): Promise<unknown> {
   const detachPathByType: Record<string, string> = {
+    claim: `/cases/${caseId}/claims/${objectId}/sources/${sourceLinkId}/detach`,
     entity: `/cases/${caseId}/entities/${objectId}/mentions/${sourceLinkId}/detach`,
     event: `/cases/${caseId}/events/${objectId}/sources/${sourceLinkId}/detach`,
     missing_item_candidate: `/cases/${caseId}/missing-item-candidates/${objectId}/sources/${sourceLinkId}/detach`
@@ -578,6 +610,10 @@ export function moveObjectSource(
   reviewComment?: string
 ): Promise<unknown> {
   const movePathByType: Record<string, { path: string; targetKey: string }> = {
+    claim: {
+      path: `/cases/${caseId}/claims/${objectId}/sources/${sourceLinkId}/move`,
+      targetKey: "target_claim_id"
+    },
     entity: {
       path: `/cases/${caseId}/entities/${objectId}/mentions/${sourceLinkId}/move`,
       targetKey: "target_entity_id"
@@ -680,6 +716,10 @@ export function listDocumentTaxonomy(): Promise<{ data: DocumentTaxonomyGroupRea
 
 export function listEntities(caseId: string): Promise<{ data: EntityRead[] }> {
   return request(`/cases/${caseId}/entities`);
+}
+
+export function listClaims(caseId: string): Promise<{ data: ClaimRead[] }> {
+  return request(`/cases/${caseId}/claims`);
 }
 
 export function listEvents(caseId: string): Promise<{ data: EventRead[] }> {

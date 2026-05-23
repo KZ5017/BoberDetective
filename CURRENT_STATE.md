@@ -26,8 +26,8 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 217 passed
-alembic: 0024_research_findings_worklist (head)
+pytest: 220 passed
+alembic: 0031_detached_source_claims (head)
 ```
 
 ## What Works Now
@@ -36,7 +36,7 @@ alembic: 0024_research_findings_worklist (head)
 - Minimal React/Vite frontend workbench scaffold under `frontend/`.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0024_research_findings_worklist`.
+- Alembic migrations through `0031_detached_source_claims`.
 - Immutable TXT import with page/chunk persistence.
 - Explicit imported-document processing validation run flow.
 - Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile, page persistence, and `parse_document` analysis run provenance.
@@ -58,6 +58,8 @@ alembic: 0024_research_findings_worklist (head)
 - Source-bound `search_findings` analysis module as the main research workflow.
 - `detect_contradiction_candidates` remains available as a downstream claim-pair workflow over existing source-valid claims.
 - The legacy raw chunk-based automatic extraction modules (`extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`) have been removed from active backend dispatch, frontend module selection, response schemas, module-specific service files, and prompt/validation tests. API calls with these old module keys now return `Unsupported analysis module`.
+- Legacy raw module analysis run names have also been retired at DB constraint level through migration `0029_retire_legacy_run_types`: historical raw-module runs are mapped to `retired_analysis_module` with their original run type preserved in `input_parameters.retired_original_run_type`, and the active contradiction module now records `detect_contradiction_candidates` runs instead of the older internal `detect_contradictions` name.
+- `summary_item` has been fully removed from the active structured object model through migration `0025_remove_summary_items`: the API/router/service/schema/model, review-report branch, frontend filter labels, review path mapping, output-summary handling, and DB constraints no longer accept it.
 - Analysis module service split now keeps common retrieval/JSON helpers, `search_findings`, and the downstream contradiction module.
 - Analysis retrieval fallback strips common Hungarian suffixes, including short accusative forms such as `mellekletet` -> `melleklet`.
 - Source-bound finding search requires explicit focus text for source selection. The backend no longer silently falls back to first document/case chunks when retrieval finds no matching source; this avoids blind processing on large cases while preserving `no source -> no claim`.
@@ -84,7 +86,7 @@ alembic: 0024_research_findings_worklist (head)
 - Document taxonomy/source-filtering planning exists in `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`. The first backend/frontend/import slices are implemented, backend analysis source selection accepts structured case-scope filters (`document_group_code`, `document_type_code`, `document_ids`), and the frontend analysis panel exposes matching whole-case filters with document group/type dropdowns and a concrete document checkbox list. These filters resolve to a concrete document set and apply consistently to keyword, semantic, hybrid retrieval, semantic/hybrid readiness checks, and background chunk indexing. The old free-text `documents.document_type` column/API field was intentionally removed in migration `0019_drop_legacy_document_type`; structured taxonomy codes are now the only document type/classification path. Documents can be reclassified through audit-tracked metadata-only updates at `PATCH /api/v1/cases/{case_id}/documents/{document_id}/taxonomy`; this changes only `document_group_code` / `document_type_code` and does not touch pages, chunks, source references, analysis runs, or review objects.
 - Document lifecycle/parking foundation is implemented through migration `0020_document_lifecycle_status`. Documents have `lifecycle_status` values `active`, `excluded`, and `archived`, with status-change metadata and audit events. Active documents are the only source material for new indexing, retrieval, raw-chunk analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge operations, and contradiction candidate creation/claim selection. Existing findings from inactive documents remain visible for historical review, and review report sources show the source document lifecycle status.
 - Early document discard/delete is available only for safely discardable documents before they become analysis/source material. Once chunks, source references, analysis inputs, or review consequences exist, documents are parked through `excluded` or `archived` instead of being physically removed.
-- Frontend source-search strategy selection is available for document/case finding search. `Szovegresz plafon` defaults to 20 and is capped at 30; the same cap is enforced by the backend. `Batch meret` controls how the selected source chunks are split into LLM calls. Semantic/hybrid index readiness is required before semantic/hybrid retrieval can run.
+- Frontend source-search strategy selection is available for document/case finding search. `Szovegresz plafon` defaults to 30 and is capped at 50; the same cap is enforced by the backend. `Batch meret` controls how the selected source chunks are split into LLM calls. Semantic/hybrid index readiness is required before semantic/hybrid retrieval can run.
 - Analysis batch processing is captured in `Design_documents/10_analysis_batch_processing_plan.md`, but the active raw-source analysis path is now `search_findings`.
 - Strategic analysis-model change is captured in `Design_documents/12_source_bound_findings_model_plan.md` and `Design_documents/13_legacy_analysis_module_retirement_plan.md`: the raw chunk-based automatic extraction modules have been retired from active code paths in favor of a source-bound `research_finding` workflow.
 - First `research_finding` backend foundation exists through migration `0021_research_findings`: `research_findings` table, SQLAlchemy model, schemas, internal create/list/get service, read-only list/detail API, and analysis-run output summary support.
@@ -93,32 +95,7 @@ alembic: 0024_research_findings_worklist (head)
 - Human-controlled `research_finding` conversion exists: `POST /api/v1/cases/{case_id}/research-findings/{finding_id}/convert` reuses the finding source reference, creates a structured claim/entity/event/missing item candidate through the manual-entry path, records a `manual_entry` provenance run plus `research_finding_converted` audit event, and marks the finding as `converted` with `target_object_type` / `target_object_id`. Converted findings no longer appear in the active research-finding worklist; the structured object carries the ongoing review/source workflow.
 - Research findings are now explicit worklist items through migration `0024_research_findings_worklist`, not human-review objects. The `research_findings.review_status` column and `research_finding` human-review object type were removed. Worklist operations are `set-aside`, `restore`, single delete, and bulk delete; `ignored` means "félretéve", not rejected. The frontend exposes `Félreteszem`, `Vissza az aktív listába`, `Törlésre jelölés`, and `Jelöltek törlése`.
 - The planned `research_finding` model should remain graph-view compatible: preserve source-reference -> finding -> structured-object relationships so a later graph visualization can be built without redesigning the core data model. This is a schema/design constraint, not a near-term graph database requirement.
-- Latest live batch analysis smoke passed:
-  - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
-  - `case` source mode selected 6 chunks across the smoke case, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
-  - Analysis run inputs include `batch_index`, `batch_count`, `chunk_labels`, `source_label`, and `retrieval_score`.
-- Latest live batch `extract_events` smoke passed:
-  - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
-  - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, and returned `validation_status=passed`.
-- Semantic `extract_events` now caps its effective batch size at 2 chunks for local LLM stability. A live regression with query `gyilkossággal esettel kapcsolatos események`, `max_chunks=10`, `retrieval_strategy=semantic`, and requested `batch_size=5` completed without timeout in about 262s; the run selected 10 chunks, processed smaller event batches, returned source-cited events, and finished with `validation_status=warning` because unsupported notes were also returned.
-- Latest live batch `extract_entities` smoke passed:
-  - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
-  - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, and returned `validation_status=passed`.
-  - Case-mode audit check showed 4 chunk inputs, batch indexes `[1, 1, 2, 2]`, and 30 output records.
-- Latest live batch `summarize_case` smoke passed:
-  - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
-  - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, and returned `validation_status=passed`.
-  - Summary prompt is stricter than extraction prompts: batch output is capped at 3 summary items and body/title must stay directly supported by `quote_text`.
-- Latest live batch `detect_missing_items` smoke passed:
-  - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, and returned `validation_status=passed`.
-  - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, and returned `validation_status=passed`.
-  - Case-mode audit check showed 4 chunk inputs, batch indexes `[1, 1, 2, 2]`, and 20 output records.
-- Focused `extract_events` regression checked with query `narrátor Dupin`:
-  - Original failure cause was invalid LLM JSON caused by an unescaped double quote inside `quote_text`.
-  - Event prompt now asks for short quote excerpts, valid JSON escaping, allowed enum values, and avoiding double-quote-containing excerpts when possible.
-  - Batch-all-failed errors now include the first batch failure reason, e.g. `batch_1: LLM returned invalid JSON`.
-  - Retest returned `HTTP 200` and `validation_status=passed`.
-- Source-cited summary item persistence, API, review workflow, and review report inclusion.
+- Historical raw-module live smokes are pre-retirement notes only. Current live smokes should use `search_findings`, research-finding conversion, manual source-bound object creation, and downstream `detect_contradiction_candidates`.
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion.
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs.
 - `detect_contradiction_candidates` is intentionally claim-based, not raw chunk batch-based: it works on existing `source_valid` claims and records claim selection metadata as analysis run input.
@@ -130,19 +107,17 @@ alembic: 0024_research_findings_worklist (head)
 - Contradiction candidate validation now deduplicates same claim-pair/type candidates, caps most model-proposed `high` severities to `medium`, and replaces model-written titles/descriptions with conservative, pair-bound, source-claim-based Hungarian text.
 - `detect_contradiction_candidates` now supports `claim_review_scope`; the default `reviewable` scope uses source-valid claims with review status `new`, `needs_review`, `verified`, or `corrected`, excluding `rejected`.
 - `detect_contradiction_candidates` now requires explicit contradiction qualification from the LLM: `is_contradiction_candidate=true` plus a concrete `conflict_basis`; related/contextual pairs without a concrete conflict basis are rejected or recorded as unsupported items instead of persisted as contradiction candidates.
-- Analysis modules now perform historical deduplication before persistence: repeated runs skip already-stored content-matched claims, events, summary items, missing item candidates, and contradiction candidates instead of creating duplicate review objects.
+- Analysis modules now perform historical deduplication before persistence for currently supported structured review objects instead of creating duplicate review objects.
 - Entity extraction automatically merges only exact/normalized repeated entities into the existing entity review object and links additional occurrences as mentions/sources.
 - Ambiguous entity identity decisions should be handled through the explicit entity merge workflow, not by automatic alias guessing.
-- Frontend entity merge is available both from report item cards and the object detail panel; merge target selection uses the full case entity list, not only the currently filtered report items.
-- Event merge now follows the same human-reviewed pattern: `event_merged` audit event, source links moved to the target event, source event marked `corrected`, and frontend merge controls use the full case event list.
-- Missing item candidate merge now follows the same human-reviewed pattern: `missing_item_candidate_merged` audit event, source links moved to the target candidate, source candidate marked `corrected`, and frontend merge controls use the full case missing item candidate list.
-- Entity, event, and missing item candidate source links can be manually detached through audit-tracked `detach_source` review actions; the UI exposes `Levalasztas` on source details where the backend has a concrete source-link id.
-- Detached source links are parked in `detached_source_items` with the source reference plus a snapshot of the object they were detached from; the frontend shows these under `Levalasztott forrasok`.
-- Detached sources can be reattached from the parked-source panel or marked irrelevant; source details also support direct move to another same-type target object without first parking the source manually.
+- Claim, entity, event, and missing item candidate merge are available from report item cards and the object detail panel where applicable. Merge remains constrained to the same main object type, but subtype matching is intentionally not enforced; source objects are marked `corrected`, sources move to the selected target, and duplicate source links are skipped.
+- Claim, entity, event, and missing item candidate source links can be manually detached through audit-tracked `detach_source` review actions; the UI exposes `Levalasztas` on source details where the backend has a concrete source-link id.
+- Detached source links are parked in `detached_source_items` with the source reference plus a snapshot of the object they were detached from; the frontend shows these under `Levalasztott forrasok`. Detached source items may originate from claims as well as entities/events/missing item candidates.
+- Detached sources can be reattached from the parked-source panel or marked irrelevant; source details also support direct move to another same-main-type target object without first parking the source manually. Subtype matching is intentionally not enforced for direct move or reattach.
 - Users can select readonly text from document chunks and create source-bound manual claim/entity/event/missing item candidate objects through `manual_entry` provenance runs.
 - Detached source items can also create new source-bound manual claim/entity/event/missing item candidate objects and then store the created object as their handled target.
 - Missing item candidate persistence, source linkage, API, review workflow, and review report inclusion.
-- `detect_missing_items` analysis module foundation over source-cited chunk quotes.
+- Missing item candidates remain supported as structured review objects through manual/finding-conversion workflows; the raw `detect_missing_items` analysis module has been retired.
 - Claim, event, source, review, export, and audit persistence.
 - Case review report endpoint with object type, review status, source validation filters, and expanded source details.
 - JSON and HTML review report export with SHA256, claim/entity/event item tracking, report filters, and expanded source details.
@@ -155,7 +130,7 @@ alembic: 0024_research_findings_worklist (head)
 - Frontend shows document page/chunk drill-down and analysis run input/output detail; analysis run detail now includes human-readable selected-source summaries with document/page/chunk, retrieval match type/score, batch position, and text preview, plus short output object summaries.
 - Frontend document import accepts TXT/PDF files.
 - Frontend shows OCR actions from backend recommendation metadata and exposes `Szovegreszek letrehozasa` when a document is in `text_review_required`; chunk creation refreshes document status, chunks, and analysis run history.
-- Frontend analysis controls now support source scope for batch-capable `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items`: selected document, whole case, selected-document page range, required focus text, `Szovegresz plafon`, and batch size.
+- Frontend analysis controls now support the active `search_findings` workflow with selected-document and whole-case source scopes, selected-document page range, required focus text, `Szovegresz plafon`, retrieval strategy, and batch size. The retired raw modules are no longer frontend options.
 - Frontend now reflects `detect_contradiction_candidates` as a claim-pair module: the analysis panel shows a claim-pair note, required focus field, claim review scope selector, and contradiction candidate cap, analysis summaries show claim-pair based execution, analysis run details render claim-selection metrics and selected pairs instead of raw JSON, and contradiction report items include a conservative review note.
 - Frontend analysis focus text starts empty for every module; module-specific helper text is a placeholder only and is never sent to processing unless the user types actual text.
 - Frontend review report supports object type, review status, and source validation filters plus object detail panel.
@@ -182,9 +157,9 @@ entities, entity_mentions,
 events, event_sources,
 human_reviews,
 exports, export_items,
-summary_items, summary_item_sources,
 contradiction_candidates, contradiction_candidate_sources,
 missing_item_candidates, missing_item_candidate_sources,
+research_findings, detached_source_items,
 alembic_version
 ```
 
@@ -234,16 +209,21 @@ Reviewable objects:
 - `GET /api/v1/cases/{case_id}/claims`
 - `GET /api/v1/cases/{case_id}/claims/{claim_id}`
 - `POST /api/v1/cases/{case_id}/claims/{claim_id}/reviews`
+- `POST /api/v1/cases/{case_id}/claims/{claim_id}/merge`
+- `POST /api/v1/cases/{case_id}/claims/{claim_id}/sources/{claim_source_id}/detach`
+- `POST /api/v1/cases/{case_id}/claims/{claim_id}/sources/{claim_source_id}/move`
 - `GET /api/v1/cases/{case_id}/events`
 - `GET /api/v1/cases/{case_id}/events/{event_id}`
 - `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`
+- `POST /api/v1/cases/{case_id}/events/{event_id}/merge`
+- `POST /api/v1/cases/{case_id}/events/{event_id}/sources/{event_source_id}/detach`
+- `POST /api/v1/cases/{case_id}/events/{event_id}/sources/{event_source_id}/move`
 - `GET /api/v1/cases/{case_id}/entities`
 - `GET /api/v1/cases/{case_id}/entities/{entity_id}`
 - `POST /api/v1/cases/{case_id}/entities/{entity_id}/reviews`
-- `GET /api/v1/cases/{case_id}/summary-items`
-- `POST /api/v1/cases/{case_id}/summary-items`
-- `GET /api/v1/cases/{case_id}/summary-items/{summary_item_id}`
-- `POST /api/v1/cases/{case_id}/summary-items/{summary_item_id}/reviews`
+- `POST /api/v1/cases/{case_id}/entities/{entity_id}/merge`
+- `POST /api/v1/cases/{case_id}/entities/{entity_id}/mentions/{mention_id}/detach`
+- `POST /api/v1/cases/{case_id}/entities/{entity_id}/mentions/{mention_id}/move`
 - `GET /api/v1/cases/{case_id}/contradiction-candidates`
 - `POST /api/v1/cases/{case_id}/contradiction-candidates`
 - `GET /api/v1/cases/{case_id}/contradiction-candidates/{contradiction_candidate_id}`
@@ -252,6 +232,20 @@ Reviewable objects:
 - `POST /api/v1/cases/{case_id}/missing-item-candidates`
 - `GET /api/v1/cases/{case_id}/missing-item-candidates/{missing_item_candidate_id}`
 - `POST /api/v1/cases/{case_id}/missing-item-candidates/{missing_item_candidate_id}/reviews`
+- `POST /api/v1/cases/{case_id}/missing-item-candidates/{missing_item_candidate_id}/merge`
+- `POST /api/v1/cases/{case_id}/missing-item-candidates/{missing_item_candidate_id}/sources/{source_link_id}/detach`
+- `POST /api/v1/cases/{case_id}/missing-item-candidates/{missing_item_candidate_id}/sources/{source_link_id}/move`
+- `GET /api/v1/cases/{case_id}/research-findings`
+- `GET /api/v1/cases/{case_id}/research-findings/{finding_id}`
+- `POST /api/v1/cases/{case_id}/research-findings/{finding_id}/convert`
+- `POST /api/v1/cases/{case_id}/research-findings/{finding_id}/set-aside`
+- `POST /api/v1/cases/{case_id}/research-findings/{finding_id}/restore`
+- `DELETE /api/v1/cases/{case_id}/research-findings/{finding_id}`
+- `POST /api/v1/cases/{case_id}/research-findings/bulk-delete`
+- `GET /api/v1/cases/{case_id}/detached-source-items`
+- `POST /api/v1/cases/{case_id}/detached-source-items/{item_id}/attach`
+- `POST /api/v1/cases/{case_id}/detached-source-items/{item_id}/discard`
+- `POST /api/v1/cases/{case_id}/detached-source-items/{item_id}/manual-object`
 - `GET /api/v1/cases/{case_id}/review-report`
   - Optional filters: `object_type`, `review_status`, `source_validation_status`
 
@@ -297,37 +291,24 @@ Latest frontend/API end-to-end smoke:
 - Result: 15 review report items, review queue filter returned 15 items, one claim review action succeeded, JSON export/list/download succeeded.
 - Smoke case id: `9ace31b5-0729-4b49-8cb4-c989389e70c5`.
 
-Latest `summarize_case` live smoke:
+Historical `summarize_case` smokes are no longer active baseline material. The module and `summary_item` object model have been removed from current operation.
 
-- Initial broad/accented query returned `No chunk retrieval hit for query`.
-- Analysis retrieval now derives normalized fallback query variants from natural Hungarian prompts.
-- Retried with the original broad query after retrieval improvement.
-- Result: `analysis 200`, `validation_status=passed`, 3 summary items, all `needs_review` and `source_valid`.
-- Review report with `object_type=summary_item` returned 3 source-cited items.
-
-Latest `detect_contradiction_candidates` live smoke:
+Historical `detect_contradiction_candidates` live smoke:
 
 - Imported a TXT sample with two source-cited claims about different phone call times.
-- `extract_claims` produced 2 claims.
+- Historical raw `extract_claims` produced 2 claims. Current smokes should create claims through finding conversion or manual source-bound object creation.
 - `detect_contradiction_candidates` returned `analysis 200`, `validation_status=passed`, 1 `time_conflict` candidate.
 - Candidate was `needs_review`, `source_valid`, and had two source references.
 - Review report with `object_type=contradiction_candidate` returned the candidate with expanded source details.
 
-Latest `detect_missing_items` live smoke:
+Historical missing item retrieval/export smoke:
 
-- Imported a TXT sample with references to a camera recording attachment and separate photo documentation.
-- `detect_missing_items` returned `analysis 200`, `validation_status=passed`, 2 `attachment` candidates.
-- Candidates were `needs_review`, `source_valid`, and had source references created from validated chunk quotes.
-- Review report with `object_type=missing_item_candidate` returned 2 source-cited items with expanded source details.
-
-Latest missing item retrieval/export smoke:
-
-- Created a missing item candidate through `detect_missing_items`.
+- Created a missing item candidate through the former raw `detect_missing_items` path.
 - JSON review report export with `object_type=missing_item_candidate`, `needs_review`, and `require_source_valid=true` returned 1 tracked export item.
 - JSON download contained `missing_item_candidate`.
 - HTML review report export returned 1 tracked export item and downloaded as `text/html` with `missing_item_candidate` content.
 - Retried the formerly failing short query `Keress hivatkozott mellekletet.` after retrieval suffix tuning.
-- Result: `analysis 200`, `validation_status=passed`, 1 source-cited `attachment` candidate.
+- Result: `analysis 200`, `validation_status=passed`, 1 source-cited `attachment` candidate. This remains test history only; the raw module is no longer active.
 
 Latest document-processing/PDF smoke:
 

@@ -56,7 +56,6 @@ def post_case_missing_item_candidate(
             missing_item_type=payload.missing_item_type,
             referenced_item_text=payload.referenced_item_text,
             description=payload.description,
-            expected_document_type=payload.expected_document_type,
             confidence=payload.confidence,
             analysis_run_id=payload.analysis_run_id,
             sources=payload.sources,

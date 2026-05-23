@@ -13,7 +13,7 @@ class HumanReviewModel(Base):
     __table_args__ = (
         CheckConstraint(
             "object_type in ('entity', 'event', 'claim', 'contradiction_candidate', "
-            "'missing_item_candidate', 'source_reference', 'export', 'summary_item')",
+            "'missing_item_candidate', 'source_reference', 'export')",
             name="ck_human_reviews_object_type",
         ),
         CheckConstraint(

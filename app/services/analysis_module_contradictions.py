@@ -116,7 +116,7 @@ def run_detect_contradiction_candidates(
     run = start_analysis_run(
         db,
         case_id,
-        "detect_contradictions",
+        "detect_contradiction_candidates",
         provider_type="lm_studio_native",
         model_name=settings.llm_chat_model,
         input_parameters={
@@ -239,7 +239,7 @@ def run_detect_contradiction_candidates(
                 LLMChatMessage(role="system", content=EXTRACT_CONTRADICTIONS_SYSTEM_PROMPT),
                 LLMChatMessage(
                     role="user",
-                    content=build_detect_contradictions_user_prompt(
+                    content=build_detect_contradiction_candidates_user_prompt(
                         payload.query,
                         claim_pairs,
                         payload.contradiction_candidate_limit,
@@ -437,7 +437,7 @@ def select_claim_pairs_for_contradiction_detection(
     return selected_claims, claim_pairs, metadata
 
 
-def build_detect_contradictions_user_prompt(
+def build_detect_contradiction_candidates_user_prompt(
     query: str | None,
     claim_pairs: list[ClaimPair],
     max_candidates: int = 5,

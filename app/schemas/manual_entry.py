@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from app.schemas.source_reference import SourceReferenceCreate, SourceReferenceR
 class ManualObjectFields(BaseModel):
     object_type: str = Field(pattern="^(claim|entity|event|missing_item_candidate)$")
     claim_type: str = Field(default="document_fact", pattern="^(witness_statement|document_fact|expert_opinion|administrative_fact|inference_candidate|unknown)$")
+    claim_title: str | None = None
     claim_text: str | None = None
     entity_type: str | None = Field(
         default=None,
@@ -23,21 +25,19 @@ class ManualObjectFields(BaseModel):
     )
     event_title: str | None = None
     event_description: str | None = None
-    event_time_raw: str | None = None
-    time_precision: str | None = Field(default=None, pattern="^(exact|minute|hour|day|month|unknown)$")
-    location_text: str | None = None
+    event_time_start: datetime | None = None
+    time_precision: str | None = Field(default=None, pattern="^(minute|hour|day|month|year|unknown)$")
     missing_item_type: str | None = Field(
         default=None,
         pattern="^(attachment|video|expert_report|protocol|image|document_reference|other)$",
     )
     referenced_item_text: str | None = None
-    expected_document_type: str | None = None
     confidence: Decimal | None = Field(default=None, ge=0, le=1)
 
     @model_validator(mode="after")
     def validate_required_fields(self) -> "ManualObjectFields":
-        if self.object_type == "claim" and not _has_text(self.claim_text):
-            raise ValueError("claim_text is required for claim")
+        if self.object_type == "claim" and (not _has_text(self.claim_title) or not _has_text(self.claim_text)):
+            raise ValueError("claim_title and claim_text are required for claim")
         if self.object_type == "entity" and (not _has_text(self.entity_type) or not _has_text(self.canonical_name)):
             raise ValueError("entity_type and canonical_name are required for entity")
         if self.object_type == "event" and (not _has_text(self.event_type) or not _has_text(self.event_title)):

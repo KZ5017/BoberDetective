@@ -103,8 +103,6 @@ def merge_event(
 
     source_event = get_event(db, case_id, source_event_id)
     target_event = get_event(db, case_id, target_event_id)
-    if source_event.event_type != target_event.event_type:
-        raise EventValidationError("Only events with the same type can be merged")
     if target_event.review_status == "corrected":
         raise EventValidationError("Corrected events cannot be merge targets")
     if source_event.source_validation_status == "source_invalid":
@@ -308,9 +306,6 @@ def move_event_source(
 
     source_event = get_event(db, case_id, source_event_id)
     target_event = get_event(db, case_id, target_event_id)
-    if source_event.event_type != target_event.event_type:
-        raise EventValidationError("Only events with the same type can receive this source")
-
     source_link = db.get(EventSourceModel, event_source_id)
     if source_link is None or source_link.event_id != source_event.id:
         raise EventValidationError("Event source not found for this event")
@@ -421,9 +416,8 @@ def create_event_with_source(
     event_type: str,
     event_title: str,
     event_description: str | None,
-    event_time_raw: str | None,
+    event_time_start: datetime | None,
     time_precision: str | None,
-    location_text: str | None,
     source_reference_id: UUID,
     analysis_run_id: UUID,
     support_type: str = "direct",
@@ -446,9 +440,8 @@ def create_event_with_source(
         event_type=event_type,
         event_title=event_title,
         event_description=event_description,
-        event_time_raw=event_time_raw,
+        event_time_start=event_time_start,
         time_precision=time_precision or "unknown",
-        location_text=location_text,
         created_by_analysis_run_id=analysis_run_id,
         source_validation_status="source_valid",
         review_status="needs_review",

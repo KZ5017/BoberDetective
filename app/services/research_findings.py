@@ -58,6 +58,7 @@ def create_research_finding(
     analysis_run_id: UUID,
     suggested_type: str = "other",
     suggested_type_reason: str | None = None,
+    llm_support_status: str = "confirmed",
 ) -> ResearchFindingModel:
     if title.strip() == "":
         raise ResearchFindingValidationError("Research finding title is required")
@@ -67,6 +68,8 @@ def create_research_finding(
         raise ResearchFindingValidationError("Research finding relevance reason is required")
     if suggested_type not in {"claim", "event", "entity", "document_reference", "other"}:
         raise ResearchFindingValidationError("Unsupported research finding suggested type")
+    if llm_support_status not in {"confirmed", "unconfirmed"}:
+        raise ResearchFindingValidationError("Unsupported research finding LLM support status")
 
     run = db.get(AnalysisRunModel, analysis_run_id)
     if run is None or run.case_id != case_id:
@@ -87,6 +90,7 @@ def create_research_finding(
         suggested_type_reason=suggested_type_reason.strip() if isinstance(suggested_type_reason, str) and suggested_type_reason.strip() else None,
         relevance_reason=relevance_reason.strip(),
         source_validation_status="source_valid",
+        llm_support_status=llm_support_status,
         conversion_status="not_converted",
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),

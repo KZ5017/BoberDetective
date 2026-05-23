@@ -31,6 +31,7 @@ class ClaimModel(Base):
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     case_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id"), nullable=False)
     claim_type: Mapped[str] = mapped_column(Text, nullable=False)
+    claim_title: Mapped[str] = mapped_column(Text, nullable=False)
     claim_text: Mapped[str] = mapped_column(Text, nullable=False)
     speaker_entity_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     subject_entity_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)

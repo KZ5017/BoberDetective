@@ -2,9 +2,11 @@
 
 ## 0. Aktualisitas
 
-Frissitve: 2026-05-21.
+Frissitve: 2026-05-23.
 
 Ez a dokumentum mar a legujabb dontest rogziti: a `research_finding` nem vegleges review-objektum es nem perzisztens szakmai talalatlista, hanem atmeneti kutatasi munkalista-elem. Review, merge, forrasmozgatas es export szempontbol csak az az objektum szamit rendes strukturalt talalatnak, amelyet a felhasznalo a kutatasi talalatbol kezzel letrehozott.
+
+Aktualis pontositas: a kutatasi talalatbol letrehozott strukturalt objektumoknal a kesobbi merge / forrasmozgatas / leválasztott forras visszacsatolas fo objektumtipushoz kotott, de altipushoz nem. Ez tudatos rugalmassag: az emberi konverzio soran elofordulhat teves altipusvalasztas, ezert egy `claim`, `event`, `entity` vagy `missing_item_candidate` a sajat fo tipuson belul szabadabban rendezheto, mikozben a fo tipusok kozotti atjaras tovabbra sem automatikus.
 
 Aktualis fo workflow:
 

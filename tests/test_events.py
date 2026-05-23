@@ -19,9 +19,8 @@ def test_create_event_requires_non_empty_title() -> None:
             event_type="call",
             event_title=" ",
             event_description=None,
-            event_time_raw=None,
+            event_time_start=None,
             time_precision="unknown",
-            location_text=None,
             source_reference_id=uuid4(),
             analysis_run_id=uuid4(),
         )
@@ -35,9 +34,8 @@ def test_create_event_requires_analysis_run() -> None:
             event_type="call",
             event_title="Telefonhivas",
             event_description=None,
-            event_time_raw=None,
+            event_time_start=None,
             time_precision="unknown",
-            location_text=None,
             source_reference_id=uuid4(),
             analysis_run_id=uuid4(),
         )

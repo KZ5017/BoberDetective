@@ -35,6 +35,7 @@ def test_find_duplicate_claim_matches_same_source_and_normalized_claim_text() ->
         id=uuid4(),
         case_id=case_id,
         claim_type="document_fact",
+        claim_title="A narrátor és Dupin beszélget.",
         claim_text="A narrátor és Dupin beszélget.",
         created_by_analysis_run_id=uuid4(),
         source_validation_status="source_valid",

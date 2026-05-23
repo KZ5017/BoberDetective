@@ -16,7 +16,6 @@ class MissingItemCandidateCreate(BaseModel):
     missing_item_type: str = Field(pattern="^(attachment|video|expert_report|protocol|image|document_reference|other)$")
     referenced_item_text: str
     description: str
-    expected_document_type: str | None = None
     confidence: Decimal | None = Field(default=None, ge=0, le=1)
     analysis_run_id: UUID
     sources: list[MissingItemSourceCreate] = Field(min_length=1)
@@ -30,7 +29,6 @@ class MissingItemCandidateRead(BaseModel):
     missing_item_type: str
     referenced_item_text: str
     description: str
-    expected_document_type: str | None
     confidence: Decimal | None
     created_by_analysis_run_id: UUID
     source_validation_status: str

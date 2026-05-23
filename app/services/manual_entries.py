@@ -127,6 +127,7 @@ def _create_manual_object_for_source(
         created = create_claim_with_source(
             db,
             case_id=case_id,
+            claim_title=payload.claim_title or "",
             claim_text=payload.claim_text or "",
             claim_type=payload.claim_type,
             source_reference_id=source_reference.id,
@@ -153,9 +154,8 @@ def _create_manual_object_for_source(
             event_type=payload.event_type or "other",
             event_title=payload.event_title or "",
             event_description=payload.event_description,
-            event_time_raw=payload.event_time_raw,
+            event_time_start=payload.event_time_start,
             time_precision=payload.time_precision or "unknown",
-            location_text=payload.location_text,
             source_reference_id=source_reference.id,
             analysis_run_id=run.id,
         )
@@ -167,7 +167,6 @@ def _create_manual_object_for_source(
             missing_item_type=payload.missing_item_type or "other",
             referenced_item_text=payload.referenced_item_text or "",
             description=payload.description or "",
-            expected_document_type=payload.expected_document_type,
             confidence=payload.confidence,
             analysis_run_id=run.id,
             sources=[MissingItemSourceCreate(source_reference_id=source_reference.id)],
@@ -190,7 +189,7 @@ def _create_manual_object_for_source(
 
 def _manual_object_title(payload: ManualObjectFields) -> str:
     if payload.object_type == "claim":
-        return payload.claim_text or "Allitas"
+        return payload.claim_title or payload.claim_text or "Allitas"
     if payload.object_type == "entity":
         return payload.canonical_name or "Entitas"
     if payload.object_type == "event":

@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.claim import ClaimModel, ClaimSourceModel
 from app.models.detached_source import DetachedSourceItemModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.event import EventModel, EventSourceModel
@@ -122,8 +123,6 @@ def attach_detached_source_item(
         target = db.get(EntityModel, target_object_id)
         if target is None or target.case_id != case_id:
             raise DetachedSourceValidationError("Target entity not found for this case")
-        if item.object_subtype_snapshot and target.entity_type != item.object_subtype_snapshot:
-            raise DetachedSourceValidationError("Target entity type does not match detached source snapshot")
         previous_target_status = target.review_status
         target_reactivated = previous_target_status == "corrected"
         if target_reactivated:
@@ -159,8 +158,6 @@ def attach_detached_source_item(
         target = db.get(EventModel, target_object_id)
         if target is None or target.case_id != case_id:
             raise DetachedSourceValidationError("Target event not found for this case")
-        if item.object_subtype_snapshot and target.event_type != item.object_subtype_snapshot:
-            raise DetachedSourceValidationError("Target event type does not match detached source snapshot")
         previous_target_status = target.review_status
         target_reactivated = previous_target_status == "corrected"
         if target_reactivated:
@@ -183,8 +180,6 @@ def attach_detached_source_item(
         target = db.get(MissingItemCandidateModel, target_object_id)
         if target is None or target.case_id != case_id:
             raise DetachedSourceValidationError("Target missing item candidate not found for this case")
-        if item.object_subtype_snapshot and target.missing_item_type != item.object_subtype_snapshot:
-            raise DetachedSourceValidationError("Target missing item type does not match detached source snapshot")
         previous_target_status = target.review_status
         target_reactivated = previous_target_status == "corrected"
         if target_reactivated:
@@ -203,6 +198,28 @@ def attach_detached_source_item(
         object_type = "missing_item_candidate"
         object_id = target.id
         object_title = target.referenced_item_text
+    elif item.detached_from_object_type == "claim":
+        target = db.get(ClaimModel, target_object_id)
+        if target is None or target.case_id != case_id:
+            raise DetachedSourceValidationError("Target claim not found for this case")
+        previous_target_status = target.review_status
+        target_reactivated = previous_target_status == "corrected"
+        if target_reactivated:
+            target.review_status = "needs_review"
+        duplicate = db.execute(
+            select(ClaimSourceModel).where(
+                ClaimSourceModel.claim_id == target.id,
+                ClaimSourceModel.source_reference_id == source_reference.id,
+            )
+        ).scalar_one_or_none()
+        skipped_duplicate_source = duplicate is not None
+        if not skipped_duplicate_source:
+            db.add(ClaimSourceModel(claim_id=target.id, source_reference_id=source_reference.id, relevance_rank=None, support_type="direct"))
+        target.source_validation_status = "source_valid"
+        target.updated_at = datetime.now(UTC)
+        object_type = "claim"
+        object_id = target.id
+        object_title = target.claim_title
     else:
         raise DetachedSourceValidationError("Unsupported detached source object type")
 

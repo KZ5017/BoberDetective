@@ -1,14 +1,29 @@
 # CHANGELOG.md
 
+## 2026-05-23
+
+### Added
+
+- Added claim-level merge, source detach, direct source move, and detached-source reattach support so claims have the same source-management flexibility as entities, events, and missing item candidates.
+- Added Alembic migration `0031_detached_source_claims` so `detached_source_items` can track claim-origin detached sources.
+- Added frontend claim merge controls and claim source movement targets in the review report/object detail workflow.
+
+### Changed
+
+- Relaxed subtype restrictions for merge, direct source move, and detached-source reattach. These operations remain constrained to the same main object type, but no longer require matching claim/event/entity/missing-item subtype values.
+- Updated the active analysis/search baseline around `search_findings`: `Szovegresz plafon` defaults to 30 and is capped at 50.
+- Updated the verification baseline to `220 passed` and Alembic head `0031_detached_source_claims`.
+
 ## 2026-05-22
 
 ### Changed
 
 - Retired the legacy raw chunk-based automatic extraction modules from active code paths: `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` are no longer accepted by backend dispatch and no longer appear in the frontend module selector.
 - Removed the retired modules' service files, response schema entries, frontend response-count fields, and prompt/validation tests. Old module keys now return `Unsupported analysis module`.
+- Removed `summary_item` from the active system because no current workflow can produce semantically valid summary items: API/router/service/schema/model files, review-report inclusion, frontend filters/review path mapping, output-summary handling, tests, tables, and accepting DB constraints were removed through migration `0025_remove_summary_items`.
 - Kept `search_findings` as the active source-bound research workflow and `detect_contradiction_candidates` as the downstream claim-pair workflow.
 - Added `search_findings` to document discard analysis-history protection so a finding search run can block unsafe early document discard even when evaluated through run history.
-- Updated the verification baseline to `217 passed` and Alembic head `0024_research_findings_worklist`.
+- Updated the verification baseline to `212 passed` and Alembic head `0025_remove_summary_items`.
 
 ## 2026-05-20
 

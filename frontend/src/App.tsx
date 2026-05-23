@@ -21,6 +21,7 @@ import {
   AnalysisRunRead,
   AnalysisSourceMode,
   CaseRead,
+  ClaimRead,
   ClaimReviewScope,
   ChunkIndexStatusResponse,
   DetachedSourceItemRead,
@@ -67,6 +68,7 @@ import {
   listDocumentTaxonomy,
   listAnalysisRuns,
   listCases,
+  listClaims,
   listDocuments,
   listEntities,
   listEvents,
@@ -75,6 +77,7 @@ import {
   listResearchFindings,
   loadChatModel,
   loadEmbeddingModel,
+  mergeClaim,
   mergeEvent,
   mergeEntity,
   mergeMissingItemCandidate,
@@ -96,7 +99,6 @@ const objectTypes = [
   "claim",
   "event",
   "entity",
-  "summary_item",
   "contradiction_candidate",
   "missing_item_candidate"
 ];
@@ -149,7 +151,8 @@ const busyLabels: Record<string, string> = {
 const moduleLabels: Record<string, string> = {
   search_findings: "Kutatási találatok keresése",
   detect_contradiction_candidates: "Ellentmondásjelöltek keresése",
-  manual_entry: "Kezi rogzitese"
+  retired_analysis_module: "Kivezetett elemzési futás",
+  manual_entry: "Kézi rögzítés"
 };
 
 const analysisSourceModeLabels: Record<AnalysisSourceMode, string> = {
@@ -174,7 +177,6 @@ const objectTypeLabels: Record<string, string> = {
   claim: "Állítás",
   event: "Esemény",
   entity: "Entitás",
-  summary_item: "Összefoglaló elem",
   contradiction_candidate: "Ellentmondásjelölt",
   missing_item_candidate: "Hiányzó iratjelölt",
   export: "Export"
@@ -224,6 +226,11 @@ const sourceValidationLabels: Record<string, string> = {
   pending_source_validation: "Forráshivatkozás ellenőrzésre vár"
 };
 
+const llmSupportLabels: Record<string, string> = {
+  confirmed: "LLM megerősített",
+  unconfirmed: "LLM nem megerősített"
+};
+
 const runStatusLabels: Record<string, string> = {
   running: "Folyamatban",
   succeeded: "Sikeres",
@@ -257,6 +264,7 @@ export function App() {
   const [analysisRuns, setAnalysisRuns] = useState<AnalysisRunRead[]>([]);
   const [exports, setExports] = useState<ExportRead[]>([]);
   const [entities, setEntities] = useState<EntityRead[]>([]);
+  const [claims, setClaims] = useState<ClaimRead[]>([]);
   const [events, setEvents] = useState<EventRead[]>([]);
   const [missingItemCandidates, setMissingItemCandidates] = useState<MissingItemCandidateRead[]>([]);
   const [researchFindings, setResearchFindings] = useState<ResearchFindingRead[]>([]);
@@ -274,6 +282,7 @@ export function App() {
   const [caseName, setCaseName] = useState("");
   const [caseReference, setCaseReference] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const [documentTaxonomy, setDocumentTaxonomy] = useState<DocumentTaxonomyGroupRead[]>([]);
   const [documentGroupCode, setDocumentGroupCode] = useState("uncategorized");
   const [documentTypeCode, setDocumentTypeCode] = useState("uncategorized");
@@ -288,7 +297,7 @@ export function App() {
   const [analysisDocumentSearch, setAnalysisDocumentSearch] = useState("");
   const [analysisPageStart, setAnalysisPageStart] = useState("");
   const [analysisPageEnd, setAnalysisPageEnd] = useState("");
-  const [maxChunks, setMaxChunks] = useState(20);
+  const [maxChunks, setMaxChunks] = useState(30);
   const [batchSize, setBatchSize] = useState(5);
   const [claimReviewScope, setClaimReviewScope] = useState<ClaimReviewScope>("reviewable");
   const [contradictionCandidateLimit, setContradictionCandidateLimit] = useState(5);
@@ -504,6 +513,7 @@ export function App() {
       void refreshCaseData(false);
     } else {
       setDocuments([]);
+      setClaims([]);
       setEntities([]);
       setEvents([]);
       setMissingItemCandidates([]);
@@ -668,6 +678,7 @@ export function App() {
         exportsResponse,
         reportResponse,
         manualClaimsResponse,
+        claimsResponse,
         entitiesResponse,
         eventsResponse,
         missingItemsResponse,
@@ -679,6 +690,7 @@ export function App() {
         listExports(selectedCaseId),
         getReviewReport(selectedCaseId, reportFilters),
         getManualContradictionClaims(selectedCaseId),
+        listClaims(selectedCaseId),
         listEntities(selectedCaseId),
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId),
@@ -688,6 +700,7 @@ export function App() {
       setDocuments(documentsResponse.data);
       setAnalysisRuns(runsResponse.data);
       setExports(exportsResponse.data);
+      setClaims(claimsResponse.data);
       setEntities(entitiesResponse.data);
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
@@ -913,6 +926,9 @@ export function App() {
     await perform("import", async () => {
       await importDocument(selectedCaseId, file, documentGroupCode, documentTypeCode);
       setFile(null);
+      if (importFileInputRef.current) {
+        importFileInputRef.current.value = "";
+      }
       const documentsResponse = await listDocuments(selectedCaseId);
       setDocuments(documentsResponse.data);
       setNotice("Irat import kesz.");
@@ -943,6 +959,7 @@ export function App() {
         reportResponse,
         manualClaimsResponse,
         runsResponse,
+        claimsResponse,
         entitiesResponse,
         eventsResponse,
         missingItemsResponse,
@@ -952,6 +969,7 @@ export function App() {
         getReviewReport(selectedCaseId, reportFilters),
         getManualContradictionClaims(selectedCaseId),
         listAnalysisRuns(selectedCaseId),
+        listClaims(selectedCaseId),
         listEntities(selectedCaseId),
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId),
@@ -960,6 +978,7 @@ export function App() {
       ]);
       setReport(reportResponse);
       setAnalysisRuns(runsResponse.data);
+      setClaims(claimsResponse.data);
       setEntities(entitiesResponse.data);
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
@@ -1063,15 +1082,17 @@ export function App() {
   async function handleLoadReport() {
     if (!selectedCaseId) return;
     await perform("report", async () => {
-      const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+      const [reportResponse, manualClaimsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
         getReviewReport(selectedCaseId, reportFilters),
         getManualContradictionClaims(selectedCaseId),
+        listClaims(selectedCaseId),
         listEntities(selectedCaseId),
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId),
         listDetachedSourceItems(selectedCaseId)
       ]);
       setReport(reportResponse);
+      setClaims(claimsResponse.data);
       setEntities(entitiesResponse.data);
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
@@ -1113,6 +1134,48 @@ export function App() {
     });
   }
 
+  function reviewActionDisabled(item: ReviewReportItem, actionType: "verify" | "reject" | "mark_needs_review" | "comment") {
+    if (busy) return true;
+    if (actionType === "verify") return item.review_status === "verified";
+    if (actionType === "reject") return item.review_status === "rejected";
+    if (actionType === "mark_needs_review") return item.review_status === "needs_review";
+    return false;
+  }
+
+  async function handleClaimMerge(sourceItem: ReviewReportItem) {
+    if (!selectedCaseId || sourceItem.object_type !== "claim") return;
+    const targetClaimId = mergeTargets[sourceItem.object_id];
+    if (!targetClaimId) {
+      setError("Válassz célállítást az összevonáshoz.");
+      return;
+    }
+    const comment = reviewComments[sourceItem.object_id] ?? "";
+    await perform("claim-merge", async () => {
+      await mergeClaim(selectedCaseId, sourceItem.object_id, targetClaimId, comment);
+      setReviewComments((current) => ({ ...current, [sourceItem.object_id]: "" }));
+      setMergeTargets((current) => ({ ...current, [sourceItem.object_id]: "" }));
+      const [reportResponse, manualClaimsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId),
+        listDetachedSourceItems(selectedCaseId)
+      ]);
+      setReport(reportResponse);
+      setClaims(claimsResponse.data);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setDetachedSourceItems(detachedSourcesResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(reportResponse.items.find((item) => item.object_id === targetClaimId) ?? null);
+      setNotice("Állítások összevonva, forráshivatkozások átkapcsolva.");
+      setLastActionSummary(`Állítás összevonva: ${sourceItem.title}`);
+    });
+  }
+
   async function handleEntityMerge(sourceItem: ReviewReportItem) {
     if (!selectedCaseId || sourceItem.object_type !== "entity") return;
     const targetEntityId = mergeTargets[sourceItem.object_id];
@@ -1125,15 +1188,17 @@ export function App() {
       await mergeEntity(selectedCaseId, sourceItem.object_id, targetEntityId, comment);
       setReviewComments((current) => ({ ...current, [sourceItem.object_id]: "" }));
       setMergeTargets((current) => ({ ...current, [sourceItem.object_id]: "" }));
-      const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+      const [reportResponse, manualClaimsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
         getReviewReport(selectedCaseId, reportFilters),
         getManualContradictionClaims(selectedCaseId),
+        listClaims(selectedCaseId),
         listEntities(selectedCaseId),
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId),
         listDetachedSourceItems(selectedCaseId)
       ]);
       setReport(reportResponse);
+      setClaims(claimsResponse.data);
       setEntities(entitiesResponse.data);
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
@@ -1157,15 +1222,17 @@ export function App() {
       await mergeEvent(selectedCaseId, sourceItem.object_id, targetEventId, comment);
       setReviewComments((current) => ({ ...current, [sourceItem.object_id]: "" }));
       setMergeTargets((current) => ({ ...current, [sourceItem.object_id]: "" }));
-      const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+      const [reportResponse, manualClaimsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
         getReviewReport(selectedCaseId, reportFilters),
         getManualContradictionClaims(selectedCaseId),
+        listClaims(selectedCaseId),
         listEntities(selectedCaseId),
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId),
         listDetachedSourceItems(selectedCaseId)
       ]);
       setReport(reportResponse);
+      setClaims(claimsResponse.data);
       setEntities(entitiesResponse.data);
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
@@ -1189,15 +1256,17 @@ export function App() {
       await mergeMissingItemCandidate(selectedCaseId, sourceItem.object_id, targetCandidateId, comment);
       setReviewComments((current) => ({ ...current, [sourceItem.object_id]: "" }));
       setMergeTargets((current) => ({ ...current, [sourceItem.object_id]: "" }));
-      const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+      const [reportResponse, manualClaimsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
         getReviewReport(selectedCaseId, reportFilters),
         getManualContradictionClaims(selectedCaseId),
+        listClaims(selectedCaseId),
         listEntities(selectedCaseId),
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId),
         listDetachedSourceItems(selectedCaseId)
       ]);
       setReport(reportResponse);
+      setClaims(claimsResponse.data);
       setEntities(entitiesResponse.data);
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
@@ -1213,7 +1282,7 @@ export function App() {
     return (
       Boolean(source.source_link_id) &&
       reportSourceIsActive(source) &&
-      (item.object_type === "entity" || item.object_type === "event" || item.object_type === "missing_item_candidate")
+      (item.object_type === "claim" || item.object_type === "entity" || item.object_type === "event" || item.object_type === "missing_item_candidate")
     );
   }
 
@@ -1223,15 +1292,17 @@ export function App() {
     await perform("source-detach", async () => {
       await detachObjectSource(selectedCaseId, item.object_type, item.object_id, source.source_link_id!, comment);
       setReviewComments((current) => ({ ...current, [item.object_id]: "" }));
-      const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+      const [reportResponse, manualClaimsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
         getReviewReport(selectedCaseId, reportFilters),
         getManualContradictionClaims(selectedCaseId),
+        listClaims(selectedCaseId),
         listEntities(selectedCaseId),
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId),
         listDetachedSourceItems(selectedCaseId)
       ]);
       setReport(reportResponse);
+      setClaims(claimsResponse.data);
       setEntities(entitiesResponse.data);
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
@@ -1250,19 +1321,24 @@ export function App() {
   function sourceMoveTargetOptions(item: ReviewReportItem) {
     const sourceTargetLabel = (title: string, reviewStatus: string) =>
       `${title} (${labelReviewStatus(reviewStatus)}${reviewStatus === "corrected" ? ", újranyitás" : ""})`;
+    if (item.object_type === "claim") {
+      return claims
+        .filter((claim) => claim.id !== item.object_id)
+        .map((claim) => ({ id: claim.id, label: sourceTargetLabel(claim.claim_title, claim.review_status) }));
+    }
     if (item.object_type === "entity") {
       return entities
-        .filter((entity) => entity.id !== item.object_id && entity.entity_type === item.subtype)
+        .filter((entity) => entity.id !== item.object_id)
         .map((entity) => ({ id: entity.id, label: sourceTargetLabel(entity.canonical_name, entity.review_status) }));
     }
     if (item.object_type === "event") {
       return events
-        .filter((event) => event.id !== item.object_id && event.event_type === item.subtype)
+        .filter((event) => event.id !== item.object_id)
         .map((event) => ({ id: event.id, label: sourceTargetLabel(event.event_title, event.review_status) }));
     }
     if (item.object_type === "missing_item_candidate") {
       return missingItemCandidates
-        .filter((candidate) => candidate.id !== item.object_id && candidate.missing_item_type === item.subtype)
+        .filter((candidate) => candidate.id !== item.object_id)
         .map((candidate) => ({ id: candidate.id, label: sourceTargetLabel(candidate.referenced_item_text, candidate.review_status) }));
     }
     return [];
@@ -1271,35 +1347,34 @@ export function App() {
   function detachedSourceTargetOptions(item: DetachedSourceItemRead) {
     const sourceTargetLabel = (title: string, reviewStatus: string) =>
       `${title} (${labelReviewStatus(reviewStatus)}${reviewStatus === "corrected" ? ", újranyitás" : ""})`;
+    if (item.detached_from_object_type === "claim") {
+      return claims.map((claim) => ({ id: claim.id, label: sourceTargetLabel(claim.claim_title, claim.review_status) }));
+    }
     if (item.detached_from_object_type === "entity") {
-      return entities
-        .filter((entity) => entity.entity_type === item.object_subtype_snapshot)
-        .map((entity) => ({ id: entity.id, label: sourceTargetLabel(entity.canonical_name, entity.review_status) }));
+      return entities.map((entity) => ({ id: entity.id, label: sourceTargetLabel(entity.canonical_name, entity.review_status) }));
     }
     if (item.detached_from_object_type === "event") {
-      return events
-        .filter((event) => event.event_type === item.object_subtype_snapshot)
-        .map((event) => ({ id: event.id, label: sourceTargetLabel(event.event_title, event.review_status) }));
+      return events.map((event) => ({ id: event.id, label: sourceTargetLabel(event.event_title, event.review_status) }));
     }
     if (item.detached_from_object_type === "missing_item_candidate") {
-      return missingItemCandidates
-        .filter((candidate) => candidate.missing_item_type === item.object_subtype_snapshot)
-        .map((candidate) => ({ id: candidate.id, label: sourceTargetLabel(candidate.referenced_item_text, candidate.review_status) }));
+      return missingItemCandidates.map((candidate) => ({ id: candidate.id, label: sourceTargetLabel(candidate.referenced_item_text, candidate.review_status) }));
     }
     return [];
   }
 
   async function refreshReviewStateAfterSourceChange(selectedObjectId?: string | null) {
     if (!selectedCaseId) return;
-    const [reportResponse, manualClaimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+    const [reportResponse, manualClaimsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
       getReviewReport(selectedCaseId, reportFilters),
       getManualContradictionClaims(selectedCaseId),
+      listClaims(selectedCaseId),
       listEntities(selectedCaseId),
       listEvents(selectedCaseId),
       listMissingItemCandidates(selectedCaseId),
       listDetachedSourceItems(selectedCaseId)
     ]);
     setReport(reportResponse);
+    setClaims(claimsResponse.data);
     setEntities(entitiesResponse.data);
     setEvents(eventsResponse.data);
     setMissingItemCandidates(missingItemsResponse.data);
@@ -1361,6 +1436,7 @@ export function App() {
     return {
       object_type: type,
       claim_type: fields.claim_type || "document_fact",
+      claim_title: fields.claim_title || null,
       claim_text: fields.claim_text || null,
       entity_type: fields.entity_type || (type === "entity" ? "person" : null),
       canonical_name: fields.canonical_name || null,
@@ -1369,13 +1445,27 @@ export function App() {
       event_type: fields.event_type || (type === "event" ? "statement" : null),
       event_title: fields.event_title || null,
       event_description: fields.event_description || null,
-      event_time_raw: fields.event_time_raw || null,
+      event_time_start: eventTimeStartPayload(fields),
       time_precision: fields.time_precision || "unknown",
-      location_text: fields.location_text || null,
       missing_item_type: fields.missing_item_type || (type === "missing_item_candidate" ? "document_reference" : null),
-      referenced_item_text: fields.referenced_item_text || null,
-      expected_document_type: fields.expected_document_type || null
+      referenced_item_text: fields.referenced_item_text || null
     };
+  }
+
+  function eventTimeStartPayload(fields: Record<string, string>): string | null {
+    const precision = fields.time_precision || "unknown";
+    if (precision === "unknown") return null;
+    const year = Number(fields.event_year);
+    if (!Number.isInteger(year) || year < 1 || year > 9999) return null;
+    const month = precision === "year" ? 1 : Number(fields.event_month);
+    const day = precision === "year" || precision === "month" ? 1 : Number(fields.event_day);
+    const hour = precision === "hour" || precision === "minute" ? Number(fields.event_hour) : 0;
+    const minute = precision === "minute" ? Number(fields.event_minute) : 0;
+    if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+    if (!Number.isInteger(day) || day < 1 || day > 31) return null;
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) return null;
+    if (!Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+    return new Date(year, month - 1, day, hour, minute, 0, 0).toISOString();
   }
 
   function manualObjectPayload(): ManualObjectPayload | null {
@@ -1403,16 +1493,18 @@ export function App() {
       const response = await createManualObject(selectedCaseId, payload);
       setManualSource(null);
       setManualFields({});
-      const [reportResponse, manualClaimsResponse, runsResponse, entitiesResponse, eventsResponse, missingItemsResponse] = await Promise.all([
+      const [reportResponse, manualClaimsResponse, runsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse] = await Promise.all([
         getReviewReport(selectedCaseId, reportFilters),
         getManualContradictionClaims(selectedCaseId),
         listAnalysisRuns(selectedCaseId),
+        listClaims(selectedCaseId),
         listEntities(selectedCaseId),
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId)
       ]);
       setReport(reportResponse);
       setAnalysisRuns(runsResponse.data);
+      setClaims(claimsResponse.data);
       setEntities(entitiesResponse.data);
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
@@ -1429,6 +1521,32 @@ export function App() {
 
   function updateResearchFindingManualField(findingId: string, key: string, value: string) {
     setResearchFindingManualFields((current) => ({ ...current, [findingId]: { ...(current[findingId] ?? {}), [key]: value } }));
+  }
+
+  function fillResearchFindingManualFields(finding: ResearchFindingRead, type: ManualObjectType) {
+    const descriptionParts = [
+      finding.finding_text,
+      `Relevancia: ${finding.relevance_reason}`,
+      finding.suggested_type_reason ? `Típusjavaslat oka: ${finding.suggested_type_reason}` : ""
+    ].filter((part) => part.trim() !== "");
+    const description = descriptionParts.join("\n");
+    setResearchFindingManualFields((current) => {
+      const fields = { ...(current[finding.id] ?? {}) };
+      if (type === "claim") {
+        fields.claim_title = finding.title;
+        fields.claim_text = description;
+      } else if (type === "entity") {
+        fields.canonical_name = finding.title;
+        fields.description = description;
+      } else if (type === "event") {
+        fields.event_title = finding.title;
+        fields.event_description = description;
+      } else {
+        fields.referenced_item_text = finding.title;
+        fields.description = description;
+      }
+      return { ...current, [finding.id]: fields };
+    });
   }
 
   async function handleCreateManualObjectFromDetachedSource(item: DetachedSourceItemRead) {
@@ -1453,11 +1571,12 @@ export function App() {
       const response = await convertResearchFinding(selectedCaseId, finding.id, manualObjectFieldsPayload(type, fields));
       setResearchFindingManualFields((current) => ({ ...current, [finding.id]: {} }));
       setResearchFindingManualTypes((current) => ({ ...current, [finding.id]: suggestedResearchFindingManualType(finding) }));
-      const [findingsResponse, reportResponse, manualClaimsResponse, runsResponse, entitiesResponse, eventsResponse, missingItemsResponse] = await Promise.all([
+      const [findingsResponse, reportResponse, manualClaimsResponse, runsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse] = await Promise.all([
         listResearchFindings(selectedCaseId),
         getReviewReport(selectedCaseId, reportFilters),
         getManualContradictionClaims(selectedCaseId),
         listAnalysisRuns(selectedCaseId),
+        listClaims(selectedCaseId),
         listEntities(selectedCaseId),
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId)
@@ -1465,6 +1584,7 @@ export function App() {
       setResearchFindings(findingsResponse.data);
       setReport(reportResponse);
       setAnalysisRuns(runsResponse.data);
+      setClaims(claimsResponse.data);
       setEntities(entitiesResponse.data);
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
@@ -1584,6 +1704,30 @@ export function App() {
     );
   }
 
+  function renderResearchFindingSource(finding: ResearchFindingRead, sourceDocument: DocumentRead | undefined) {
+    const source = finding.source_reference;
+    if (!source) return null;
+    return (
+      <details className="source-detail research-finding-source">
+        <summary>
+          Forráshivatkozás: {sourceDocument?.original_filename ?? "irat"} {source.page_number ? `${source.page_number}. oldal` : ""}
+        </summary>
+        <div className="source-meta">
+          <span>{labelSourceKind(source.source_kind)}</span>
+          <span>{source.citation_label ?? "nincs hivatkozási címke"}</span>
+          {sourceDocument?.lifecycle_status && sourceDocument.lifecycle_status !== "active" && (
+            <span>forrás irat állapota: {labelDocumentLifecycleStatus(sourceDocument.lifecycle_status)}</span>
+          )}
+          <span>idézet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
+          <span>szövegkörnyezet {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
+        </div>
+        <blockquote>{source.quote_text}</blockquote>
+        {source.source_text_excerpt && <p className="excerpt">{source.source_text_excerpt}</p>}
+        <code className="hash">{source.id}</code>
+      </details>
+    );
+  }
+
   function renderSourceDetachButton(item: ReviewReportItem, source: ReviewReportSource) {
     if (!canDetachSource(item, source)) return null;
     const key = sourceMoveKey(item, source);
@@ -1626,22 +1770,101 @@ export function App() {
   }
 
   function renderManualObjectFieldsFor(type: ManualObjectType, fields: Record<string, string>, updateField: (key: string, value: string) => void) {
+    return (
+      <>
+        {renderManualObjectSubtypeFieldFor(type, fields, updateField)}
+        {renderManualObjectDetailFieldsFor(type, fields, updateField)}
+      </>
+    );
+  }
+
+  function renderManualObjectSubtypeFieldFor(
+    type: ManualObjectType,
+    fields: Record<string, string>,
+    updateField: (key: string, value: string) => void
+  ) {
+    if (type === "claim") {
+      return (
+        <label>
+          Állítás típusa
+          <select value={fields.claim_type ?? "document_fact"} onChange={(event) => updateField("claim_type", event.target.value)}>
+            <option value="document_fact">Iratbeli tény</option>
+            <option value="witness_statement">Tanúi állítás</option>
+            <option value="expert_opinion">Szakértői vélemény</option>
+            <option value="administrative_fact">Hivatalos tény</option>
+            <option value="inference_candidate">Következtetésjelölt</option>
+            <option value="unknown">Ismeretlen</option>
+          </select>
+        </label>
+      );
+    }
+    if (type === "entity") {
+      return (
+        <label>
+          Entitás típusa
+          <select value={fields.entity_type ?? "person"} onChange={(event) => updateField("entity_type", event.target.value)}>
+            <option value="person">Személy</option>
+            <option value="organization">Szervezet</option>
+            <option value="location">Hely</option>
+            <option value="phone">Telefon</option>
+            <option value="email">Email</option>
+            <option value="license_plate">Rendszám</option>
+            <option value="case_reference">Ügyhivatkozás</option>
+            <option value="money_amount">Pénzösszeg</option>
+            <option value="document_reference">Irat hivatkozás</option>
+            <option value="other">Egyéb</option>
+          </select>
+        </label>
+      );
+    }
+    if (type === "event") {
+      return (
+        <label>
+          Esemény típusa
+          <select value={fields.event_type ?? "statement"} onChange={(event) => updateField("event_type", event.target.value)}>
+            <option value="statement">Nyilatkozat</option>
+            <option value="call">Hívás</option>
+            <option value="meeting">Találkozó</option>
+            <option value="transfer">Átadás / utalás</option>
+            <option value="search">Kutatás</option>
+            <option value="seizure">Lefoglalás</option>
+            <option value="document_created">Irat keletkezett</option>
+            <option value="document_received">Irat érkezett</option>
+            <option value="other">Egyéb</option>
+          </select>
+        </label>
+      );
+    }
+    return (
+      <label>
+        Hiányzó irat típusa
+        <select value={fields.missing_item_type ?? "document_reference"} onChange={(event) => updateField("missing_item_type", event.target.value)}>
+          <option value="attachment">Melléklet</option>
+          <option value="video">Video</option>
+          <option value="expert_report">Szakértői vélemény</option>
+          <option value="protocol">Jegyzőkönyv</option>
+          <option value="image">Kép</option>
+          <option value="document_reference">Irat hivatkozás</option>
+          <option value="other">Egyéb</option>
+        </select>
+      </label>
+    );
+  }
+
+  function renderManualObjectDetailFieldsFor(
+    type: ManualObjectType,
+    fields: Record<string, string>,
+    updateField: (key: string, value: string) => void
+  ) {
     if (type === "claim") {
       return (
         <>
           <label>
-            Állítás típusa
-            <select value={fields.claim_type ?? "document_fact"} onChange={(event) => updateField("claim_type", event.target.value)}>
-              <option value="document_fact">Iratbeli tény</option>
-              <option value="witness_statement">Tanúi állítás</option>
-              <option value="expert_opinion">Szakértői vélemény</option>
-              <option value="administrative_fact">Hivatalos tény</option>
-              <option value="inference_candidate">Következtetésjelölt</option>
-              <option value="unknown">Ismeretlen</option>
-            </select>
+            Cím
+            <input value={fields.claim_title ?? ""} onChange={(event) => updateField("claim_title", event.target.value)} />
           </label>
           <label>
-            Állítás szövege
+            Leírás
             <textarea value={fields.claim_text ?? ""} onChange={(event) => updateField("claim_text", event.target.value)} />
           </label>
         </>
@@ -1651,22 +1874,7 @@ export function App() {
       return (
         <>
           <label>
-            Entitás típusa
-            <select value={fields.entity_type ?? "person"} onChange={(event) => updateField("entity_type", event.target.value)}>
-              <option value="person">Személy</option>
-              <option value="organization">Szervezet</option>
-              <option value="location">Hely</option>
-              <option value="phone">Telefon</option>
-              <option value="email">Email</option>
-              <option value="license_plate">Rendszám</option>
-              <option value="case_reference">Ügyhivatkozás</option>
-              <option value="money_amount">Pénzösszeg</option>
-              <option value="document_reference">Irat hivatkozás</option>
-              <option value="other">Egyéb</option>
-            </select>
-          </label>
-          <label>
-            Név / érték
+            Cím
             <input value={fields.canonical_name ?? ""} onChange={(event) => updateField("canonical_name", event.target.value)} />
           </label>
           <label>
@@ -1680,21 +1888,7 @@ export function App() {
       return (
         <>
           <label>
-            Esemény típusa
-            <select value={fields.event_type ?? "statement"} onChange={(event) => updateField("event_type", event.target.value)}>
-              <option value="statement">Nyilatkozat</option>
-              <option value="call">Hívás</option>
-              <option value="meeting">Találkozó</option>
-              <option value="transfer">Átadás / utalás</option>
-              <option value="search">Kutatás</option>
-              <option value="seizure">Lefoglalás</option>
-              <option value="document_created">Irat keletkezett</option>
-              <option value="document_received">Irat érkezett</option>
-              <option value="other">Egyéb</option>
-            </select>
-          </label>
-          <label>
-            Esemény címe
+            Cím
             <input value={fields.event_title ?? ""} onChange={(event) => updateField("event_title", event.target.value)} />
           </label>
           <label>
@@ -1702,43 +1896,142 @@ export function App() {
             <textarea value={fields.event_description ?? ""} onChange={(event) => updateField("event_description", event.target.value)} />
           </label>
           <label>
-            Idő szövegesen
-            <input value={fields.event_time_raw ?? ""} onChange={(event) => updateField("event_time_raw", event.target.value)} />
+            Idő pontossága
+            <select value={fields.time_precision ?? "unknown"} onChange={(event) => updateField("time_precision", event.target.value)}>
+              <option value="unknown">Ismeretlen</option>
+              <option value="year">Év</option>
+              <option value="month">Hónap</option>
+              <option value="day">Nap</option>
+              <option value="hour">Óra</option>
+              <option value="minute">Perc</option>
+            </select>
           </label>
-          <label>
-            Hely
-            <input value={fields.location_text ?? ""} onChange={(event) => updateField("location_text", event.target.value)} />
-          </label>
+          {renderEventTimeFields(fields, updateField)}
         </>
       );
     }
     return (
       <>
         <label>
-          Hiányzó irat típusa
-          <select value={fields.missing_item_type ?? "document_reference"} onChange={(event) => updateField("missing_item_type", event.target.value)}>
-            <option value="attachment">Melléklet</option>
-            <option value="video">Video</option>
-            <option value="expert_report">Szakértői vélemény</option>
-            <option value="protocol">Jegyzőkönyv</option>
-            <option value="image">Kép</option>
-            <option value="document_reference">Irat hivatkozás</option>
-            <option value="other">Egyéb</option>
-          </select>
-        </label>
-        <label>
-          Hivatkozott elem
+          Cím
           <input value={fields.referenced_item_text ?? ""} onChange={(event) => updateField("referenced_item_text", event.target.value)} />
         </label>
         <label>
           Leírás
           <textarea value={fields.description ?? ""} onChange={(event) => updateField("description", event.target.value)} />
         </label>
-        <label>
-          Várható irattípus
-          <input value={fields.expected_document_type ?? ""} onChange={(event) => updateField("expected_document_type", event.target.value)} />
-        </label>
       </>
+    );
+  }
+
+  function renderEventTimeFields(fields: Record<string, string>, updateField: (key: string, value: string) => void) {
+    const precision = fields.time_precision || "unknown";
+    if (precision === "unknown") return null;
+    const showMonth = ["month", "day", "hour", "minute"].includes(precision);
+    const showDay = ["day", "hour", "minute"].includes(precision);
+    const showHour = ["hour", "minute"].includes(precision);
+    const showMinute = precision === "minute";
+    return (
+      <div className="event-time-grid">
+        <label>
+          Év
+          <input
+            type="number"
+            min="1"
+            max="9999"
+            value={fields.event_year ?? ""}
+            onChange={(event) => updateField("event_year", event.target.value)}
+          />
+        </label>
+        {showMonth && (
+          <label>
+            Hónap
+            <select value={fields.event_month ?? "1"} onChange={(event) => updateField("event_month", event.target.value)}>
+              {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
+                <option key={month} value={month}>
+                  {month}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {showDay && (
+          <label>
+            Nap
+            <select value={fields.event_day ?? "1"} onChange={(event) => updateField("event_day", event.target.value)}>
+              {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                <option key={day} value={day}>
+                  {day}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {showHour && (
+          <label>
+            Óra
+            <select value={fields.event_hour ?? "0"} onChange={(event) => updateField("event_hour", event.target.value)}>
+              {Array.from({ length: 24 }, (_, index) => index).map((hour) => (
+                <option key={hour} value={hour}>
+                  {hour}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {showMinute && (
+          <label>
+            Perc
+            <select value={fields.event_minute ?? "0"} onChange={(event) => updateField("event_minute", event.target.value)}>
+              {Array.from({ length: 60 }, (_, index) => index).map((minute) => (
+                <option key={minute} value={minute}>
+                  {minute}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+    );
+  }
+
+  function renderClaimMergeControls(item: ReviewReportItem, compact = false) {
+    if (item.object_type !== "claim") return null;
+    if (item.source_validation_status === "source_invalid") return null;
+    if (!reportItemSourcesAreActive(item)) return null;
+    const targetOptions = claims.filter(
+      (claim) =>
+        claim.id !== item.object_id &&
+        claim.source_validation_status !== "source_invalid" &&
+        claim.review_status !== "corrected"
+    );
+    if (targetOptions.length === 0) return null;
+    return (
+      <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
+        <label>
+          <span className="merge-label-line">
+            Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású állítások választhatók célként.)</span>
+          </span>
+          <select
+            value={mergeTargets[item.object_id] ?? ""}
+            onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
+          >
+            <option value="">Válassz célállítást</option>
+            {targetOptions.map((claim) => (
+              <option key={claim.id} value={claim.id}>
+                {claim.claim_title} ({labelReviewStatus(claim.review_status)})
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="secondary-button"
+          onClick={() => handleClaimMerge(item)}
+          disabled={Boolean(busy) || !mergeTargets[item.object_id]}
+        >
+          <GitMerge size={18} /> Összevonás
+        </button>
+      </div>
     );
   }
 
@@ -1749,7 +2042,6 @@ export function App() {
     const targetOptions = entities.filter(
       (entity) =>
         entity.id !== item.object_id &&
-        entity.entity_type === item.subtype &&
         entity.review_status !== "corrected"
     );
     if (targetOptions.length === 0) return null;
@@ -1757,7 +2049,7 @@ export function App() {
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
         <label>
           <span className="merge-label-line">
-            Összevonás célja: <span className="field-hint">(Csak azonos típusú, nem javított, érvényes forráshivatkozású entitások választhatók célként.)</span>
+            Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású entitások választhatók célként.)</span>
           </span>
           <select
             value={mergeTargets[item.object_id] ?? ""}
@@ -1789,7 +2081,6 @@ export function App() {
     const targetOptions = events.filter(
       (event) =>
         event.id !== item.object_id &&
-        event.event_type === item.subtype &&
         event.source_validation_status !== "source_invalid" &&
         event.review_status !== "corrected"
     );
@@ -1798,7 +2089,7 @@ export function App() {
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
         <label>
           <span className="merge-label-line">
-            Összevonás célja: <span className="field-hint">(Csak azonos típusú, nem javított, érvényes forráshivatkozású események választhatók célként.)</span>
+            Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású események választhatók célként.)</span>
           </span>
           <select
             value={mergeTargets[item.object_id] ?? ""}
@@ -1830,7 +2121,6 @@ export function App() {
     const targetOptions = missingItemCandidates.filter(
       (candidate) =>
         candidate.id !== item.object_id &&
-        candidate.missing_item_type === item.subtype &&
         candidate.source_validation_status !== "source_invalid" &&
         candidate.review_status !== "corrected"
     );
@@ -1839,7 +2129,7 @@ export function App() {
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
         <label>
           <span className="merge-label-line">
-            Összevonás célja: <span className="field-hint">(Csak azonos típusú, nem javított, érvényes forráshivatkozású hiányzó iratjelöltek választhatók célként.)</span>
+            Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású hiányzó iratjelöltek választhatók célként.)</span>
           </span>
           <select
             value={mergeTargets[item.object_id] ?? ""}
@@ -2307,7 +2597,12 @@ export function App() {
             <div className="form-row">
               <label>
                 Irat fajl
-                <input type="file" accept=".txt,.pdf,text/plain,application/pdf" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+                <input
+                  ref={importFileInputRef}
+                  type="file"
+                  accept=".txt,.pdf,text/plain,application/pdf"
+                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                />
               </label>
             </div>
             <button onClick={handleImport} disabled={!selectedCaseId || !file || !selectedImportType || Boolean(busy)}>
@@ -2416,8 +2711,6 @@ export function App() {
                   {modules.map((item) => <option key={item} value={item}>{labelModule(item)}</option>)}
                 </select>
               </label>
-            </div>
-            <div className="form-row">
               <label>
                 Forráskör
                 <select
@@ -2589,9 +2882,9 @@ export function App() {
                   <input
                     type="number"
                     min={1}
-                    max={30}
+                    max={50}
                     value={maxChunks}
-                    onChange={(event) => setMaxChunks(clampNumberInput(event.target.value, 1, 30, 20))}
+                    onChange={(event) => setMaxChunks(clampNumberInput(event.target.value, 1, 50, 30))}
                   />
                 </label>
                 <label>
@@ -2790,7 +3083,6 @@ export function App() {
                 Jelöltek törlése ({markedResearchFindingCount})
               </button>
             </div>
-            {visibleResearchFindings.length === 0 && <p className="muted">Nincs aktív kutatási találat ebben a munkalistában.</p>}
             {visibleResearchFindings.length > 0 && (
               <div className="research-finding-list">
                 {visibleResearchFindings.map((finding) => {
@@ -2813,6 +3105,7 @@ export function App() {
                         <span className="status-pill">{labelResearchFindingType(finding.suggested_type)}</span>
                       </div>
                       <div className="tags">
+                        <span>{labelLlmSupportStatus(finding.llm_support_status)}</span>
                         <span>{labelSourceValidationStatus(finding.source_validation_status)}</span>
                         <span>{labelResearchFindingConversionStatus(finding.conversion_status)}</span>
                       </div>
@@ -2839,24 +3132,25 @@ export function App() {
                         >
                           {isMarkedForDeletion ? "Törlésre jelölve" : "Törlésre jelölés"}
                         </button>
+                        {finding.conversion_status !== "converted" && (
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => fillResearchFindingManualFields(finding, conversionType)}
+                            disabled={Boolean(busy)}
+                          >
+                            Cím és leírás automatikus kitöltése
+                          </button>
+                        )}
                       </div>
-                      {finding.source_reference && (
-                        <details className="source-detail">
-                          <summary>
-                            Forráshivatkozás: {sourceDocument?.original_filename ?? "irat"} {finding.source_reference.page_number ? `${finding.source_reference.page_number}. oldal` : ""}
-                          </summary>
-                          <div className="source-meta">
-                            <span>{finding.source_reference.citation_label ?? "nincs hivatkozási címke"}</span>
-                            <span>idézet {formatRange(finding.source_reference.quote_char_start, finding.source_reference.quote_char_end)}</span>
-                          </div>
-                          <blockquote>{finding.source_reference.quote_text}</blockquote>
-                          <code>{finding.source_reference_id}</code>
-                        </details>
-                      )}
+                      {renderResearchFindingSource(finding, sourceDocument)}
                       {finding.conversion_status !== "converted" && (
-                        <details className="source-detail">
-                          <summary>Átalakítás strukturált találattá</summary>
-                          <div className="form-row">
+                        <div className="finding-conversion-panel">
+                          <div className="finding-conversion-heading">
+                            <h4>Átalakítás strukturált találattá</h4>
+                            <span>A forráshivatkozásból ellenőrizhető objektum készül.</span>
+                          </div>
+                          <div className="finding-conversion-type-row">
                             <label>
                               Cél típusa
                               <select
@@ -2875,8 +3169,13 @@ export function App() {
                                 ))}
                               </select>
                             </label>
+                            {renderManualObjectSubtypeFieldFor(
+                              conversionType,
+                              conversionFields,
+                              (key, value) => updateResearchFindingManualField(finding.id, key, value)
+                            )}
                           </div>
-                          {renderManualObjectFieldsFor(
+                          {renderManualObjectDetailFieldsFor(
                             conversionType,
                             conversionFields,
                             (key, value) => updateResearchFindingManualField(finding.id, key, value)
@@ -2884,7 +3183,7 @@ export function App() {
                           <button onClick={() => handleConvertResearchFinding(finding)} disabled={Boolean(busy)}>
                             Strukturált találat létrehozása
                           </button>
-                        </details>
+                        </div>
                       )}
                       {finding.conversion_status === "converted" && finding.target_object_type && finding.target_object_id && (
                         <p className="field-hint">
@@ -2960,6 +3259,7 @@ export function App() {
                       <div className="tags">
                         <span>{labelObjectType(item.object_type)}</span>
                         <span>{labelSubtype(item.object_type, item.subtype)}</span>
+                        {item.object_type === "event" && <span>Idő: {formatEventTime(item.event_time_start, item.time_precision)}</span>}
                         <span>{labelReviewStatus(item.review_status)}</span>
                         <span>{labelSourceValidationStatus(item.source_validation_status)}</span>
                         <span>{item.reviews.length} ellenőrzés</span>
@@ -2991,6 +3291,7 @@ export function App() {
                           </details>
                         ))}
                       </div>
+                      {renderClaimMergeControls(item, true)}
                       {renderEntityMergeControls(item, true)}
                       {renderEventMergeControls(item, true)}
                       {renderMissingItemMergeControls(item, true)}
@@ -3001,16 +3302,16 @@ export function App() {
                           placeholder="Ellenőrzési megjegyzés"
                           aria-label="Ellenőrzési megjegyzés"
                         />
-                        <button title="Ellenőrizve" onClick={() => handleReview(item.object_type, item.object_id, "verify")} disabled={Boolean(busy)}>
+                        <button title="Ellenőrizve" onClick={() => handleReview(item.object_type, item.object_id, "verify")} disabled={reviewActionDisabled(item, "verify")}>
                           <CheckCircle2 size={18} />
                         </button>
-                        <button title="Elutasítás" onClick={() => handleReview(item.object_type, item.object_id, "reject")} disabled={Boolean(busy)}>
+                        <button title="Elutasítás" onClick={() => handleReview(item.object_type, item.object_id, "reject")} disabled={reviewActionDisabled(item, "reject")}>
                           Elutasít
                         </button>
-                        <button title="Ellenőrzésre vár" onClick={() => handleReview(item.object_type, item.object_id, "mark_needs_review")} disabled={Boolean(busy)}>
+                        <button title="Ellenőrzésre vár" onClick={() => handleReview(item.object_type, item.object_id, "mark_needs_review")} disabled={reviewActionDisabled(item, "mark_needs_review")}>
                           Ellenőrzésre
                         </button>
-                        <button title="Megjegyzés" onClick={() => handleReview(item.object_type, item.object_id, "comment")} disabled={Boolean(busy)}>
+                        <button title="Megjegyzés" onClick={() => handleReview(item.object_type, item.object_id, "comment")} disabled={reviewActionDisabled(item, "comment")}>
                           <MessageSquare size={18} />
                         </button>
                       </div>
@@ -3110,8 +3411,8 @@ export function App() {
               />
             </label>
             <div className="claim-preview-grid">
-              {renderClaimPreview(selectedManualClaimA, "Valassz elso allitast az elonezethez.")}
-              {renderClaimPreview(selectedManualClaimB, "Valassz masodik allitast az elonezethez.")}
+              {selectedManualClaimA && renderClaimPreview(selectedManualClaimA, "")}
+              {selectedManualClaimB && renderClaimPreview(selectedManualClaimB, "")}
             </div>
             <button
               onClick={handleCreateManualContradictionCandidate}
@@ -3157,6 +3458,7 @@ export function App() {
                     </div>
                   ))}
                 </div>
+                {renderClaimMergeControls(selectedReportItem)}
                 {renderEntityMergeControls(selectedReportItem)}
                 {renderEventMergeControls(selectedReportItem)}
                 {renderMissingItemMergeControls(selectedReportItem)}
@@ -3251,10 +3553,15 @@ export function App() {
                           Irreleváns
                         </button>
                       </div>
-                      <details>
+                      <details className="detached-source-create-details">
                         <summary>Új találat ebből a forráshivatkozásból</summary>
                         <div className="manual-entry-panel">
-                          <textarea readOnly value={item.source_snapshot_json?.quote_text ?? ""} aria-label="Leválasztott forráshivatkozás readonly előnézet" />
+                          <textarea
+                            className="detached-source-preview"
+                            readOnly
+                            value={item.source_snapshot_json?.quote_text ?? ""}
+                            aria-label="Leválasztott forráshivatkozás readonly előnézet"
+                          />
                           <label>
                             Találat típusa
                             <select
@@ -3393,6 +3700,24 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function formatEventTime(value: string | null, precision: string | null) {
+  if (!value || precision === "unknown") return "ismeretlen";
+  const date = new Date(value);
+  if (precision === "year") {
+    return new Intl.DateTimeFormat("hu-HU", { year: "numeric" }).format(date);
+  }
+  if (precision === "month") {
+    return new Intl.DateTimeFormat("hu-HU", { year: "numeric", month: "2-digit" }).format(date);
+  }
+  if (precision === "day") {
+    return new Intl.DateTimeFormat("hu-HU", { dateStyle: "medium" }).format(date);
+  }
+  if (precision === "hour") {
+    return new Intl.DateTimeFormat("hu-HU", { dateStyle: "medium", hour: "2-digit" }).format(date);
+  }
+  return new Intl.DateTimeFormat("hu-HU", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
 function labelModule(value: string) {
   return moduleLabels[value] ?? value;
 }
@@ -3481,6 +3806,10 @@ function labelReviewStatus(value: string) {
 
 function labelSourceValidationStatus(value: string) {
   return sourceValidationLabels[value] ?? value;
+}
+
+function labelLlmSupportStatus(value: string) {
+  return llmSupportLabels[value] ?? value;
 }
 
 function labelResearchFindingType(value: string) {
@@ -3607,6 +3936,15 @@ function labelSupportType(value: string) {
     direct: "Kozvetlen",
     indirect: "Kozvetett",
     context: "Kontekstus"
+  };
+  return labels[value] ?? value;
+}
+
+function labelSourceKind(value: string) {
+  const labels: Record<string, string> = {
+    chunk_quote: "Szövegrész-idézet",
+    page_quote: "Oldalidézet",
+    manual: "Kézi forráshivatkozás"
   };
   return labels[value] ?? value;
 }
@@ -3779,7 +4117,6 @@ function labelAnalysisOutputType(value: string) {
     mention: "Említés",
     source_reference: "Forráshivatkozás",
     research_finding: "Kutatási találat",
-    summary_item: "Összefoglaló elem",
     contradiction_candidate: "Ellentmondásjelölt",
     missing_item_candidate: "Hiányzó iratjelölt"
   };
@@ -3814,14 +4151,15 @@ function objectDetailFacts(item: ReviewReportItem) {
   if (item.object_type === "missing_item_candidate") {
     return [...base, { label: "Hivatkozott irat", value: item.title }];
   }
-  if (item.object_type === "summary_item") {
-    return [...base, { label: "Összefoglaló típusa", value: item.subtype }];
-  }
   if (item.object_type === "entity") {
     return [...base, { label: "Entitás típusa", value: item.subtype }];
   }
   if (item.object_type === "event") {
-    return [...base, { label: "Esemény típusa", value: item.subtype }];
+    return [
+      ...base,
+      { label: "Esemény típusa", value: item.subtype },
+      { label: "Idő", value: formatEventTime(item.event_time_start, item.time_precision) }
+    ];
   }
   return [...base, { label: "Állítás típusa", value: item.subtype }];
 }

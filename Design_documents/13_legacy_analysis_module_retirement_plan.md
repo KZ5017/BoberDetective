@@ -2,7 +2,7 @@
 
 ## 0. Aktualisitas
 
-Frissitve: 2026-05-22.
+Frissitve: 2026-05-23.
 
 Ez a dokumentum mar a munkalista-alapu kutatasi talalat modellt koveti. A `research_finding` nem reviewolhato/exportalhato szakmai objektum, hanem atmeneti keresesi munkadarab. A review reportba es a tovabbi szakmai workflow-kba csak az atalakitas utan letrejovo strukturalt objektum kerul.
 
@@ -34,6 +34,17 @@ strukturalt objektumma alakitas
 ```
 
 Nem cel: kutatasi talalat review status, human review bejegyzes vagy export sor.
+
+Aktualis strukturalt objektum utomunka:
+
+```text
+claim/entity/event/missing_item_candidate merge
+claim/entity/event/missing_item_candidate source detach
+claim/entity/event/missing_item_candidate direct source move
+claim/entity/event/missing_item_candidate detached-source reattach
+```
+
+Ezek fo objektumtipuson beluli muveletek. Altipus-egyezest nem kovetelnek, mert a kutatasi talalat konverzioja emberi dontes, ahol teves altipusvalasztas elofordulhat. A fo objektumtipusok kozotti automatikus atjaras tovabbra sem cel.
 
 ## 1. Cel
 
@@ -124,6 +135,7 @@ direct source move
 entity merge
 event merge
 missing item candidate merge
+claim merge
 manual contradiction candidate creation from claim pair
 review actions
 export, ha az uj report modellhez igazitjuk
@@ -179,14 +191,14 @@ Aktualis elso lepcso:
 
 ### 6.3 Kerdeses tablak
 
-`summary_items` es `missing_item_candidates` sorsa kulon dontest igenyel.
+`summary_items` sorsa eldontott: az aktiv rendszerbol ki lett vezetve. A `missing_item_candidates` sorsa kulon workflow-kent kezelendo.
 
 Jelenlegi irany:
 
-- `summary_items`: a nyers retrieval-alapu summary workflow-bol kivezetendo; kesobb mas, dokumentum/ugy-szintu osszefoglalo modellben lehet ujragondolni.
+- `summary_items`: az aktiv structured-object modellbol, API-bol, frontend szurobol es DB semabol kivezetve a `0025_remove_summary_items` migracioval. Kesobb csak uj, kulon megtervezett dokumentum/ugy-szintu osszefoglalo modellkent szabad ujra bevezetni.
 - `missing_item_candidates`: nyers chunk-alapu detekciokent kivezetendo; kesobb dokumentumtaxonomia, hivatkozas-osszevetes es iratleltar alapu workflow-ban lehet ujragondolni.
 
-Elso implementacios korben ne toroljuk automatikusan a tablat, amig nincs migracios dontes, de uj automatikus letrehozas ne maradjon aktiv.
+Az elso implementacios kor utan a summary item tabla es aktiv kodutak eltavolitasra kerultek; nem maradhat uj automatikus vagy kezi `summary_item` letrehozasi ut.
 
 Fontos:
 
@@ -596,13 +608,12 @@ Feltetelesen megtartando / kesobb ujragondolando:
 
 ```text
 app/services/missing_items.py
-app/services/summary_items.py
 ```
 
 Indok:
 
-- a missing item es summary objektumok nyers automatikus modulbol kivezetendok,
-- de a mar letezo API/review/export/model reteg eltavolitasa kulon migracios dontes,
+- a missing item objektumok nyers automatikus modulbol kivezetendok,
+- a summary item API/review/export/model reteg eltavolitasa megtortent a `0025_remove_summary_items` migracioval,
 - elso korben az automatikus letrehozas megszuntetese a cel, nem a teljes adattortenet torlese.
 
 ### 15.7 Review report es export kapcsolodas
@@ -621,7 +632,6 @@ Jelenleg a review/export reteg kezeli:
 claim
 event
 entity
-summary_item
 missing_item_candidate
 contradiction_candidate
 ```
@@ -630,7 +640,7 @@ Kivezetesi feladat:
 
 - az uj `research_finding` ne jelenjen meg reviewolhato/exportalhato talalatkent,
 - a review report es export a konverzio utan letrejott strukturalt objektumokat kezelje,
-- summary/missing item megjelenites sorsarol kulon dontes kell,
+- missing item megjelenites sorsarol kulon dontes kell,
 - regi automatikus modulbol szarmazo objektumokat tortenetileg lehet mutatni, de uj automatikus letrehozas ne maradjon.
 
 ### 15.8 Analysis run output osszegzes
@@ -647,7 +657,6 @@ Jelenleg output summary-t ad:
 claim
 event
 entity
-summary_item
 missing_item_candidate
 contradiction_candidate
 source_reference
@@ -657,7 +666,7 @@ chunk
 Kivezetesi feladat:
 
 - `research_finding` output summary bevezetese,
-- regi summary/missing item output summary sorsa a modelldontessel egyutt kezelendo,
+- regi missing item output summary sorsa a modelldontessel egyutt kezelendo,
 - analysis history tovabbra is tudja megjeleniteni a regi futasokat, ha torteneti adat marad.
 
 ### 15.9 Frontend fo kapcsolodasok
@@ -684,7 +693,6 @@ Jelenlegi kapcsolodasok:
   - `claims`,
   - `events`,
   - `entities`,
-  - `summary_items`,
   - `missing_item_candidates`.
 
 Kivezetesi feladat:
@@ -707,14 +715,14 @@ Jelenleg:
 
 - `runAnalysis(caseId, moduleKey, payload)` altalanos regi module_key endpointot hiv,
 - `AnalysisResponse` tartalmazza a regi output listakat,
-- review endpoint allowlist kezeli `summary_item` es `missing_item_candidate` tipust is.
+- review endpoint allowlist kezeli a megmarado strukturalt objektumtipusokat es `missing_item_candidate` tipust is.
 
 Kivezetesi feladat:
 
 - uj finding API tipusok,
 - uj `runFindingSearch` vagy hasonlo kliensfuggveny,
 - regi modulresponse mezok eltavolitasa, ha mar nincs aktiv regi modul,
-- summary/missing item review endpoint sorsa kulon dontes.
+- missing item review endpoint sorsa kulon dontes.
 
 ### 15.11 Teszt inventory
 
@@ -733,7 +741,6 @@ Jelenlegi regi modul tesztek:
   - summary,
   - missing item,
 - source selection es batching tesztek,
-- summary item validacio,
 - missing item candidate validacio,
 - contradiction claim-pair tesztek.
 
@@ -747,7 +754,6 @@ Kivezetesi feladat:
 Kulon tesztfajlok, amelyek nem feltetlenul torlendok:
 
 ```text
-tests/test_summary_items.py
 tests/test_missing_items.py
 tests/test_review_report.py
 tests/test_exports.py

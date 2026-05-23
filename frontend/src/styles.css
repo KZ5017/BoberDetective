@@ -231,7 +231,9 @@ label {
 }
 
 .document-detail-panel {
+  max-height: min(78vh, 62rem);
   order: 3;
+  overflow: auto;
 }
 
 .analysis-panel {
@@ -494,8 +496,18 @@ label {
   margin: 0.2rem 0 0;
 }
 
+.detached-source-create-details {
+  margin-top: 0.8rem;
+}
+
+.detached-source-preview {
+  min-height: 7.25rem;
+}
+
 .chunk-selector {
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
   min-height: 10rem;
   resize: vertical;
 }
@@ -586,6 +598,10 @@ label {
   gap: 0.55rem;
   max-height: 22rem;
   overflow: auto;
+}
+
+.compact-list.detached-source-list {
+  max-height: 44rem;
 }
 
 .compact-item {
@@ -788,7 +804,7 @@ pre {
 .research-finding-list {
   display: grid;
   gap: 0.8rem;
-  max-height: 38rem;
+  max-height: 50.5rem;
   overflow: auto;
   padding-right: 0.25rem;
 }
@@ -819,6 +835,50 @@ pre {
 
 .finding-actions {
   align-items: center;
+}
+
+.finding-conversion-panel {
+  background: #ffffff;
+  border: 1px solid #cfd8df;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.65rem;
+}
+
+.finding-conversion-heading {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+}
+
+.finding-conversion-heading h4 {
+  color: #2c3d48;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.finding-conversion-heading span {
+  color: #667884;
+  font-size: 0.78rem;
+}
+
+.finding-conversion-type-row {
+  align-items: end;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.finding-conversion-panel textarea {
+  min-height: 6.9rem;
+}
+
+.event-time-grid {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
 }
 
 .research-finding-header {
@@ -920,6 +980,12 @@ pre {
 .source-detail summary {
   cursor: pointer;
   font-weight: 800;
+}
+
+.research-finding-source blockquote {
+  border-left: 4px solid #2d7a78;
+  margin: 0;
+  padding-left: 0.75rem;
 }
 
 .source-meta {
@@ -1152,6 +1218,7 @@ pre {
   .source-filter-panel,
   .model-status-panel,
   .model-status-card,
+  .finding-conversion-panel,
   .merge-panel,
   .detail-stack details,
   .object-facts div,
@@ -1229,6 +1296,10 @@ pre {
   .compact-list {
     gap: 0.42rem;
     max-height: 18rem;
+  }
+
+  .compact-list.detached-source-list {
+    max-height: 44rem;
   }
 
   .compact-item {

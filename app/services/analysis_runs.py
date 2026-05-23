@@ -15,7 +15,6 @@ from app.models.event import EventModel, EventSourceModel
 from app.models.missing_item import MissingItemCandidateModel, MissingItemCandidateSourceModel
 from app.models.research_finding import ResearchFindingModel
 from app.models.source_reference import SourceReferenceModel
-from app.models.summary_item import SummaryItemModel, SummaryItemSourceModel
 from app.schemas.analysis import AnalysisRunOutputSummary, AnalysisRunSourceSummary
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.storage import StoragePaths
@@ -95,8 +94,8 @@ def analysis_output_summary(db: Session, item: AnalysisRunOutputModel) -> Analys
         if claim is None:
             return None
         return AnalysisRunOutputSummary(
-            title=claim.claim_text,
-            body_text=claim.claim_time_raw,
+            title=claim.claim_title,
+            body_text=claim.claim_text,
             review_status=claim.review_status,
             source_validation_status=claim.source_validation_status,
             source_count=_count_sources(db, ClaimSourceModel.claim_id, claim.id),
@@ -121,17 +120,6 @@ def analysis_output_summary(db: Session, item: AnalysisRunOutputModel) -> Analys
             body_text=entity.description,
             review_status=entity.review_status,
             source_count=_count_sources(db, EntityMentionModel.entity_id, entity.id),
-        )
-    if item.output_type == "summary_item":
-        summary_item = db.get(SummaryItemModel, item.output_object_id)
-        if summary_item is None:
-            return None
-        return AnalysisRunOutputSummary(
-            title=summary_item.title,
-            body_text=summary_item.body_text,
-            review_status=summary_item.review_status,
-            source_validation_status=summary_item.source_validation_status,
-            source_count=_count_sources(db, SummaryItemSourceModel.summary_item_id, summary_item.id),
         )
     if item.output_type == "missing_item_candidate":
         candidate = db.get(MissingItemCandidateModel, item.output_object_id)

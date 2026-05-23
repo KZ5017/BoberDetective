@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 217 passed`, `alembic: 0024_research_findings_worklist (head)`.
+- Current verification baseline: `pytest: 220 passed`, `alembic: 0031_detached_source_claims (head)`.
 
 Initial implementation exists:
 
@@ -70,8 +70,9 @@ Initial implementation exists:
 - review report export filters through `report_filters`,
 - expanded review report source details with document metadata, offsets, chunk/page metadata, and bounded source excerpts,
 - analysis module service split now keeps common retrieval/JSON helpers, source-bound `search_findings`, and downstream claim-pair contradiction detection,
-- source-cited summary item persistence, source linkage, API, review workflow, and review report inclusion,
+- `summary_item` has been fully removed from the active structured object model through migration `0025_remove_summary_items`; there is no current valid workflow that creates or reviews summary items,
 - legacy raw chunk modules (`extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`) have been removed from active backend dispatch, frontend module selection, response schemas, module-specific service files, and prompt/validation tests; API calls with those old module keys return `Unsupported analysis module`,
+- legacy raw chunk module run type names have been retired from the active analysis run constraint through `0029_retire_legacy_run_types`; historical rows are mapped to `retired_analysis_module` while preserving the original old run type in `input_parameters.retired_original_run_type`,
 - analysis module retrieval fallback for broader natural-language Hungarian prompts,
 - local chunk indexing foundation through LM Studio/OpenAI-compatible embeddings and model-specific Qdrant collections, with `embed_chunks` analysis run provenance and chunk-level embedding metadata; model switches make chunks eligible for reindexing instead of incorrectly treating an old-model vector id as current,
 - background chunk indexing through `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; the endpoint creates an `embed_chunks` analysis run and returns immediately, while FastAPI `BackgroundTasks` performs the LM Studio/Qdrant work,
@@ -91,12 +92,11 @@ Initial implementation exists:
 - manual contradiction candidate creation now exists as a separate claim-pair workflow: the frontend exposes `Kezi ellentmondasjelolt`, only source-valid/non-rejected claims are selectable, selected claim text and sources are readonly-previewed, and the backend persists the candidate through a `manual_entry` analysis run,
 - historical deduplication still matters for existing structured objects; new raw-module auto-creation has been retired in favor of finding conversion and manual source-bound object creation,
 - ambiguous entity identity decisions should be handled through the explicit entity merge workflow, not by automatic alias guessing,
-- frontend entity merge is available both from report item cards and the object detail panel; merge target selection uses the full case entity list, not only currently filtered report items,
-- event merge follows the same human-reviewed pattern: `event_merged` audit event, source links moved to the target event, source event marked `corrected`, and frontend merge controls use the full case event list,
-- missing item candidate merge follows the same human-reviewed pattern: `missing_item_candidate_merged` audit event, source links moved to the target candidate, source candidate marked `corrected`, and frontend merge controls use the full case missing item candidate list,
-- entity, event, and missing item candidate source links can be detached manually through audit-tracked `detach_source` review actions; frontend source details show `Levalasztas` only when a concrete source-link id is available,
+- claim, entity, event, and missing item candidate merge are available from report item cards and the object detail panel where applicable; merge remains same-main-type, but subtype matching is intentionally not enforced,
+- source links can be moved, detached, parked, and reattached for claims, entities, events, and missing item candidates; these operations remain same-main-type, but subtype matching is intentionally not enforced,
+- claim/entity/event/missing item candidate source links can be detached manually through audit-tracked `detach_source` review actions; frontend source details show `Levalasztas` only when a concrete source-link id is available,
 - detached source links are parked in `detached_source_items` with the source reference plus object/source snapshots, and the frontend shows them under `Levalasztott forrasok`,
-- detached sources can be reattached from the parked-source panel or marked irrelevant; source details can also directly move a source to another same-type target object without a manual detach/reattach round,
+- detached sources can be reattached from the parked-source panel or marked irrelevant; source details can also directly move a source to another same-main-type target object without a manual detach/reattach round,
 - document lifecycle/parking is implemented with `active`, `excluded`, and `archived` states plus audit-tracked status changes; only active documents can be used as new source material for indexing, retrieval, analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge, and contradiction candidate creation/claim selection,
 - existing review findings from excluded/archived documents remain visible for historical review, and review report source details expose the source document lifecycle status,
 - early document discard/delete is allowed only before the document has become analysis/source material; otherwise documents should be excluded or archived rather than physically removed,
@@ -219,11 +219,10 @@ The incorporated refinements are:
 
 1. Add page/chunk versioning:
    `version_no`, `is_current`, `superseded_by_id`.
-2. Make `summary_items` an MVP table, not just optional.
-3. Add `summary_item_sources`.
-4. Add `source_validation_status` to AI-output tables.
-5. Keep `source_references` as a central table.
-6. Keep `analysis_runs` as the central provenance table.
+2. `summary_items` were originally promoted during schema planning, but this path has since been reversed: migration `0025_remove_summary_items` removed the active table/API/model because no current workflow can produce semantically valid summary items.
+3. Add `source_validation_status` to AI-output tables.
+4. Keep `source_references` as a central table.
+5. Keep `analysis_runs` as the central provenance table.
 7. Use `text + CHECK` instead of PostgreSQL ENUM in early migrations.
 8. Do not implement trigger-based audit in the first MVP.
 9. Use explicit application-level audit service plus append-only JSONL.
@@ -308,8 +307,8 @@ Implementation status:
 - Initial FastAPI scaffold exists under `app/`.
 - Health endpoint works.
 - SQLAlchemy/psycopg DB layer exists.
-- Alembic migrations through `0024_research_findings_worklist` are applied.
-- `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, `export_items`, `summary_items`, `summary_item_sources`, `contradiction_candidates`, `contradiction_candidate_sources`, `missing_item_candidates`, `missing_item_candidate_sources`, and `detached_source_items` tables exist.
+- Alembic migrations through `0031_detached_source_claims` are applied.
+- `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, `export_items`, `contradiction_candidates`, `contradiction_candidate_sources`, `missing_item_candidates`, `missing_item_candidate_sources`, `research_findings`, and `detached_source_items` tables exist.
 - Case create/list API works.
 - Case creation writes DB audit event and JSONL audit event.
 - Document/page/chunk persistence foundation exists.
@@ -325,29 +324,9 @@ Implementation status:
 - Synthetic PDF samples exist under `samples/pdf/`: native-text, good scanned, weak scanned, and mixed empty-page PDFs.
 - `scripts/evaluate_pdf_samples.py` reports native parse outcome, OCR text length, confidence, and quality issues; current weak scanned sample triggers `low_ocr_confidence`.
 - Frontend now exposes backend OCR recommendations and a separate `Szovegreszek letrehozasa` action for `text_review_required` documents; after OCR it refreshes document status/pages, and after chunk creation it refreshes chunks and analysis run history.
-- `Design_documents/10_analysis_batch_processing_plan.md` defines the analysis architecture step; the first backend slice now supports source selection modes, chunk batching, and batch-capable `extract_claims`.
-- Latest live batch analysis smoke passed:
-  - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, returned `validation_status=passed`.
-  - `case` source mode selected 6 chunks across the smoke case, ran 3 batches with `batch_size=2`, returned `validation_status=passed`.
-  - Analysis run inputs include `batch_index`, `batch_count`, `chunk_labels`, `source_label`, and `retrieval_score`.
-- Latest live batch `extract_events` smoke passed:
-  - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, returned `validation_status=passed`.
-  - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, returned `validation_status=passed`.
-- Semantic `extract_events` has an effective batch-size cap of 2 chunks to avoid local LM Studio chat timeouts on larger semantic result sets. Live regression: query `gyilkossággal esettel kapcsolatos események`, `max_chunks=10`, `retrieval_strategy=semantic`, requested `batch_size=5`; the run completed in about 262s, selected 10 chunks, returned source-cited events, and finished `validation_status=warning` due to unsupported notes rather than timeout.
-- Latest live batch `extract_entities` smoke passed:
-  - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, returned `validation_status=passed`.
-  - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, returned `validation_status=passed`.
-  - Case-mode audit check showed 4 chunk inputs, batch indexes `[1, 1, 2, 2]`, and 30 output records.
-- Latest live batch `summarize_case` smoke passed:
-  - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, returned `validation_status=passed`.
-  - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, returned `validation_status=passed`.
-  - Summary prompt is stricter than extraction prompts: batch output is capped at 3 summary items and body/title must stay directly supported by `quote_text`.
-- Latest live batch `detect_missing_items` smoke passed:
-  - `document` source mode selected 5 chunks, ran 3 batches with `batch_size=2`, returned `validation_status=passed`.
-  - `case` source mode selected 4 chunks, ran 2 batches with `batch_size=2`, returned `validation_status=passed`.
-  - Case-mode audit check showed 4 chunk inputs, batch indexes `[1, 1, 2, 2]`, and 20 output records.
-- Focused `extract_events` regression checked with query `narrátor Dupin`: the original failure came from invalid LLM JSON caused by an unescaped double quote inside `quote_text`; the event prompt now asks for shorter exact excerpts, valid JSON escaping, allowed enum values, and avoiding double-quote-containing excerpts when possible. Retest returned `HTTP 200` and `validation_status=passed`.
-- Frontend now exposes source scope controls for batch-capable `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items`: selected document, whole case, selected-document page range, required focus text, `Szovegresz plafon` defaulting to 20 and capped at 30, and batch size. `detect_contradiction_candidates` keeps its claim-pair workflow with required focus.
+- `Design_documents/10_analysis_batch_processing_plan.md` remains useful for batching/source-selection background, but the active raw-source workflow is now `search_findings`, not module-specific raw extraction.
+- Historical raw-module live smokes remain useful as implementation history only. Current live smokes should use `search_findings`, research-finding conversion, manual source-bound object creation, and downstream `detect_contradiction_candidates`.
+- Frontend now exposes source scope controls for `search_findings`: selected document, whole case, selected-document page range, required focus text, `Szovegresz plafon` defaulting to 30 and capped at 50, retrieval strategy, and batch size. Retired raw module options are no longer available; `detect_contradiction_candidates` keeps its claim-pair workflow with required focus.
 - Frontend analysis run details render selected chunk inputs as Hungarian source summaries with document/page/chunk, retrieval match type/score, batch position, and preview text. Output rows also show short object summaries. `input_kind=claim_selection` payloads remain rendered as Hungarian claim-selection summaries with selected pair rows; claim inputs show which selected pairs include the claim.
 - Frontend analysis panel marks contradiction focus as required, shows a claim-pair module note, and exposes `Allitaskor` (`reviewable`, `verified`, `needs_review`, `all_source_valid`) plus `Ellentmondasjelolt plafon` for `detect_contradiction_candidates`; analysis summaries show `claim-par alapu` instead of implying raw chunk selection.
 - Frontend focus placeholders are informational only; raw-chunk module runs are disabled until the user types focus text, and the backend enforces the same rule.
@@ -404,7 +383,7 @@ Implementation status:
 - Historical `detect_contradiction_candidates` smoke result used claims produced by the former raw module path. Current smokes should use manually created or finding-converted claims before running contradiction detection.
 - Review report smoke for `object_type=contradiction_candidate` returned the candidate with expanded source details.
 - Analysis module retrieval now tries the original query, a normalized significant-term query, and individual normalized terms. This keeps the public search API strict while making analysis modules less brittle for natural Hungarian prompts.
-- Historical `summarize_case` smokes no longer describe an active module; summary item APIs remain for existing/manual structured objects until a separate summary workflow is designed.
+- Historical `summarize_case` smokes no longer describe an active module; summary item APIs and tables have been removed from the active system.
 - Unsupported module keys are rejected before execution.
 - Event list/detail works through `GET /api/v1/cases/{case_id}/events` and `GET /api/v1/cases/{case_id}/events/{event_id}`.
 - Event review works through `POST /api/v1/cases/{case_id}/events/{event_id}/reviews`.
@@ -419,10 +398,6 @@ Implementation status:
 - Live entity review smoke result: `review 200`, entity moved to `verified`, review history count 1.
 - Shared review helper exists in `app/services/reviews.py`.
 - Claim, entity, event, and export review workflows now use the shared helper for status mapping, review history listing, append-only review record creation, and audit writing.
-- Summary item list/create/detail/review API exists through `/api/v1/cases/{case_id}/summary-items`.
-- Summary item creation requires same-case `analysis_run_id` and `source_reference_id`; no source-free summary item creation path exists.
-- Summary item reviews use append-only `human_reviews` with `object_type=summary_item`.
-- Summary items are included in the case review report and can be selected through `object_type=summary_item`.
 - Contradiction candidate list/create/detail/review API exists through `/api/v1/cases/{case_id}/contradiction-candidates`.
 - Contradiction candidate creation requires a same-case analysis run, at least two same-case source references, and either a same-case claim pair or event pair.
 - Contradiction candidate reviews use append-only `human_reviews` with `object_type=contradiction_candidate`.
@@ -479,7 +454,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `217 passed`.
+- Latest test run: `220 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

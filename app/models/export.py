@@ -40,7 +40,7 @@ class ExportItemModel(Base):
     __tablename__ = "export_items"
     __table_args__ = (
         CheckConstraint(
-            "object_type in ('entity', 'event', 'claim', 'contradiction_candidate', 'missing_item_candidate', 'summary_item')",
+            "object_type in ('entity', 'event', 'claim', 'contradiction_candidate', 'missing_item_candidate')",
             name="ck_export_items_object_type",
         ),
         CheckConstraint("display_order is null or display_order >= 0", name="ck_export_items_display_order_non_negative"),

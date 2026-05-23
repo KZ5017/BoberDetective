@@ -4,6 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.document import DocumentChunkModel, DocumentPageModel
+from app.models.research_finding import ResearchFindingModel
+from app.models.source_reference import SourceReferenceModel
 from app.schemas.research_finding import (
     ResearchFindingBulkDeleteRequest,
     ResearchFindingBulkDeleteResponse,
@@ -29,11 +32,12 @@ from app.services.research_findings import (
 
 
 router = APIRouter()
+SOURCE_EXCERPT_CONTEXT_CHARS = 160
 
 
 @router.get("/cases/{case_id}/research-findings", response_model=ResearchFindingList)
 def get_case_research_findings(case_id: UUID, db: Session = Depends(get_db)) -> ResearchFindingList:
-    return ResearchFindingList(data=[ResearchFindingRead.model_validate(finding) for finding in list_research_findings(db, case_id)])
+    return ResearchFindingList(data=[_research_finding_read(db, finding) for finding in list_research_findings(db, case_id)])
 
 
 @router.get("/cases/{case_id}/research-findings/{finding_id}", response_model=ResearchFindingDetail)
@@ -42,7 +46,7 @@ def get_case_research_finding(case_id: UUID, finding_id: UUID, db: Session = Dep
         finding = get_research_finding(db, case_id, finding_id)
     except ResearchFindingNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return ResearchFindingDetail(finding=ResearchFindingRead.model_validate(finding))
+    return ResearchFindingDetail(finding=_research_finding_read(db, finding))
 
 
 @router.post(
@@ -72,7 +76,7 @@ def post_research_finding_conversion(
         source_reference=SourceReferenceRead.model_validate(source_reference),
         object_type=object_type,
         object_id=object_id,
-        finding=ResearchFindingRead.model_validate(finding),
+        finding=_research_finding_read(db, finding),
     )
 
 
@@ -90,7 +94,7 @@ def post_research_finding_set_aside(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ResearchFindingValidationError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return ResearchFindingDetail(finding=ResearchFindingRead.model_validate(finding))
+    return ResearchFindingDetail(finding=_research_finding_read(db, finding))
 
 
 @router.post("/cases/{case_id}/research-findings/{finding_id}/restore", response_model=ResearchFindingDetail)
@@ -105,7 +109,7 @@ def post_research_finding_restore(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ResearchFindingValidationError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return ResearchFindingDetail(finding=ResearchFindingRead.model_validate(finding))
+    return ResearchFindingDetail(finding=_research_finding_read(db, finding))
 
 
 @router.delete("/cases/{case_id}/research-findings/{finding_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -131,3 +135,57 @@ def post_research_finding_bulk_delete(
     except (ResearchFindingValidationError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return ResearchFindingBulkDeleteResponse(deleted_count=deleted_count)
+
+
+def _research_finding_read(db: Session, finding: ResearchFindingModel) -> ResearchFindingRead:
+    source_reference = finding.source_reference
+    source_read = _source_reference_read_with_excerpt(db, source_reference) if source_reference is not None else None
+    return ResearchFindingRead.model_validate(finding).model_copy(update={"source_reference": source_read})
+
+
+def _source_reference_read_with_excerpt(db: Session, source_reference: SourceReferenceModel) -> SourceReferenceRead:
+    source_text = _source_text_for_excerpt(db, source_reference)
+    excerpt, excerpt_start, excerpt_end = _source_excerpt(
+        source_text,
+        source_reference.quote_text,
+        source_reference.quote_char_start,
+        source_reference.quote_char_end,
+    )
+    return SourceReferenceRead.model_validate(source_reference).model_copy(
+        update={
+            "source_text_excerpt": excerpt,
+            "source_text_excerpt_char_start": excerpt_start,
+            "source_text_excerpt_char_end": excerpt_end,
+        }
+    )
+
+
+def _source_text_for_excerpt(db: Session, source_reference: SourceReferenceModel) -> str | None:
+    if source_reference.chunk_id is not None:
+        chunk = db.get(DocumentChunkModel, source_reference.chunk_id)
+        return chunk.chunk_text if chunk is not None else None
+    if source_reference.page_id is not None:
+        page = db.get(DocumentPageModel, source_reference.page_id)
+        return page.extracted_text if page is not None else None
+    return None
+
+
+def _source_excerpt(
+    source_text: str | None,
+    quote_text: str,
+    quote_char_start: int | None,
+    quote_char_end: int | None,
+) -> tuple[str | None, int | None, int | None]:
+    if source_text is None:
+        return None, None, None
+    quote_start = quote_char_start
+    quote_end = quote_char_end
+    if quote_start is None or quote_end is None or source_text[quote_start:quote_end] != quote_text:
+        found_at = source_text.find(quote_text)
+        if found_at < 0:
+            return None, None, None
+        quote_start = found_at
+        quote_end = found_at + len(quote_text)
+    excerpt_start = max(0, quote_start - SOURCE_EXCERPT_CONTEXT_CHARS)
+    excerpt_end = min(len(source_text), quote_end + SOURCE_EXCERPT_CONTEXT_CHARS)
+    return source_text[excerpt_start:excerpt_end], excerpt_start, excerpt_end

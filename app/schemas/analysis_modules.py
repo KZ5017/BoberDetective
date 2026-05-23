@@ -17,7 +17,7 @@ class AnalysisModuleRunRequest(BaseModel):
     document_type_code: str | None = Field(default=None, max_length=100)
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
-    max_chunks: int = Field(default=20, ge=1, le=30)
+    max_chunks: int = Field(default=30, ge=1, le=50)
     batch_size: int = Field(default=5, ge=1, le=10)
     claim_review_scope: Literal["reviewable", "verified", "needs_review", "all_source_valid"] = "reviewable"
     retrieval_strategy: Literal["keyword", "semantic", "hybrid"] = "keyword"
@@ -57,6 +57,7 @@ class AnalysisModuleResearchFinding(BaseModel):
     suggested_type: str
     suggested_type_reason: str | None
     relevance_reason: str
+    llm_support_status: str
     quote_text: str
     source_label: str
     source_reference_id: UUID

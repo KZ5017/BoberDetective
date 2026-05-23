@@ -55,6 +55,8 @@ class ReviewReportItem(BaseModel):
     title: str
     body_text: str | None
     subtype: str
+    event_time_start: datetime | None = None
+    time_precision: str | None = None
     review_status: str
     source_validation_status: str
     created_by_analysis_run_id: UUID | None

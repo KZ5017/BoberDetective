@@ -36,6 +36,9 @@ class SourceReferenceRead(BaseModel):
     quote_text: str
     quote_char_start: int | None
     quote_char_end: int | None
+    source_text_excerpt: str | None = None
+    source_text_excerpt_char_start: int | None = None
+    source_text_excerpt_char_end: int | None = None
     citation_label: str | None
     confidence: Decimal | None
     source_kind: str

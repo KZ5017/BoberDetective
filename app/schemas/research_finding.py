@@ -30,6 +30,7 @@ class ResearchFindingRead(BaseModel):
     suggested_type_reason: str | None
     relevance_reason: str
     source_validation_status: str
+    llm_support_status: str
     conversion_status: str
     target_object_type: str | None
     target_object_id: UUID | None

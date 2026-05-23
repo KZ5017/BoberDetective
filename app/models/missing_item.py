@@ -35,7 +35,6 @@ class MissingItemCandidateModel(Base):
     missing_item_type: Mapped[str] = mapped_column(Text, nullable=False)
     referenced_item_text: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
-    expected_document_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
     created_by_analysis_run_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("analysis_runs.id"), nullable=False)
     source_validation_status: Mapped[str] = mapped_column(Text, nullable=False)

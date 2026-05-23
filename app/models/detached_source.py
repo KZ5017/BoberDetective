@@ -12,7 +12,7 @@ class DetachedSourceItemModel(Base):
     __tablename__ = "detached_source_items"
     __table_args__ = (
         CheckConstraint(
-            "detached_from_object_type in ('entity', 'event', 'missing_item_candidate')",
+            "detached_from_object_type in ('claim', 'entity', 'event', 'missing_item_candidate')",
             name="ck_detached_source_items_object_type",
         ),
         CheckConstraint(

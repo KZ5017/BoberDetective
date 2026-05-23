@@ -13,7 +13,7 @@ from app.services import analysis_module_common
 from app.services.analysis_module_contradictions import (
     ClaimPair,
     RetrievedClaim,
-    build_detect_contradictions_user_prompt,
+    build_detect_contradiction_candidates_user_prompt,
     claim_review_statuses_for_scope,
     select_claim_pairs_for_contradiction_detection,
 )
@@ -33,6 +33,15 @@ from app.services.search import KeywordSearchHit
 def test_analysis_module_request_rejects_legacy_limit_field() -> None:
     with pytest.raises(ValidationError):
         AnalysisModuleRunRequest(query="fokusz", limit=5)
+
+
+def test_analysis_module_request_uses_updated_chunk_cap_defaults() -> None:
+    request = AnalysisModuleRunRequest(query="fokusz")
+
+    assert request.max_chunks == 30
+    assert AnalysisModuleRunRequest(query="fokusz", max_chunks=50).max_chunks == 50
+    with pytest.raises(ValidationError):
+        AnalysisModuleRunRequest(query="fokusz", max_chunks=51)
 
 
 @pytest.mark.parametrize(
@@ -86,6 +95,7 @@ def _retrieved_claim(label: str, text: str) -> RetrievedClaim:
             id=claim_id,
             case_id=uuid4(),
             claim_type="document_fact",
+            claim_title=text,
             claim_text=text,
             created_by_analysis_run_id=uuid4(),
             source_validation_status="source_valid",
@@ -139,14 +149,23 @@ def test_analysis_retrieval_queries_strips_common_hungarian_accusative_suffixes(
 
 
 def test_analysis_retrieval_queries_keep_accents_and_two_letter_terms() -> None:
-    queries = analysis_retrieval_queries("Keress úr nő narrátor ügy témáról.")
+    queries = analysis_retrieval_queries("Keress úr nő narrátor per témáról.")
 
-    assert "Keress úr nő narrátor ügy témáról." in queries
+    assert "Keress úr nő narrátor per témáról." in queries
     assert "úr" in queries
     assert "nő" in queries
     assert "narrátor" in queries
-    assert "ügy" in queries
+    assert "per" in queries
     assert "téma" in queries
+
+
+def test_analysis_retrieval_queries_drop_hungarian_function_words_but_keep_original_query() -> None:
+    queries = analysis_retrieval_queries("A tanú és a matróz vallomása.")
+
+    assert queries[0] == "A tanú és a matróz vallomása."
+    assert "tanú matróz vallomása" in queries
+    assert "a" not in queries[1:]
+    assert "és" not in queries[1:]
 
 
 def test_retrieve_chunks_raises_when_focus_matches_no_source(monkeypatch) -> None:
@@ -370,6 +389,7 @@ def test_build_search_findings_user_prompt_is_source_bound_and_type_flexible() -
     assert "QUERY:\nmatrózzal kapcsolatos releváns találatok" in prompt
     assert "BATCH:\n1/2" in prompt
     assert "chunk_1:" in prompt
+    assert "Ha több, egymástól elkülönülő, közvetlenül forrásolt találat van" in prompt
     assert "Ne erőltesd, hogy a találat állítás, esemény vagy entitás legyen" in prompt
     assert "suggested_type" in prompt
 
@@ -397,6 +417,7 @@ def test_validate_extracted_findings_accepts_exact_source_quote_and_normalizes_u
 
     assert len(findings) == 1
     assert findings[0]["suggested_type"] == "other"
+    assert findings[0]["llm_support_status"] == "confirmed"
     assert unsupported == ["nincs elég forrás"]
 
 
@@ -421,17 +442,44 @@ def test_validate_extracted_findings_skips_quote_outside_source_chunk() -> None:
     )
 
     assert findings == []
-    assert unsupported == []
+    assert unsupported == ["Skipped finding with invalid source_label or quote_text from chunk_1"]
 
 
-def test_build_detect_contradictions_user_prompt_handles_empty_focus() -> None:
+def test_validate_extracted_findings_keeps_structured_unsupported_as_unconfirmed() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "Rövid pontos idézet.")]
+
+    findings, unsupported = validate_extracted_findings(
+        {
+            "findings": [],
+            "unsupported_findings": [
+                {
+                    "title": "Nem megerősített találat",
+                    "finding_text": "Rövid pontos idézet.",
+                    "suggested_type": "other",
+                    "suggested_type_reason": "Teszt.",
+                    "relevance_reason": "A modell nem tette a megerősített listába.",
+                    "quote_text": "Rövid pontos idézet.",
+                    "source_label": "chunk_1",
+                },
+                "modell unsupported",
+            ],
+        },
+        chunks,
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["llm_support_status"] == "unconfirmed"
+    assert "modell unsupported" in unsupported
+
+
+def test_build_detect_contradiction_candidates_user_prompt_handles_empty_focus() -> None:
     claims = [
         _retrieved_claim("claim_1", "A hivas 18:42-kor tortent."),
         _retrieved_claim("claim_2", "A hivas 19:10-kor tortent."),
     ]
     pairs = [ClaimPair(label="pair_1", claim_a=claims[0], claim_b=claims[1])]
 
-    prompt = build_detect_contradictions_user_prompt(None, pairs, max_candidates=3)
+    prompt = build_detect_contradiction_candidates_user_prompt(None, pairs, max_candidates=3)
 
     assert "Nincs kulon fokusz" in prompt
     assert "CLAIM_PAIRS" in prompt
@@ -487,7 +535,7 @@ def test_claim_focus_terms_keep_accents_and_allow_two_letter_terms() -> None:
     assert terms == ["úr", "nő", "dupin"]
 
 
-def test_detect_contradictions_requires_focus_text() -> None:
+def test_detect_contradiction_candidates_requires_focus_text() -> None:
     with pytest.raises(AnalysisModuleError, match="Focus text is required"):
         analysis_module_contradictions.run_detect_contradiction_candidates(
             SimpleNamespace(),
@@ -521,7 +569,7 @@ def test_claim_review_statuses_for_scope_excludes_rejected_by_default() -> None:
     assert claim_review_statuses_for_scope("unknown") == ("new", "needs_review", "verified", "corrected")
 
 
-def test_detect_contradictions_returns_warning_when_not_enough_claims(monkeypatch) -> None:
+def test_detect_contradiction_candidates_returns_warning_when_not_enough_claims(monkeypatch) -> None:
     run = SimpleNamespace(id=uuid4(), status="running")
     inputs = []
 
@@ -566,7 +614,7 @@ def test_detect_contradictions_returns_warning_when_not_enough_claims(monkeypatc
     assert "rejected" not in inputs[1]["payload_json"]["claim_review_statuses"]
 
 
-def test_detect_contradictions_returns_warning_when_llm_json_is_invalid(monkeypatch) -> None:
+def test_detect_contradiction_candidates_returns_warning_when_llm_json_is_invalid(monkeypatch) -> None:
     run = SimpleNamespace(id=uuid4(), status="running")
     claims = [
         _retrieved_claim("claim_1", "A hivas 18:42-kor tortent."),
@@ -832,4 +880,3 @@ def test_validate_extracted_contradiction_candidates_replaces_overstated_model_d
     assert "bizonyított és súlyos" not in valid_candidates[0]["description"]
     assert "A forras szerint az irat 3 oldalas." in valid_candidates[0]["description"]
     assert "A forras szerint az irat 8 oldalas." in valid_candidates[0]["description"]
-

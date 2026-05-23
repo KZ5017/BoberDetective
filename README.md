@@ -54,9 +54,9 @@ Completed:
 - First source-cited analysis smoke
 - Claim persistence foundation
 - Claim review workflow foundation
-- First generalized analysis module endpoint with `extract_claims`
+- First generalized analysis module endpoint; active modules are now `search_findings` and downstream `detect_contradiction_candidates`
 - Event persistence foundation with `events` and `event_sources`
-- `extract_events` analysis module foundation
+- Historical `extract_events` module foundation; the raw event extraction module has since been retired
 - Case review report API for claim/event/source/review overview
 - JSON export bundle foundation for review reports
 - HTML review report export foundation with escaping
@@ -64,16 +64,14 @@ Completed:
 - Event review workflow foundation
 - Shared review service helper for claim/event/export review logic
 - Entity persistence foundation with `entities` and `entity_mentions`
-- `extract_entities` analysis module foundation
+- Historical `extract_entities` module foundation; the raw entity extraction module has since been retired
 - Entity review workflow foundation
 - Case review report filtering by object type, review status, and source validation status
 - Review report export filters
 - Expanded review report source details with document metadata, offsets, chunk/page metadata, and bounded source excerpts
-- Analysis module service split into common helpers and claim/event/entity/summary module-specific services
-- Summary item persistence, source linkage, API, review workflow, and review report inclusion
-- `summarize_case` analysis module foundation for source-cited summary item creation
+- Analysis module service split into common helpers, finding search, and downstream contradiction detection services
 - Analysis module retrieval fallback for broader natural-language Hungarian prompts
-- Live `summarize_case` smoke passed with the original broad query after retrieval fallback
+- Historical `summarize_case` smoke passed before summary items and the raw summary module were retired
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs
 - Live `detect_contradiction_candidates` smoke passed on a two-claim time conflict sample
@@ -82,20 +80,19 @@ Completed:
 - Contradiction candidate output is normalized before persistence: same pair/type duplicates are skipped, most model-proposed `high` severities are capped to `medium`, and titles/descriptions are conservative pair-bound text from selected source-cited claims
 - `detect_contradiction_candidates` supports claim review scope; the default excludes rejected claims
 - `detect_contradiction_candidates` requires explicit contradiction qualification before persistence; contextual but non-conflicting pairs are not saved as contradiction candidates
-- Repeated analysis runs skip already persisted, content-matched review outputs for claims, events, summary items, missing item candidates, and contradiction candidates instead of creating duplicate review objects
+- Repeated analysis runs skip already persisted, content-matched review outputs for currently supported structured review objects instead of creating duplicate review objects
 - Entity extraction automatically merges only exact/normalized repeated entities into the existing entity review object and links additional occurrences as mentions/sources
 - Ambiguous entity identity decisions are handled through the explicit entity merge workflow, not by automatic alias guessing
-- Entity merge controls are available on report item cards and the object detail panel; target choices come from the full case entity list
-- Event merge follows the same human-reviewed pattern, with target choices from the full case event list
-- Missing item candidate merge follows the same human-reviewed pattern, with target choices from the full case missing item candidate list
-- Entity/event/missing item candidate source links can be detached manually from source details through audit-tracked `detach_source` review actions
+- Claim/entity/event/missing item candidate merge controls are available on report item cards and the object detail panel where applicable; target choices come from the full case object lists
+- Merge, source move, source detach, and detached-source reattach remain constrained to the same main object type, but subtype matching is intentionally not enforced
+- Claim/entity/event/missing item candidate source links can be detached manually from source details through audit-tracked `detach_source` review actions
 - Detached source links are parked with source/object snapshots and shown in the frontend under `Levalasztott forrasok`
-- Parked detached sources can be reattached or marked irrelevant; source details can also move a source directly to another same-type target object
+- Parked detached sources can be reattached or marked irrelevant; source details can also move a source directly to another same-main-type target object
 - Users can select readonly text from document chunks and create source-bound manual claim/entity/event/missing item candidate objects through `manual_entry` provenance runs
 - Detached source items can also be used as the source for new manual claim/entity/event/missing item candidate objects
 - Missing item candidate persistence, source linkage, API, review workflow, and review report inclusion
-- `detect_missing_items` analysis module foundation over source-cited chunk quotes
-- Live `detect_missing_items` smoke passed on referenced attachment/photo documentation sample
+- Missing item candidate structured object support remains available through manual/finding-conversion workflows
+- Historical `detect_missing_items` smoke passed before the raw missing-item module was retired
 - Missing item candidate JSON/HTML export smoke coverage
 - Analysis retrieval fallback improved for short/inflected Hungarian queries such as `mellekletet`
 - Source-bound finding search requires explicit focus text and fails clearly when retrieval finds no matching source chunk, avoiding blind processing on large cases
@@ -188,7 +185,7 @@ Initial backend scaffold exists under `app/` with:
 - JSONL audit writer skeleton
 - storage path resolver with path traversal protection
 - SQLAlchemy/psycopg DB layer
-- Alembic migration foundation through `0024_research_findings_worklist`
+- Alembic migration foundation through `0031_detached_source_claims`
 - `users`, `cases`, `case_users`, `audit_events` tables
 - case create/list API
 - DB + JSONL audit on case creation
@@ -216,7 +213,6 @@ Initial backend scaffold exists under `app/` with:
 - event review API with append-only human review history
 - case review report API at `GET /api/v1/cases/{case_id}/review-report` with optional `object_type`, `review_status`, and `source_validation_status` filters plus expanded source details
 - JSON/HTML review report export API with claim/entity/event item tracking, optional `report_filters`, expanded source details, and download endpoint
-- summary item list/create/detail/review API
 - contradiction candidate list/create/detail/review API
 - export review API with append-only human review history
 - shared review helper used by claim, entity, event, and export review workflows
@@ -233,5 +229,5 @@ Frontend:
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
 - Current UI workflows: case create/list, TXT/PDF import, document list, document taxonomy editing, document lifecycle actions, page/chunk drill-down, OCR recommendation, explicit PDF text review and chunk creation, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
-- Raw-chunk analysis module UI supports selected-document and whole-case source scopes with required focus text, selected-document page range, `Szovegresz plafon` capped at 30, and batch controls
+- Active `search_findings` UI supports selected-document and whole-case source scopes with required focus text, selected-document page range, `Szovegresz plafon` defaulting to 30 and capped at 50, retrieval strategy, and batch controls
 - Raw-chunk analysis can choose keyword, semantic, or hybrid source retrieval after chunk indexing

@@ -71,7 +71,6 @@ def create_missing_item_candidate(
     description: str,
     analysis_run_id: UUID,
     sources: list[MissingItemSourceCreate],
-    expected_document_type: str | None = None,
     confidence: Decimal | None = None,
 ) -> MissingItemCandidateModel:
     if referenced_item_text.strip() == "":
@@ -92,7 +91,6 @@ def create_missing_item_candidate(
         missing_item_type=missing_item_type,
         referenced_item_text=referenced_item_text,
         description=description,
-        expected_document_type=expected_document_type,
         confidence=confidence,
         created_by_analysis_run_id=analysis_run_id,
         source_validation_status="source_valid",
@@ -175,8 +173,6 @@ def merge_missing_item_candidate(
 
     source_candidate = get_missing_item_candidate(db, case_id, source_candidate_id)
     target_candidate = get_missing_item_candidate(db, case_id, target_candidate_id)
-    if source_candidate.missing_item_type != target_candidate.missing_item_type:
-        raise MissingItemCandidateValidationError("Only missing item candidates with the same type can be merged")
     if target_candidate.review_status == "corrected":
         raise MissingItemCandidateValidationError("Corrected missing item candidates cannot be merge targets")
     if source_candidate.source_validation_status == "source_invalid":
@@ -384,9 +380,6 @@ def move_missing_item_candidate_source(
 
     source_candidate = get_missing_item_candidate(db, case_id, source_candidate_id)
     target_candidate = get_missing_item_candidate(db, case_id, target_candidate_id)
-    if source_candidate.missing_item_type != target_candidate.missing_item_type:
-        raise MissingItemCandidateValidationError("Only missing item candidates with the same type can receive this source")
-
     source_link = db.get(MissingItemCandidateSourceModel, source_link_id)
     if source_link is None or source_link.missing_item_candidate_id != source_candidate.id:
         raise MissingItemCandidateValidationError("Missing item candidate source not found for this candidate")

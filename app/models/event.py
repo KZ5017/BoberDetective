@@ -18,7 +18,7 @@ class EventModel(Base):
             name="ck_events_event_type",
         ),
         CheckConstraint(
-            "time_precision is null or time_precision in ('exact', 'minute', 'hour', 'day', 'month', 'unknown')",
+            "time_precision is null or time_precision in ('minute', 'hour', 'day', 'month', 'year', 'unknown')",
             name="ck_events_time_precision",
         ),
         CheckConstraint(
@@ -38,11 +38,9 @@ class EventModel(Base):
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
     event_title: Mapped[str] = mapped_column(Text, nullable=False)
     event_description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    event_time_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
     event_time_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     event_time_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     time_precision: Mapped[str | None] = mapped_column(Text, nullable=True)
-    location_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
     created_by_analysis_run_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("analysis_runs.id"), nullable=False)
     source_validation_status: Mapped[str] = mapped_column(Text, nullable=False)

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.analysis import AnalysisRunInputModel, AnalysisRunModel, AnalysisRunOutputModel
+from app.models.audit import AuditEventModel
 from app.models.case import CaseModel
 from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
 from app.models.source_reference import SourceReferenceModel
@@ -88,12 +89,8 @@ OCR_MIN_AVG_CONFIDENCE = 0.5
 OCR_MIN_TEXT_CHARS_PER_PAGE = 120
 ACTIVE_DOCUMENT_STATUS = "active"
 NON_DISCARDABLE_RUN_TYPES = {
-    "extract_entities",
-    "extract_events",
-    "extract_claims",
-    "detect_contradictions",
-    "detect_missing_items",
-    "summarize_case",
+    "retired_analysis_module",
+    "detect_contradiction_candidates",
     "answer_with_citations",
     "export_bundle",
     "manual_entry",
@@ -293,6 +290,10 @@ def discard_document(db: Session, case_id: UUID, document_id: UUID, *, reason: s
     if run_ids:
         db.execute(delete(AnalysisRunOutputModel).where(AnalysisRunOutputModel.analysis_run_id.in_(run_ids)))
         db.execute(delete(AnalysisRunInputModel).where(AnalysisRunInputModel.analysis_run_id.in_(run_ids)))
+        db.query(AuditEventModel).filter(AuditEventModel.analysis_run_id.in_(run_ids)).update(
+            {AuditEventModel.analysis_run_id: None},
+            synchronize_session=False,
+        )
         db.execute(delete(AnalysisRunModel).where(AnalysisRunModel.id.in_(run_ids)))
     if page_ids:
         db.execute(delete(DocumentPageModel).where(DocumentPageModel.id.in_(page_ids)))
@@ -423,7 +424,7 @@ def _ocr_recommendation_from_stats(
         return DocumentOcrRecommendation(
             action="optional",
             reason_code="empty_pages_with_text",
-            message="Van kinyert szoveg, de egyes oldalak uresek. Az OCR ellenorzes segithet, de duplikalt vagy zajos szoveget is eredmenyezhet.",
+            message="Van kinyert szoveg, de egyes oldalak uresek. Az OCR ellenorzes segithet teljesebb szovegreteget letrehozni, ha a nativ kinyeres hianyos.",
         )
     if not chunks:
         return DocumentOcrRecommendation(

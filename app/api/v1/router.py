@@ -18,7 +18,6 @@ from app.api.v1.review_report import router as review_report_router
 from app.api.v1.research_findings import router as research_findings_router
 from app.api.v1.search import router as search_router
 from app.api.v1.source_references import router as source_references_router
-from app.api.v1.summary_items import router as summary_items_router
 from app.api.v1.system import router as system_router
 
 api_router = APIRouter()
@@ -40,5 +39,4 @@ api_router.include_router(review_report_router, tags=["review-report"])
 api_router.include_router(research_findings_router, tags=["research-findings"])
 api_router.include_router(search_router, tags=["search"])
 api_router.include_router(source_references_router, tags=["source-references"])
-api_router.include_router(summary_items_router, tags=["summary-items"])
 api_router.include_router(system_router, prefix="/system", tags=["system"])

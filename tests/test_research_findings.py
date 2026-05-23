@@ -131,6 +131,7 @@ def test_research_finding_schema_accepts_graph_compatible_target_fields() -> Non
         suggested_type_reason=None,
         relevance_reason=payload.relevance_reason,
         source_validation_status="source_valid",
+        llm_support_status="confirmed",
         conversion_status="not_converted",
         target_object_type=None,
         target_object_id=None,
@@ -142,6 +143,7 @@ def test_research_finding_schema_accepts_graph_compatible_target_fields() -> Non
 
     assert read.title == "Találat"
     assert read.suggested_type == "other"
+    assert read.llm_support_status == "confirmed"
     assert read.conversion_status == "not_converted"
 
 
@@ -161,6 +163,7 @@ def test_convert_research_finding_marks_target_and_preserves_source(monkeypatch)
         suggested_type_reason=None,
         relevance_reason="A fókuszhoz kapcsolódik.",
         source_validation_status="source_valid",
+        llm_support_status="confirmed",
         conversion_status="not_converted",
         target_object_type=None,
         target_object_id=None,
@@ -201,7 +204,7 @@ def test_convert_research_finding_marks_target_and_preserves_source(monkeypatch)
         FakeDb(),
         case_id,
         finding_id,
-        ManualObjectFromSourceCreate(object_type="claim", claim_text="Kézi állítás."),
+        ManualObjectFromSourceCreate(object_type="claim", claim_title="Kézi állítás", claim_text="Kézi állítás leírása."),
     )
 
     assert converted is finding
@@ -227,6 +230,7 @@ def test_set_aside_research_finding_parks_without_target() -> None:
         suggested_type_reason=None,
         relevance_reason="A fókuszhoz kapcsolódik.",
         source_validation_status="source_valid",
+        llm_support_status="confirmed",
         conversion_status="not_converted",
         target_object_type=None,
         target_object_id=None,
@@ -262,6 +266,7 @@ def test_restore_research_finding_returns_to_active_worklist() -> None:
         suggested_type_reason=None,
         relevance_reason="A fókuszhoz kapcsolódik.",
         source_validation_status="source_valid",
+        llm_support_status="confirmed",
         conversion_status="ignored",
         target_object_type=None,
         target_object_id=None,
@@ -297,6 +302,7 @@ def test_set_aside_research_finding_rejects_converted() -> None:
         suggested_type_reason=None,
         relevance_reason="A fókuszhoz kapcsolódik.",
         source_validation_status="source_valid",
+        llm_support_status="confirmed",
         conversion_status="converted",
         target_object_type="claim",
         target_object_id=uuid4(),
@@ -328,6 +334,7 @@ def test_delete_research_finding_removes_unconverted_worklist_item() -> None:
         suggested_type_reason=None,
         relevance_reason="A fókuszhoz kapcsolódik.",
         source_validation_status="source_valid",
+        llm_support_status="confirmed",
         conversion_status="not_converted",
         target_object_type=None,
         target_object_id=None,
@@ -363,6 +370,7 @@ def test_bulk_delete_research_findings_removes_multiple_worklist_items() -> None
         suggested_type_reason=None,
         relevance_reason="A fókuszhoz kapcsolódik.",
         source_validation_status="source_valid",
+        llm_support_status="confirmed",
         conversion_status="not_converted",
         target_object_type=None,
         target_object_id=None,
@@ -380,6 +388,7 @@ def test_bulk_delete_research_findings_removes_multiple_worklist_items() -> None
         suggested_type_reason=None,
         relevance_reason="A fókuszhoz kapcsolódik.",
         source_validation_status="source_valid",
+        llm_support_status="confirmed",
         conversion_status="ignored",
         target_object_type=None,
         target_object_id=None,

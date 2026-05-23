@@ -20,11 +20,15 @@ class ResearchFindingModel(Base):
             name="ck_research_findings_source_validation_status",
         ),
         CheckConstraint(
+            "llm_support_status in ('confirmed', 'unconfirmed')",
+            name="ck_research_findings_llm_support_status",
+        ),
+        CheckConstraint(
             "conversion_status in ('not_converted', 'converted', 'ignored')",
             name="ck_research_findings_conversion_status",
         ),
         CheckConstraint(
-            "target_object_type is null or target_object_type in ('claim', 'event', 'entity', 'missing_item_candidate', 'summary_item', 'other')",
+            "target_object_type is null or target_object_type in ('claim', 'event', 'entity', 'missing_item_candidate', 'other')",
             name="ck_research_findings_target_object_type",
         ),
         CheckConstraint(
@@ -44,6 +48,7 @@ class ResearchFindingModel(Base):
     suggested_type_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     relevance_reason: Mapped[str] = mapped_column(Text, nullable=False)
     source_validation_status: Mapped[str] = mapped_column(Text, nullable=False)
+    llm_support_status: Mapped[str] = mapped_column(Text, nullable=False, default="confirmed")
     conversion_status: Mapped[str] = mapped_column(Text, nullable=False)
     target_object_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     target_object_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)

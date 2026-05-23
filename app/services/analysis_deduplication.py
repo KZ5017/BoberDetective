@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import and_, or_, select
@@ -10,7 +11,6 @@ from app.models.entity import EntityMentionModel, EntityModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.missing_item import MissingItemCandidateModel, MissingItemCandidateSourceModel
 from app.models.source_reference import SourceReferenceModel
-from app.models.summary_item import SummaryItemModel, SummaryItemSourceModel
 
 
 def normalize_for_dedup(value: str | None) -> str:
@@ -45,8 +45,8 @@ def find_duplicate_event(
     case_id: UUID,
     event_type: str,
     event_title: str,
-    event_time_raw: str | None,
-    location_text: str | None = None,
+    event_time_start: datetime | None,
+    time_precision: str | None = None,
     document_id: UUID | None = None,
     chunk_id: UUID | None = None,
     quote_text: str | None = None,
@@ -61,13 +61,11 @@ def find_duplicate_event(
         )
     ).all()
     expected_title = normalize_for_dedup(event_title)
-    expected_time = normalize_for_dedup(event_time_raw)
-    expected_location = normalize_for_dedup(location_text)
     for event, source_reference in rows:
         if (
             normalize_for_dedup(event.event_title) == expected_title
-            and normalize_for_dedup(event.event_time_raw) == expected_time
-            and normalize_for_dedup(event.location_text) == expected_location
+            and event.event_time_start == event_time_start
+            and normalize_for_dedup(event.time_precision) == normalize_for_dedup(time_precision)
         ):
             return event, source_reference
     return None
@@ -104,44 +102,12 @@ def find_duplicate_entity(
     return None
 
 
-def find_duplicate_summary_item(
-    db: Session,
-    *,
-    case_id: UUID,
-    summary_type: str,
-    title: str,
-    body_text: str,
-    document_id: UUID,
-    chunk_id: UUID | None,
-    quote_text: str,
-) -> tuple[SummaryItemModel, SourceReferenceModel] | None:
-    rows = db.execute(
-        select(SummaryItemModel, SourceReferenceModel)
-        .join(SummaryItemSourceModel, SummaryItemSourceModel.summary_item_id == SummaryItemModel.id)
-        .join(SourceReferenceModel, SourceReferenceModel.id == SummaryItemSourceModel.source_reference_id)
-        .where(
-            SummaryItemModel.case_id == case_id,
-            SummaryItemModel.summary_type == summary_type,
-        )
-    ).all()
-    expected_title = normalize_for_dedup(title)
-    expected_body = normalize_for_dedup(body_text)
-    for summary_item, source_reference in rows:
-        if (
-            normalize_for_dedup(summary_item.title) == expected_title
-            and normalize_for_dedup(summary_item.body_text) == expected_body
-        ):
-            return summary_item, source_reference
-    return None
-
-
 def find_duplicate_missing_item_candidate(
     db: Session,
     *,
     case_id: UUID,
     missing_item_type: str,
     referenced_item_text: str,
-    expected_document_type: str | None = None,
     document_id: UUID | None = None,
     chunk_id: UUID | None = None,
     quote_text: str | None = None,
@@ -159,12 +125,8 @@ def find_duplicate_missing_item_candidate(
         )
     ).all()
     expected_text = normalize_for_dedup(referenced_item_text)
-    expected_doc_type = normalize_for_dedup(expected_document_type)
     for candidate, source_reference in rows:
-        if (
-            normalize_for_dedup(candidate.referenced_item_text) == expected_text
-            and normalize_for_dedup(candidate.expected_document_type) == expected_doc_type
-        ):
+        if normalize_for_dedup(candidate.referenced_item_text) == expected_text:
             return candidate, source_reference
     return None
 

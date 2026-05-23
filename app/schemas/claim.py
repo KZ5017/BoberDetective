@@ -13,6 +13,7 @@ class ClaimRead(BaseModel):
     id: UUID
     case_id: UUID
     claim_type: str
+    claim_title: str
     claim_text: str
     claim_time_raw: str | None
     claim_time_normalized: datetime | None
@@ -43,3 +44,17 @@ class ClaimDetail(BaseModel):
     claim: ClaimRead
     sources: list[ClaimSourceRead]
     reviews: list[HumanReviewRead]
+
+
+class ClaimMergeCreate(BaseModel):
+    target_claim_id: UUID
+    review_comment: str | None = None
+
+
+class ClaimSourceDetachCreate(BaseModel):
+    review_comment: str | None = None
+
+
+class ClaimSourceMoveCreate(BaseModel):
+    target_claim_id: UUID
+    review_comment: str | None = None
