@@ -392,6 +392,12 @@ export type ManualObjectPayload = {
 
 export type ManualObjectFromSourcePayload = Omit<ManualObjectPayload, "source_reference">;
 
+export type ManualSourceAttachmentPayload = {
+  source_reference: ManualObjectPayload["source_reference"];
+  target_object_type: ManualObjectType;
+  target_object_id: string;
+};
+
 export type ManualObjectResponse = {
   analysis_run_id: string;
   source_reference: {
@@ -400,6 +406,18 @@ export type ManualObjectResponse = {
   };
   object_type: string;
   object_id: string;
+};
+
+export type ManualSourceAttachmentResponse = {
+  analysis_run_id: string;
+  source_reference: {
+    id: string;
+    citation_label: string | null;
+  };
+  target_object_type: string;
+  target_object_id: string;
+  skipped_duplicate_source: boolean;
+  target_reactivated: boolean;
 };
 
 export type ResearchFindingConvertResponse = ManualObjectResponse & {
@@ -522,6 +540,26 @@ export function reviewObject(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action_type: actionType, review_comment: reviewComment || null })
+  });
+}
+
+export function deleteReviewReportItem(caseId: string, objectType: string, objectId: string): Promise<void> {
+  return request(`/cases/${caseId}/review-report/items/${objectType}/${objectId}`, {
+    method: "DELETE"
+  });
+}
+
+export function updateReviewReportItemText(
+  caseId: string,
+  objectType: string,
+  objectId: string,
+  title: string,
+  description: string
+): Promise<void> {
+  return request(`/cases/${caseId}/review-report/items/${objectType}/${objectId}/text`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, description })
   });
 }
 
@@ -651,20 +689,28 @@ export function attachDetachedSourceItem(
   });
 }
 
-export function discardDetachedSourceItem(
+export function deleteDetachedSourceItem(
   caseId: string,
-  itemId: string,
-  reviewComment?: string
-): Promise<DetachedSourceItemRead> {
-  return request(`/cases/${caseId}/detached-source-items/${itemId}/discard`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ review_comment: reviewComment || null })
+  itemId: string
+): Promise<void> {
+  return request(`/cases/${caseId}/detached-source-items/${itemId}`, {
+    method: "DELETE"
   });
 }
 
 export function createManualObject(caseId: string, payload: ManualObjectPayload): Promise<ManualObjectResponse> {
   return request(`/cases/${caseId}/manual-objects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function attachManualSourceToExistingObject(
+  caseId: string,
+  payload: ManualSourceAttachmentPayload
+): Promise<ManualSourceAttachmentResponse> {
+  return request(`/cases/${caseId}/manual-source-attachments`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)

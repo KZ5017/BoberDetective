@@ -16,7 +16,7 @@ class DetachedSourceItemModel(Base):
             name="ck_detached_source_items_object_type",
         ),
         CheckConstraint(
-            "handling_status in ('needs_review', 'reattached', 'discarded')",
+            "handling_status in ('needs_review', 'reattached')",
             name="ck_detached_source_items_handling_status",
         ),
     )

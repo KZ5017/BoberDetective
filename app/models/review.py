@@ -17,7 +17,7 @@ class HumanReviewModel(Base):
             name="ck_human_reviews_object_type",
         ),
         CheckConstraint(
-            "action_type in ('mark_needs_review', 'verify', 'reject', 'correct', 'comment', 'attach_source', 'detach_source')",
+            "action_type in ('mark_needs_review', 'verify', 'reject', 'correct', 'comment', 'attach_source', 'detach_source', 'delete_object', 'edit_text')",
             name="ck_human_reviews_action_type",
         ),
         CheckConstraint(

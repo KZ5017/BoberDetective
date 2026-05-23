@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 220 passed`, `alembic: 0031_detached_source_claims (head)`.
+- Current verification baseline: `pytest: 225 passed`, `alembic: 0034_review_edit_text (head)`.
 
 Initial implementation exists:
 
@@ -96,7 +96,11 @@ Initial implementation exists:
 - source links can be moved, detached, parked, and reattached for claims, entities, events, and missing item candidates; these operations remain same-main-type, but subtype matching is intentionally not enforced,
 - claim/entity/event/missing item candidate source links can be detached manually through audit-tracked `detach_source` review actions; frontend source details show `Levalasztas` only when a concrete source-link id is available,
 - detached source links are parked in `detached_source_items` with the source reference plus object/source snapshots, and the frontend shows them under `Levalasztott forrasok`,
-- detached sources can be reattached from the parked-source panel or marked irrelevant; source details can also directly move a source to another same-main-type target object without a manual detach/reattach round,
+- detached sources can be reattached from the parked-source panel or permanently deleted from the parked-source worklist; the old irrelevant/discarded parked-source state has been removed,
+- selected readonly chunk text can be attached directly to an existing same-case claim/entity/event/missing item candidate through a manual source attachment workflow; the backend validates active source material, target ownership/type, and exact duplicate source attachments,
+- review-report items with `source_valid` and non-`corrected` review status can have title/description edited from the object detail panel through an audited backend endpoint; `corrected` or `source_invalid` items can instead be permanently deleted from the report workflow,
+- searchable overlay selectors are now used for large target lists in merge, source move, manual contradiction selection, and detached-source reattach flows, so long 100+ item cases are easier to navigate,
+- source details can also directly move a source to another same-main-type target object without a manual detach/reattach round,
 - document lifecycle/parking is implemented with `active`, `excluded`, and `archived` states plus audit-tracked status changes; only active documents can be used as new source material for indexing, retrieval, analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge, and contradiction candidate creation/claim selection,
 - existing review findings from excluded/archived documents remain visible for historical review, and review report source details expose the source document lifecycle status,
 - early document discard/delete is allowed only before the document has become analysis/source material; otherwise documents should be excluded or archived rather than physically removed,
@@ -307,7 +311,7 @@ Implementation status:
 - Initial FastAPI scaffold exists under `app/`.
 - Health endpoint works.
 - SQLAlchemy/psycopg DB layer exists.
-- Alembic migrations through `0031_detached_source_claims` are applied.
+- Alembic migrations through `0034_review_edit_text` are applied.
 - `users`, `cases`, `case_users`, `audit_events`, `documents`, `document_pages`, `document_chunks`, `source_references`, `analysis_runs`, `analysis_run_inputs`, `analysis_run_outputs`, `claims`, `claim_sources`, `entities`, `entity_mentions`, `human_reviews`, `events`, `event_sources`, `exports`, `export_items`, `contradiction_candidates`, `contradiction_candidate_sources`, `missing_item_candidates`, `missing_item_candidate_sources`, `research_findings`, and `detached_source_items` tables exist.
 - Case create/list API works.
 - Case creation writes DB audit event and JSONL audit event.
@@ -454,7 +458,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `220 passed`.
+- Latest test run: `225 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

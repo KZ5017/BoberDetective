@@ -275,21 +275,19 @@ def attach_detached_source_item(
     return item
 
 
-def discard_detached_source_item(
+def delete_detached_source_item(
     db: Session,
     *,
     case_id: UUID,
     item_id: UUID,
     review_comment: str | None = None,
-) -> DetachedSourceItemModel:
+) -> None:
     item = get_detached_source_item(db, case_id, item_id)
     if item.handling_status != "needs_review":
         raise DetachedSourceValidationError("Detached source item has already been handled")
 
+    source_reference = db.get(SourceReferenceModel, item.source_reference_id)
     user = get_or_create_dev_user(db)
-    item.handling_status = "discarded"
-    item.updated_at = datetime.now(UTC)
-    db.add(item)
     review = HumanReviewModel(
         case_id=case_id,
         object_type="source_reference",
@@ -297,25 +295,38 @@ def discard_detached_source_item(
         action_type="reject",
         previous_review_status=None,
         new_review_status=None,
-        review_comment=review_comment or "Levalasztott forras irrelevansnak jelolve.",
-        correction_patch_json={"operation": "discard_detached_source", "detached_source_item_id": str(item.id)},
+        review_comment=review_comment or "Leválasztott forráshivatkozás véglegesen törölve a munkalistából.",
+        correction_patch_json={
+            "operation": "delete_detached_source",
+            "detached_source_item_id": str(item.id),
+            "source_reference_id": str(item.source_reference_id),
+        },
         performed_by_user_id=user.id,
     )
     db.add(review)
     db.flush()
 
     audit_event = AuditEvent(
-        event_type="detached_source_discarded",
+        event_type="detached_source_deleted",
         success=True,
         case_id=str(case_id),
         user_id=str(user.id),
         related_object_type="source_reference",
         related_object_id=str(item.source_reference_id),
-        input_summary={"detached_source_item_id": str(item.id)},
-        output_summary={"human_review_id": str(review.id), "handling_status": item.handling_status},
+        related_document_id=str(source_reference.document_id) if source_reference is not None else None,
+        related_page_id=str(source_reference.page_id) if source_reference is not None and source_reference.page_id is not None else None,
+        related_chunk_id=str(source_reference.chunk_id) if source_reference is not None and source_reference.chunk_id is not None else None,
+        input_summary={
+            "detached_source_item_id": str(item.id),
+            "source_reference_id": str(item.source_reference_id),
+            "detached_from_object_type": item.detached_from_object_type,
+            "detached_from_object_id": str(item.detached_from_object_id),
+            "detached_from_source_link_id": str(item.detached_from_source_link_id),
+        },
+        output_summary={"human_review_id": str(review.id), "deleted": True},
     )
     DatabaseAuditWriter(db).write(audit_event)
     JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(audit_event)
+    db.delete(item)
     db.commit()
-    db.refresh(item)
-    return item
+    return None

@@ -70,3 +70,8 @@ class CaseReviewReport(BaseModel):
     case_id: UUID
     counts: ReviewReportCounts
     items: list[ReviewReportItem]
+
+
+class ReviewReportItemTextUpdate(BaseModel):
+    title: str
+    description: str

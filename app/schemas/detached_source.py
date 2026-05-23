@@ -38,6 +38,3 @@ class DetachedSourceAttachCreate(BaseModel):
     target_object_id: UUID
     review_comment: str | None = None
 
-
-class DetachedSourceDiscardCreate(BaseModel):
-    review_comment: str | None = None

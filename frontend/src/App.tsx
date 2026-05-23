@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Archive,
   CheckCircle2,
@@ -46,6 +47,7 @@ import {
   ReviewReportSource,
   RetrievalStrategy,
   attachDetachedSourceItem,
+  attachManualSourceToExistingObject,
   bulkDeleteResearchFindings,
   convertResearchFinding,
   createCase,
@@ -56,7 +58,8 @@ import {
   createManualObjectFromDetachedSource,
   detachObjectSource,
   discardDocument,
-  discardDetachedSourceItem,
+  deleteDetachedSourceItem,
+  deleteReviewReportItem,
   getAnalysisRun,
   getChunkIndexStatus,
   getReviewReport,
@@ -89,7 +92,8 @@ import {
   setAsideResearchFinding,
   startChunkIndexJob,
   updateDocumentLifecycle,
-  updateDocumentTaxonomy
+  updateDocumentTaxonomy,
+  updateReviewReportItemText
 } from "./api";
 
 const modules = ["search_findings", "detect_contradiction_candidates"];
@@ -108,6 +112,13 @@ const sourceValidationStatuses = ["", "source_valid", "source_invalid", "pending
 const analysisSourceModes: AnalysisSourceMode[] = ["case", "document"];
 const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
 const retrievalStrategies: RetrievalStrategy[] = ["keyword", "semantic", "hybrid"];
+
+type SearchableSelectOption = {
+  id: string;
+  label: string;
+  searchText?: string;
+  disabled?: boolean;
+};
 
 const busyLabels: Record<string, string> = {
   cases: "Ugylista frissitese",
@@ -138,8 +149,11 @@ const busyLabels: Record<string, string> = {
   "source-detach": "Forráshivatkozás leválasztása",
   "source-move": "Forráshivatkozás áthelyezése",
   "detached-source-attach": "Leválasztott forráshivatkozás csatolása",
-  "detached-source-discard": "Leválasztott forráshivatkozás irrelevánsnak jelölése",
+  "detached-source-delete": "Leválasztott forráshivatkozás végleges törlése",
+  "review-item-delete": "Találat végleges törlése",
+  "review-item-text": "Találat szövegének módosítása",
   "manual-object": "Kézi találat rögzítése",
+  "manual-source-attach": "Kézi forráshivatkozás csatolása",
   "manual-contradiction": "Kézi ellentmondásjelölt rögzítése",
   "finding-convert": "Kutatási találat átalakítása",
   "chunk-index": "Chunk indexeles",
@@ -251,7 +265,9 @@ const actionLabels: Record<string, string> = {
   comment: "Megjegyzes",
   correct: "Javitas",
   attach_source: "Forráshivatkozás csatolása",
-  detach_source: "Forráshivatkozás leválasztása"
+  detach_source: "Forráshivatkozás leválasztása",
+  edit_text: "Cím/leírás módosítása",
+  delete_object: "Végleges törlés"
 };
 
 function getManualContradictionClaims(caseId: string): Promise<ReviewReport> {
@@ -317,8 +333,11 @@ export function App() {
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [lastExport, setLastExport] = useState<ExportDetail | null>(null);
   const [reviewComments, setReviewComments] = useState<Record<string, string>>({});
+  const [objectTextEdit, setObjectTextEdit] = useState({ title: "", description: "" });
   const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
   const [sourceMoveTargets, setSourceMoveTargets] = useState<Record<string, string>>({});
+  const [searchableSelectQueries, setSearchableSelectQueries] = useState<Record<string, string>>({});
+  const [activeSearchableSelectKey, setActiveSearchableSelectKey] = useState("");
   const [detachedSourceTargets, setDetachedSourceTargets] = useState<Record<string, string>>({});
   const [detachedManualTypes, setDetachedManualTypes] = useState<Record<string, ManualObjectType>>({});
   const [detachedManualFields, setDetachedManualFields] = useState<Record<string, Record<string, string>>>({});
@@ -340,6 +359,8 @@ export function App() {
   const manualSourcePanelRef = useRef<HTMLDetailsElement | null>(null);
   const [manualObjectType, setManualObjectType] = useState<ManualObjectType>("claim");
   const [manualFields, setManualFields] = useState<Record<string, string>>({});
+  const [manualSourceAttachType, setManualSourceAttachType] = useState<ManualObjectType>("claim");
+  const [manualSourceAttachTargetId, setManualSourceAttachTargetId] = useState("");
   const [manualContradiction, setManualContradiction] = useState<ManualContradictionCandidatePayload>({
     claim_id_a: "",
     claim_id_b: "",
@@ -530,6 +551,13 @@ export function App() {
       setReport(null);
     }
   }, [selectedCaseId]);
+
+  useEffect(() => {
+    setObjectTextEdit({
+      title: selectedReportItem?.title ?? "",
+      description: selectedReportItem?.body_text ?? "",
+    });
+  }, [selectedReportItem?.object_id, selectedReportItem?.title, selectedReportItem?.body_text]);
 
   useEffect(() => {
     if (analysisDocumentId && !activeDocuments.some((item) => item.id === analysisDocumentId)) {
@@ -1142,6 +1170,75 @@ export function App() {
     return false;
   }
 
+  function reviewItemCanBeDeleted(item: ReviewReportItem) {
+    return item.review_status === "corrected" || item.source_validation_status === "source_invalid";
+  }
+
+  function reviewItemTextCanBeEdited(item: ReviewReportItem) {
+    return item.review_status !== "corrected" && item.source_validation_status === "source_valid";
+  }
+
+  function objectTextEditUnchanged(item: ReviewReportItem) {
+    return objectTextEdit.title.trim() === item.title.trim() && objectTextEdit.description.trim() === (item.body_text ?? "").trim();
+  }
+
+  async function handleUpdateReviewReportItemText(item: ReviewReportItem) {
+    if (!selectedCaseId || !reviewItemTextCanBeEdited(item)) return;
+    const title = objectTextEdit.title.trim();
+    const description = objectTextEdit.description.trim();
+    if (!title || !description || objectTextEditUnchanged(item)) return;
+    await perform("review-item-text", async () => {
+      await updateReviewReportItemText(selectedCaseId, item.object_type, item.object_id, title, description);
+      const [reportResponse, manualClaimsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId)
+      ]);
+      setReport(reportResponse);
+      setClaims(claimsResponse.data);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(reportResponse.items.find((reportItem) => reportItem.object_id === item.object_id) ?? null);
+      setNotice("Találat címe/leírása módosítva.");
+      setLastActionSummary(`${labelObjectType(item.object_type)}: cím/leírás módosítva.`);
+    });
+  }
+
+  async function handleDeleteReviewReportItem(item: ReviewReportItem) {
+    if (!selectedCaseId || !reviewItemCanBeDeleted(item)) return;
+    const confirmed = window.confirm(
+      `Biztosan véglegesen törlöd ezt a találatot az áttekintési jelentésből?\n\n${item.title}`
+    );
+    if (!confirmed) return;
+    await perform("review-item-delete", async () => {
+      await deleteReviewReportItem(selectedCaseId, item.object_type, item.object_id);
+      const [reportResponse, manualClaimsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId),
+        listDetachedSourceItems(selectedCaseId)
+      ]);
+      setReport(reportResponse);
+      setClaims(claimsResponse.data);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setDetachedSourceItems(detachedSourcesResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(null);
+      setNotice("Találat véglegesen törölve.");
+      setLastActionSummary(`${labelObjectType(item.object_type)}: véglegesen törölve.`);
+    });
+  }
+
   async function handleClaimMerge(sourceItem: ReviewReportItem) {
     if (!selectedCaseId || sourceItem.object_type !== "claim") return;
     const targetClaimId = mergeTargets[sourceItem.object_id];
@@ -1348,16 +1445,16 @@ export function App() {
     const sourceTargetLabel = (title: string, reviewStatus: string) =>
       `${title} (${labelReviewStatus(reviewStatus)}${reviewStatus === "corrected" ? ", újranyitás" : ""})`;
     if (item.detached_from_object_type === "claim") {
-      return claims.map((claim) => ({ id: claim.id, label: sourceTargetLabel(claim.claim_title, claim.review_status) }));
+      return claims.map((claim) => ({ id: claim.id, label: sourceTargetLabel(claim.claim_title, claim.review_status), searchText: claim.claim_text }));
     }
     if (item.detached_from_object_type === "entity") {
-      return entities.map((entity) => ({ id: entity.id, label: sourceTargetLabel(entity.canonical_name, entity.review_status) }));
+      return entities.map((entity) => ({ id: entity.id, label: sourceTargetLabel(entity.canonical_name, entity.review_status), searchText: entity.description ?? "" }));
     }
     if (item.detached_from_object_type === "event") {
-      return events.map((event) => ({ id: event.id, label: sourceTargetLabel(event.event_title, event.review_status) }));
+      return events.map((event) => ({ id: event.id, label: sourceTargetLabel(event.event_title, event.review_status), searchText: event.event_description ?? "" }));
     }
     if (item.detached_from_object_type === "missing_item_candidate") {
-      return missingItemCandidates.map((candidate) => ({ id: candidate.id, label: sourceTargetLabel(candidate.referenced_item_text, candidate.review_status) }));
+      return missingItemCandidates.map((candidate) => ({ id: candidate.id, label: sourceTargetLabel(candidate.referenced_item_text, candidate.review_status), searchText: candidate.description }));
     }
     return [];
   }
@@ -1418,13 +1515,15 @@ export function App() {
     });
   }
 
-  async function handleDiscardDetachedSource(item: DetachedSourceItemRead) {
+  async function handleDeleteDetachedSource(item: DetachedSourceItemRead) {
     if (!selectedCaseId) return;
-    await perform("detached-source-discard", async () => {
-      await discardDetachedSourceItem(selectedCaseId, item.id, item.detach_comment ?? undefined);
+    const confirmed = window.confirm("Biztosan véglegesen törlöd ezt a leválasztott forráshivatkozást a munkalistából?");
+    if (!confirmed) return;
+    await perform("detached-source-delete", async () => {
+      await deleteDetachedSourceItem(selectedCaseId, item.id);
       await refreshReviewStateAfterSourceChange(null);
-      setNotice("Leválasztott forráshivatkozás irrelevánsnak jelölve.");
-      setLastActionSummary("Leválasztott forráshivatkozás irrelevánsnak jelölve.");
+      setNotice("Leválasztott forráshivatkozás véglegesen törölve.");
+      setLastActionSummary("Leválasztott forráshivatkozás véglegesen törölve.");
     });
   }
 
@@ -1471,7 +1570,16 @@ export function App() {
   function manualObjectPayload(): ManualObjectPayload | null {
     if (!manualSource) return null;
     return {
-      source_reference: {
+      source_reference: manualSourceReferencePayload(),
+      ...manualObjectFieldsPayload(manualObjectType, manualFields)
+    };
+  }
+
+  function manualSourceReferencePayload(): ManualObjectPayload["source_reference"] {
+    if (!manualSource) {
+      throw new Error("Manual source is not selected");
+    }
+    return {
         document_id: manualSource.documentId,
         page_id: manualSource.pageId,
         chunk_id: manualSource.chunkId,
@@ -1480,9 +1588,36 @@ export function App() {
         quote_char_end: manualSource.quoteEnd,
         citation_label: manualSource.citationLabel,
         source_kind: "chunk_quote"
-      },
-      ...manualObjectFieldsPayload(manualObjectType, manualFields)
     };
+  }
+
+  function manualSourceAttachTargetOptions(type: ManualObjectType): SearchableSelectOption[] {
+    if (type === "claim") {
+      return claims.map((claim) => ({
+        id: claim.id,
+        label: `${claim.claim_title} (${labelReviewStatus(claim.review_status)})`,
+        searchText: claim.claim_text
+      }));
+    }
+    if (type === "entity") {
+      return entities.map((entity) => ({
+        id: entity.id,
+        label: `${entity.canonical_name} (${labelReviewStatus(entity.review_status)})`,
+        searchText: entity.description ?? ""
+      }));
+    }
+    if (type === "event") {
+      return events.map((event) => ({
+        id: event.id,
+        label: `${event.event_title} (${labelReviewStatus(event.review_status)})`,
+        searchText: event.event_description ?? ""
+      }));
+    }
+    return missingItemCandidates.map((candidate) => ({
+      id: candidate.id,
+      label: `${candidate.referenced_item_text} (${labelReviewStatus(candidate.review_status)})`,
+      searchText: candidate.description
+    }));
   }
 
   async function handleCreateManualObject() {
@@ -1512,6 +1647,42 @@ export function App() {
       setSelectedReportItem(reportResponse.items.find((item) => item.object_id === response.object_id) ?? null);
       setNotice("Forráshivatkozásból rögzített találat létrehozva.");
       setLastActionSummary(`${labelObjectType(response.object_type)}: forráshivatkozásból rögzítve.`);
+    });
+  }
+
+  async function handleAttachManualSourceToExistingObject() {
+    if (!selectedCaseId || !manualSource || !manualSourceAttachTargetId) return;
+    await perform("manual-source-attach", async () => {
+      const response = await attachManualSourceToExistingObject(selectedCaseId, {
+        source_reference: manualSourceReferencePayload(),
+        target_object_type: manualSourceAttachType,
+        target_object_id: manualSourceAttachTargetId
+      });
+      setManualSource(null);
+      setManualFields({});
+      setManualSourceAttachTargetId("");
+      const [reportResponse, manualClaimsResponse, runsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse, detachedSourcesResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listAnalysisRuns(selectedCaseId),
+        listClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId),
+        listDetachedSourceItems(selectedCaseId)
+      ]);
+      setReport(reportResponse);
+      setAnalysisRuns(runsResponse.data);
+      setClaims(claimsResponse.data);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setDetachedSourceItems(detachedSourcesResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(reportResponse.items.find((item) => item.object_id === response.target_object_id) ?? null);
+      const suffix = response.skipped_duplicate_source ? " A forrás már szerepelt a célon, ezért nem duplikáltuk." : "";
+      setNotice(`Forráshivatkozás meglévő találathoz csatolva.${suffix}`);
+      setLastActionSummary(`${labelObjectType(response.target_object_type)}: kézi forráshivatkozás csatolva.`);
     });
   }
 
@@ -1728,6 +1899,88 @@ export function App() {
     );
   }
 
+  function renderSearchableSelect(params: {
+    queryKey: string;
+    value: string;
+    onChange: (value: string) => void;
+    options: SearchableSelectOption[];
+    placeholder: string;
+    searchPlaceholder?: string;
+    ariaLabel: string;
+    action?: ReactNode;
+  }) {
+    const selectedOption = params.options.find((option) => option.id === params.value);
+    const inputValue = searchableSelectQueries[params.queryKey] ?? selectedOption?.label ?? "";
+    const normalizedFilter = normalizeComboboxText(inputValue);
+    const isActive = activeSearchableSelectKey === params.queryKey;
+    const visibleOptions = params.options
+      .filter((option) => {
+        if (!normalizedFilter) return true;
+        return normalizeComboboxText(`${option.label} ${option.searchText ?? ""}`).includes(normalizedFilter);
+      })
+      .slice(0, 30);
+    return (
+      <div
+        className="searchable-select"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setActiveSearchableSelectKey("");
+          }
+        }}
+      >
+        <div className="searchable-select-row">
+          <input
+            value={inputValue}
+            onFocus={() => setActiveSearchableSelectKey(params.queryKey)}
+            onChange={(event) => {
+              params.onChange("");
+              setActiveSearchableSelectKey(params.queryKey);
+              setSearchableSelectQueries((current) => ({ ...current, [params.queryKey]: event.target.value }));
+            }}
+            placeholder={params.searchPlaceholder ?? params.placeholder}
+            aria-label={params.ariaLabel}
+          />
+          {(params.value || inputValue) && (
+            <button
+              type="button"
+              className="secondary-button compact-clear-button"
+              onClick={() => {
+                params.onChange("");
+                setSearchableSelectQueries((current) => ({ ...current, [params.queryKey]: "" }));
+              }}
+            >
+              Törlés
+            </button>
+          )}
+          {params.action}
+        </div>
+        {isActive && (
+          <div className="searchable-select-options" role="listbox" aria-label={`${params.ariaLabel} találatok`}>
+            {visibleOptions.length === 0 && <span className="field-hint">Nincs találat.</span>}
+            {visibleOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={option.id === params.value ? "searchable-option selected" : "searchable-option"}
+                disabled={option.disabled}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  params.onChange(option.id);
+                  setSearchableSelectQueries((current) => ({ ...current, [params.queryKey]: option.label }));
+                  setActiveSearchableSelectKey("");
+                }}
+                role="option"
+                aria-selected={option.id === params.value}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function renderSourceDetachButton(item: ReviewReportItem, source: ReviewReportSource) {
     if (!canDetachSource(item, source)) return null;
     const key = sourceMoveKey(item, source);
@@ -1744,18 +1997,15 @@ export function App() {
         </button>
         {targetOptions.length > 0 && (
           <>
-            <select
-              value={sourceMoveTargets[key] ?? ""}
-              onChange={(event) => setSourceMoveTargets((current) => ({ ...current, [key]: event.target.value }))}
-              aria-label="Forráshivatkozás áthelyezési célja"
-            >
-              <option value="">Áthelyezés célja</option>
-              {targetOptions.map((target) => (
-                <option key={target.id} value={target.id}>
-                  {target.label}
-                </option>
-              ))}
-            </select>
+            {renderSearchableSelect({
+              queryKey: `source-move:${key}`,
+              value: sourceMoveTargets[key] ?? "",
+              onChange: (value) => setSourceMoveTargets((current) => ({ ...current, [key]: value })),
+              options: targetOptions,
+              placeholder: "Áthelyezés célja",
+              searchPlaceholder: "Keresés a célok között",
+              ariaLabel: "Forráshivatkozás áthelyezési célja"
+            })}
             <button className="secondary-button source-action" onClick={() => handleMoveSource(item, source)} disabled={Boolean(busy) || !sourceMoveTargets[key]}>
               Áthelyezés
             </button>
@@ -2008,29 +2258,31 @@ export function App() {
     if (targetOptions.length === 0) return null;
     return (
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
-        <label>
-          <span className="merge-label-line">
-            Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású állítások választhatók célként.)</span>
-          </span>
-          <select
-            value={mergeTargets[item.object_id] ?? ""}
-            onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
-          >
-            <option value="">Válassz célállítást</option>
-            {targetOptions.map((claim) => (
-              <option key={claim.id} value={claim.id}>
-                {claim.claim_title} ({labelReviewStatus(claim.review_status)})
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          className="secondary-button"
-          onClick={() => handleClaimMerge(item)}
-          disabled={Boolean(busy) || !mergeTargets[item.object_id]}
-        >
-          <GitMerge size={18} /> Összevonás
-        </button>
+        <span className="merge-label-line">
+          Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású állítások választhatók célként.)</span>
+        </span>
+        {renderSearchableSelect({
+          queryKey: `claim-merge:${item.object_id}`,
+          value: mergeTargets[item.object_id] ?? "",
+          onChange: (value) => setMergeTargets((current) => ({ ...current, [item.object_id]: value })),
+          options: targetOptions.map((claim) => ({
+            id: claim.id,
+            label: `${claim.claim_title} (${labelReviewStatus(claim.review_status)})`,
+            searchText: claim.claim_text
+          })),
+          placeholder: "Válassz célállítást",
+          searchPlaceholder: "Keresés célállításra",
+          ariaLabel: "Állítás összevonási célja",
+          action: (
+            <button
+              className="secondary-button"
+              onClick={() => handleClaimMerge(item)}
+              disabled={Boolean(busy) || !mergeTargets[item.object_id]}
+            >
+              <GitMerge size={18} /> Összevonás
+            </button>
+          )
+        })}
       </div>
     );
   }
@@ -2047,29 +2299,31 @@ export function App() {
     if (targetOptions.length === 0) return null;
     return (
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
-        <label>
-          <span className="merge-label-line">
-            Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású entitások választhatók célként.)</span>
-          </span>
-          <select
-            value={mergeTargets[item.object_id] ?? ""}
-            onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
-          >
-            <option value="">Válassz célentitást</option>
-            {targetOptions.map((entity) => (
-              <option key={entity.id} value={entity.id}>
-                {entity.canonical_name} ({labelReviewStatus(entity.review_status)})
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          className="secondary-button"
-          onClick={() => handleEntityMerge(item)}
-          disabled={Boolean(busy) || !mergeTargets[item.object_id]}
-        >
-          <GitMerge size={18} /> Összevonás
-        </button>
+        <span className="merge-label-line">
+          Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású entitások választhatók célként.)</span>
+        </span>
+        {renderSearchableSelect({
+          queryKey: `entity-merge:${item.object_id}`,
+          value: mergeTargets[item.object_id] ?? "",
+          onChange: (value) => setMergeTargets((current) => ({ ...current, [item.object_id]: value })),
+          options: targetOptions.map((entity) => ({
+            id: entity.id,
+            label: `${entity.canonical_name} (${labelReviewStatus(entity.review_status)})`,
+            searchText: entity.description ?? "",
+          })),
+          placeholder: "Válassz célentitást",
+          searchPlaceholder: "Keresés célentitásra",
+          ariaLabel: "Entitás összevonási célja",
+          action: (
+            <button
+              className="secondary-button"
+              onClick={() => handleEntityMerge(item)}
+              disabled={Boolean(busy) || !mergeTargets[item.object_id]}
+            >
+              <GitMerge size={18} /> Összevonás
+            </button>
+          )
+        })}
       </div>
     );
   }
@@ -2087,29 +2341,31 @@ export function App() {
     if (targetOptions.length === 0) return null;
     return (
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
-        <label>
-          <span className="merge-label-line">
-            Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású események választhatók célként.)</span>
-          </span>
-          <select
-            value={mergeTargets[item.object_id] ?? ""}
-            onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
-          >
-            <option value="">Válassz céleseményt</option>
-            {targetOptions.map((event) => (
-              <option key={event.id} value={event.id}>
-                {event.event_title} ({labelReviewStatus(event.review_status)})
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          className="secondary-button"
-          onClick={() => handleEventMerge(item)}
-          disabled={Boolean(busy) || !mergeTargets[item.object_id]}
-        >
-          <GitMerge size={18} /> Összevonás
-        </button>
+        <span className="merge-label-line">
+          Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású események választhatók célként.)</span>
+        </span>
+        {renderSearchableSelect({
+          queryKey: `event-merge:${item.object_id}`,
+          value: mergeTargets[item.object_id] ?? "",
+          onChange: (value) => setMergeTargets((current) => ({ ...current, [item.object_id]: value })),
+          options: targetOptions.map((event) => ({
+            id: event.id,
+            label: `${event.event_title} (${labelReviewStatus(event.review_status)})`,
+            searchText: event.event_description ?? "",
+          })),
+          placeholder: "Válassz céleseményt",
+          searchPlaceholder: "Keresés céleseményre",
+          ariaLabel: "Esemény összevonási célja",
+          action: (
+            <button
+              className="secondary-button"
+              onClick={() => handleEventMerge(item)}
+              disabled={Boolean(busy) || !mergeTargets[item.object_id]}
+            >
+              <GitMerge size={18} /> Összevonás
+            </button>
+          )
+        })}
       </div>
     );
   }
@@ -2127,29 +2383,31 @@ export function App() {
     if (targetOptions.length === 0) return null;
     return (
       <div className={compact ? "merge-panel compact-merge" : "merge-panel"}>
-        <label>
-          <span className="merge-label-line">
-            Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású hiányzó iratjelöltek választhatók célként.)</span>
-          </span>
-          <select
-            value={mergeTargets[item.object_id] ?? ""}
-            onChange={(event) => setMergeTargets((current) => ({ ...current, [item.object_id]: event.target.value }))}
-          >
-            <option value="">Válassz céljelöltet</option>
-            {targetOptions.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.referenced_item_text} ({labelReviewStatus(candidate.review_status)})
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          className="secondary-button"
-          onClick={() => handleMissingItemMerge(item)}
-          disabled={Boolean(busy) || !mergeTargets[item.object_id]}
-        >
-          <GitMerge size={18} /> Összevonás
-        </button>
+        <span className="merge-label-line">
+          Összevonás célja: <span className="field-hint">(Csak nem javított, érvényes forráshivatkozású hiányzó iratjelöltek választhatók célként.)</span>
+        </span>
+        {renderSearchableSelect({
+          queryKey: `missing-merge:${item.object_id}`,
+          value: mergeTargets[item.object_id] ?? "",
+          onChange: (value) => setMergeTargets((current) => ({ ...current, [item.object_id]: value })),
+          options: targetOptions.map((candidate) => ({
+            id: candidate.id,
+            label: `${candidate.referenced_item_text} (${labelReviewStatus(candidate.review_status)})`,
+            searchText: candidate.description
+          })),
+          placeholder: "Válassz céljelöltet",
+          searchPlaceholder: "Keresés céljelöltre",
+          ariaLabel: "Hiányzó iratjelölt összevonási célja",
+          action: (
+            <button
+              className="secondary-button"
+              onClick={() => handleMissingItemMerge(item)}
+              disabled={Boolean(busy) || !mergeTargets[item.object_id]}
+            >
+              <GitMerge size={18} /> Összevonás
+            </button>
+          )
+        })}
       </div>
     );
   }
@@ -2525,25 +2783,63 @@ export function App() {
                       <span className="field-hint">
                         {manualSource.citationLabel} | idézet {formatRange(manualSource.quoteStart, manualSource.quoteEnd)}
                       </span>
-                      <label>
-                        Találat típusa
-                        <select value={manualObjectType} onChange={(event) => setManualObjectType(event.target.value as ManualObjectType)}>
-                          {(Object.keys(manualObjectTypeLabels) as ManualObjectType[]).map((type) => (
-                            <option key={type} value={type}>
-                              {manualObjectTypeLabels[type]}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {renderManualObjectFields()}
-                      <div className="button-row">
-                        <button onClick={handleCreateManualObject} disabled={Boolean(busy)}>
-                          Rögzítés forráshivatkozásból
-                        </button>
-                        <button className="secondary-button" onClick={() => setManualSource(null)} disabled={Boolean(busy)}>
-                          Mégse
-                        </button>
-                      </div>
+                      <details>
+                        <summary>Meglévő találathoz csatolás</summary>
+                        <div className="manual-entry-panel">
+                          <div className="finding-conversion-type-row">
+                            <label>
+                              Cél típusa
+                              <select
+                                value={manualSourceAttachType}
+                                onChange={(event) => {
+                                  setManualSourceAttachType(event.target.value as ManualObjectType);
+                                  setManualSourceAttachTargetId("");
+                                }}
+                              >
+                                {(Object.keys(manualObjectTypeLabels) as ManualObjectType[]).map((type) => (
+                                  <option key={type} value={type}>
+                                    {manualObjectTypeLabels[type]}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            {renderSearchableSelect({
+                              queryKey: "manual-source-attach-target",
+                              value: manualSourceAttachTargetId,
+                              onChange: setManualSourceAttachTargetId,
+                              options: manualSourceAttachTargetOptions(manualSourceAttachType),
+                              placeholder: "Válassz céltalálatot",
+                              searchPlaceholder: "Keresés a céltalálatok között",
+                              ariaLabel: "Kézi forráshivatkozás csatolási célja"
+                            })}
+                          </div>
+                          <button onClick={handleAttachManualSourceToExistingObject} disabled={Boolean(busy) || !manualSourceAttachTargetId}>
+                            Forráshivatkozás csatolása
+                          </button>
+                        </div>
+                      </details>
+                      <details open>
+                        <summary>Új találat létrehozása</summary>
+                        <div className="manual-entry-panel">
+                          <label>
+                            Találat típusa
+                            <select value={manualObjectType} onChange={(event) => setManualObjectType(event.target.value as ManualObjectType)}>
+                              {(Object.keys(manualObjectTypeLabels) as ManualObjectType[]).map((type) => (
+                                <option key={type} value={type}>
+                                  {manualObjectTypeLabels[type]}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {renderManualObjectFields()}
+                          <button onClick={handleCreateManualObject} disabled={Boolean(busy)}>
+                            Rögzítés forráshivatkozásból
+                          </button>
+                        </div>
+                      </details>
+                      <button className="secondary-button" onClick={() => setManualSource(null)} disabled={Boolean(busy)}>
+                        Mégse
+                      </button>
                     </div>
                   </section>
                 )}
@@ -3265,9 +3561,16 @@ export function App() {
                         <span>{item.reviews.length} ellenőrzés</span>
                         <span>{formatSourceReferenceCount(item.sources.length)}</span>
                       </div>
-                      <button className="secondary-button" onClick={() => handleSelectReportItem(item)}>
-                        Részletek
-                      </button>
+                      <div className="source-action-row">
+                        <button className="secondary-button" onClick={() => handleSelectReportItem(item)}>
+                          Részletek
+                        </button>
+                        {reviewItemCanBeDeleted(item) && (
+                          <button className="secondary-button" onClick={() => handleDeleteReviewReportItem(item)} disabled={Boolean(busy)}>
+                            Végleges törlés
+                          </button>
+                        )}
+                      </div>
                       <div className="source-list">
                         {item.sources.map((source, index) => (
                           <details key={source.source_link_id ?? source.source_reference_id} className="source-detail">
@@ -3333,35 +3636,56 @@ export function App() {
             {manualContradictionClaimOptions.length < 2 && (
               <p className="muted">Legalább két érvényes forráshivatkozású, nem elutasított állítás kell a kézi jelölthez.</p>
             )}
-            <div className="form-row">
-              <label>
-                1. allitas
-                <select
-                  value={manualContradiction.claim_id_a}
-                  onChange={(event) => updateManualContradictionField("claim_id_a", event.target.value)}
-                >
-                  <option value="">Valassz allitast</option>
-                  {manualContradictionClaimOptions.map((item) => (
-                    <option key={item.object_id} value={item.object_id} disabled={item.object_id === manualContradiction.claim_id_b}>
-                      {truncateText(item.title || item.body_text || item.object_id, 90)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                2. allitas
-                <select
-                  value={manualContradiction.claim_id_b}
-                  onChange={(event) => updateManualContradictionField("claim_id_b", event.target.value)}
-                >
-                  <option value="">Valassz allitast</option>
-                  {manualContradictionClaimOptions.map((item) => (
-                    <option key={item.object_id} value={item.object_id} disabled={item.object_id === manualContradiction.claim_id_a}>
-                      {truncateText(item.title || item.body_text || item.object_id, 90)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div className="manual-contradiction-select-row">
+              <div className="manual-contradiction-select-field">
+                <span>1. állítás</span>
+                {renderSearchableSelect({
+                  queryKey: "manual-contradiction:claim-a",
+                  value: manualContradiction.claim_id_a,
+                  onChange: (value) => updateManualContradictionField("claim_id_a", value),
+                  options: manualContradictionClaimOptions.map((item) => ({
+                    id: item.object_id,
+                    label: truncateText(item.title || item.body_text || item.object_id, 90),
+                    searchText: `${item.title} ${item.body_text}`,
+                    disabled: item.object_id === manualContradiction.claim_id_b
+                  })),
+                  placeholder: "Válassz állítást",
+                  searchPlaceholder: "Keresés az állítások között",
+                  ariaLabel: "Első állítás kiválasztása"
+                })}
+              </div>
+              <div className="manual-contradiction-select-field">
+                <span>2. állítás</span>
+                {renderSearchableSelect({
+                  queryKey: "manual-contradiction:claim-b",
+                  value: manualContradiction.claim_id_b,
+                  onChange: (value) => updateManualContradictionField("claim_id_b", value),
+                  options: manualContradictionClaimOptions.map((item) => ({
+                    id: item.object_id,
+                    label: truncateText(item.title || item.body_text || item.object_id, 90),
+                    searchText: `${item.title} ${item.body_text}`,
+                    disabled: item.object_id === manualContradiction.claim_id_a
+                  })),
+                  placeholder: "Válassz állítást",
+                  searchPlaceholder: "Keresés az állítások között",
+                  ariaLabel: "Második állítás kiválasztása"
+                })}
+              </div>
+              <button
+                className="manual-contradiction-create-button"
+                onClick={handleCreateManualContradictionCandidate}
+                disabled={
+                  Boolean(busy) ||
+                  !selectedCaseId ||
+                  manualContradictionClaimOptions.length < 2 ||
+                  !manualContradiction.claim_id_a ||
+                  !manualContradiction.claim_id_b ||
+                  manualContradiction.claim_id_a === manualContradiction.claim_id_b ||
+                  !manualContradiction.description.trim()
+                }
+              >
+                <GitMerge size={18} /> Kézi jelölt létrehozása
+              </button>
             </div>
             <div className="form-row">
               <label>
@@ -3414,20 +3738,6 @@ export function App() {
               {selectedManualClaimA && renderClaimPreview(selectedManualClaimA, "")}
               {selectedManualClaimB && renderClaimPreview(selectedManualClaimB, "")}
             </div>
-            <button
-              onClick={handleCreateManualContradictionCandidate}
-              disabled={
-                Boolean(busy) ||
-                !selectedCaseId ||
-                manualContradictionClaimOptions.length < 2 ||
-                !manualContradiction.claim_id_a ||
-                !manualContradiction.claim_id_b ||
-                manualContradiction.claim_id_a === manualContradiction.claim_id_b ||
-                !manualContradiction.description.trim()
-              }
-            >
-              <GitMerge size={18} /> Kezi jelolt letrehozasa
-            </button>
           </section>
 
           <section className="panel detail-panel object-detail-panel" ref={objectDetailPanelRef}>
@@ -3458,6 +3768,40 @@ export function App() {
                     </div>
                   ))}
                 </div>
+                {reviewItemTextCanBeEdited(selectedReportItem) && (
+                  <details>
+                    <summary>Találat szövegének módosítása</summary>
+                    <div className="manual-entry-panel">
+                      <label>
+                        Cím
+                        <input
+                          value={objectTextEdit.title}
+                          onChange={(event) => setObjectTextEdit((current) => ({ ...current, title: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        Leírás
+                        <textarea
+                          value={objectTextEdit.description}
+                          onChange={(event) => setObjectTextEdit((current) => ({ ...current, description: event.target.value }))}
+                          rows={5}
+                        />
+                      </label>
+                      <button
+                        className="secondary-button"
+                        onClick={() => handleUpdateReviewReportItemText(selectedReportItem)}
+                        disabled={
+                          Boolean(busy) ||
+                          !objectTextEdit.title.trim() ||
+                          !objectTextEdit.description.trim() ||
+                          objectTextEditUnchanged(selectedReportItem)
+                        }
+                      >
+                        Módosítás mentése
+                      </button>
+                    </div>
+                  </details>
+                )}
                 {renderClaimMergeControls(selectedReportItem)}
                 {renderEntityMergeControls(selectedReportItem)}
                 {renderEventMergeControls(selectedReportItem)}
@@ -3530,18 +3874,15 @@ export function App() {
                   {item.handling_status === "needs_review" && (
                     <>
                       <div className="source-action-row">
-                        <select
-                          value={detachedSourceTargets[item.id] ?? ""}
-                          onChange={(event) => setDetachedSourceTargets((current) => ({ ...current, [item.id]: event.target.value }))}
-                          aria-label="Leválasztott forráshivatkozás csatolási célja"
-                        >
-                          <option value="">Visszacsatolás célja</option>
-                          {detachedSourceTargetOptions(item).map((target) => (
-                            <option key={target.id} value={target.id}>
-                              {target.label}
-                            </option>
-                          ))}
-                        </select>
+                        {renderSearchableSelect({
+                          queryKey: `detached-source-attach:${item.id}`,
+                          value: detachedSourceTargets[item.id] ?? "",
+                          onChange: (value) => setDetachedSourceTargets((current) => ({ ...current, [item.id]: value })),
+                          options: detachedSourceTargetOptions(item),
+                          placeholder: "Visszacsatolás célja",
+                          searchPlaceholder: "Keresés a visszacsatolási célok között",
+                          ariaLabel: "Leválasztott forráshivatkozás csatolási célja"
+                        })}
                         <button
                           className="secondary-button source-action"
                           onClick={() => handleAttachDetachedSource(item)}
@@ -3549,8 +3890,8 @@ export function App() {
                         >
                           Csatolás
                         </button>
-                        <button className="secondary-button source-action" onClick={() => handleDiscardDetachedSource(item)} disabled={Boolean(busy)}>
-                          Irreleváns
+                        <button className="secondary-button source-action" onClick={() => handleDeleteDetachedSource(item)} disabled={Boolean(busy)}>
+                          Végleges törlés
                         </button>
                       </div>
                       <details className="detached-source-create-details">
@@ -3842,7 +4183,7 @@ function reportItemMatchesSearch(item: ReviewReportItem, queryText: string) {
       source.document_filename ?? "",
       source.citation_label ?? "",
       source.quote_text,
-      source.source_text_excerpt ?? ""
+      source.source_text_excerpt ?? "",
     ])
   ]
     .join(" ")
@@ -3870,9 +4211,16 @@ function labelDetachedHandlingStatus(value: string) {
   const labels: Record<string, string> = {
     needs_review: "Ellenőrzésre vár",
     reattached: "Újra csatolva",
-    discarded: "Irrelevánsnak jelölve"
   };
   return labels[value] ?? value;
+}
+
+function normalizeComboboxText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("hu-HU")
+    .trim();
 }
 
 function labelProcessingStatus(value: string) {

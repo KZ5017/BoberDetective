@@ -58,6 +58,8 @@ def create_source_reference_for_run(
     case_id: UUID,
     payload: SourceReferenceCreate,
     extraction_run_id: UUID | None = None,
+    *,
+    commit: bool = True,
 ) -> SourceReferenceModel:
     document = _get_case_document(db, case_id, payload.document_id)
     page = _get_case_page(db, case_id, payload.page_id, payload.document_id)
@@ -118,8 +120,9 @@ def create_source_reference_for_run(
     )
     DatabaseAuditWriter(db).write(event)
     JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(event)
-    db.commit()
-    db.refresh(source_reference)
+    if commit:
+        db.commit()
+        db.refresh(source_reference)
     return source_reference
 
 

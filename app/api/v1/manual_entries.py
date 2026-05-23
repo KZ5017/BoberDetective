@@ -4,9 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.schemas.manual_entry import ManualObjectCreate, ManualObjectCreateResponse, ManualObjectFromSourceCreate
+from app.schemas.manual_entry import (
+    ManualObjectCreate,
+    ManualObjectCreateResponse,
+    ManualObjectFromSourceCreate,
+    ManualSourceAttachmentCreate,
+    ManualSourceAttachmentResponse,
+)
 from app.schemas.source_reference import SourceReferenceRead
-from app.services.manual_entries import ManualEntryError, create_manual_object, create_manual_object_from_detached_source
+from app.services.manual_entries import ManualEntryError, attach_manual_source_to_existing_object, create_manual_object, create_manual_object_from_detached_source
 from app.services.source_references import SourceReferenceValidationError
 
 router = APIRouter()
@@ -23,6 +29,34 @@ def post_manual_object(case_id: UUID, payload: ManualObjectCreate, db: Session =
         source_reference=SourceReferenceRead.model_validate(source_reference),
         object_type=object_type,
         object_id=object_id,
+    )
+
+
+@router.post(
+    "/cases/{case_id}/manual-source-attachments",
+    response_model=ManualSourceAttachmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_manual_source_attachment(
+    case_id: UUID,
+    payload: ManualSourceAttachmentCreate,
+    db: Session = Depends(get_db),
+) -> ManualSourceAttachmentResponse:
+    try:
+        run_id, source_reference, target_object_type, target_object_id, skipped_duplicate_source, target_reactivated = attach_manual_source_to_existing_object(
+            db,
+            case_id,
+            payload,
+        )
+    except (ManualEntryError, SourceReferenceValidationError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return ManualSourceAttachmentResponse(
+        analysis_run_id=run_id,
+        source_reference=SourceReferenceRead.model_validate(source_reference),
+        target_object_type=target_object_type,
+        target_object_id=target_object_id,
+        skipped_duplicate_source=skipped_duplicate_source,
+        target_reactivated=target_reactivated,
     )
 
 

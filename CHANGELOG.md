@@ -1,5 +1,21 @@
 # CHANGELOG.md
 
+## 2026-05-24
+
+### Added
+
+- Added searchable overlay target selectors for merge, direct source move, manual contradiction selection, and detached-source reattach workflows.
+- Added permanent detached-source deletion and removed the old irrelevant/discarded parked-source state through Alembic migration `0032_delete_discarded_detached_sources`.
+- Added permanent cleanup for corrected or source-invalid review-report items through Alembic migration `0033_review_delete_action`.
+- Added audited title/description editing for source-valid, non-corrected review-report items through Alembic migration `0034_review_edit_text`.
+- Added direct attachment of selected readonly chunk text to existing structured objects through the manual source workflow, with backend validation for active source material, target ownership/type, and exact duplicate attachments.
+
+### Changed
+
+- Removed user-entered comments from manual source attachment to existing objects; the operation is tracked by system provenance and audit/review records instead.
+- Updated the verification baseline to `225 passed` and Alembic head `0034_review_edit_text`.
+- Kept the next larger direction as the dedicated full `Audit naplo` API/panel backed by `audit_events`.
+
 ## 2026-05-23
 
 ### Added

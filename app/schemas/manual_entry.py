@@ -57,11 +57,26 @@ class ManualObjectFromSourceCreate(ManualObjectFields):
     pass
 
 
+class ManualSourceAttachmentCreate(BaseModel):
+    source_reference: SourceReferenceCreate
+    target_object_type: str = Field(pattern="^(claim|entity|event|missing_item_candidate)$")
+    target_object_id: UUID
+
+
 class ManualObjectCreateResponse(BaseModel):
     analysis_run_id: UUID
     source_reference: SourceReferenceRead
     object_type: str
     object_id: UUID
+
+
+class ManualSourceAttachmentResponse(BaseModel):
+    analysis_run_id: UUID
+    source_reference: SourceReferenceRead
+    target_object_type: str
+    target_object_id: UUID
+    skipped_duplicate_source: bool
+    target_reactivated: bool
 
 
 def _has_text(value: str | None) -> bool:

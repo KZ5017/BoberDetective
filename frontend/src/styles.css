@@ -451,12 +451,12 @@ label {
 }
 
 .merge-panel {
-  align-items: end;
+  align-items: stretch;
   border: 1px solid #d7dde2;
   border-radius: 8px;
   display: grid;
   gap: 0.65rem;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   padding: 0.7rem;
 }
 
@@ -472,7 +472,6 @@ label {
 }
 
 .compact-merge {
-  grid-template-columns: minmax(180px, 1fr) auto;
   padding: 0.55rem;
 }
 
@@ -490,6 +489,74 @@ label {
 
 .source-action-row select {
   min-width: min(100%, 14rem);
+}
+
+.searchable-select {
+  display: grid;
+  gap: 0.35rem;
+  min-width: min(100%, 26rem);
+  position: relative;
+}
+
+.searchable-select-row {
+  align-items: center;
+  display: flex;
+  gap: 0.35rem;
+}
+
+.searchable-select-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.searchable-select-options {
+  background: #fff;
+  border: 1px solid #d7dde2;
+  border-radius: 6px;
+  box-shadow: 0 8px 18px rgba(31, 42, 51, 0.18);
+  display: grid;
+  gap: 0.12rem;
+  left: 0;
+  max-height: 12rem;
+  overflow: auto;
+  padding: 0.2rem;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.2rem);
+  z-index: 40;
+}
+
+.searchable-option {
+  background: #fff;
+  border: 1px solid transparent;
+  box-shadow: none;
+  color: #202124;
+  font-weight: 500;
+  justify-content: flex-start;
+  line-height: 1.25;
+  min-height: 1.65rem;
+  padding: 0.24rem 0.42rem;
+  text-align: left;
+  transform: none;
+}
+
+.searchable-option:hover:not(:disabled),
+.searchable-option.selected {
+  background: #e8f1f7;
+  border-color: #9bb2c1;
+  box-shadow: none;
+  color: #143b57;
+  transform: none;
+}
+
+.searchable-option:active:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.compact-clear-button {
+  min-height: 2.35rem;
+  padding-inline: 0.7rem;
 }
 
 .detached-source-list blockquote {
@@ -515,6 +582,23 @@ label {
 .manual-entry-panel {
   display: grid;
   gap: 0.75rem;
+}
+
+.manual-contradiction-select-row {
+  align-items: end;
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.manual-contradiction-select-field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.manual-contradiction-create-button {
+  white-space: nowrap;
 }
 
 .manual-source-panel {
@@ -1202,6 +1286,10 @@ pre {
     gap: 0.42rem;
   }
 
+  .searchable-select {
+    min-width: 100%;
+  }
+
   .status-strip {
     gap: 0.4rem;
   }
@@ -1239,7 +1327,8 @@ pre {
   .source-list,
   .history,
   .review-history-item,
-  .manual-entry-panel {
+  .manual-entry-panel,
+  .manual-contradiction-select-row {
     gap: 0.45rem;
   }
 
@@ -1416,6 +1505,7 @@ pre {
   .case-strip-controls,
   .form-row,
   .model-status-grid,
+  .manual-contradiction-select-row,
   .operation-grid,
   .object-facts {
     grid-template-columns: 1fr;

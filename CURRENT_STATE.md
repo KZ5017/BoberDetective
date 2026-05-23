@@ -26,8 +26,8 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 220 passed
-alembic: 0031_detached_source_claims (head)
+pytest: 225 passed
+alembic: 0034_review_edit_text (head)
 ```
 
 ## What Works Now
@@ -36,7 +36,7 @@ alembic: 0031_detached_source_claims (head)
 - Minimal React/Vite frontend workbench scaffold under `frontend/`.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0031_detached_source_claims`.
+- Alembic migrations through `0034_review_edit_text`.
 - Immutable TXT import with page/chunk persistence.
 - Explicit imported-document processing validation run flow.
 - Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile, page persistence, and `parse_document` analysis run provenance.
@@ -113,9 +113,12 @@ alembic: 0031_detached_source_claims (head)
 - Claim, entity, event, and missing item candidate merge are available from report item cards and the object detail panel where applicable. Merge remains constrained to the same main object type, but subtype matching is intentionally not enforced; source objects are marked `corrected`, sources move to the selected target, and duplicate source links are skipped.
 - Claim, entity, event, and missing item candidate source links can be manually detached through audit-tracked `detach_source` review actions; the UI exposes `Levalasztas` on source details where the backend has a concrete source-link id.
 - Detached source links are parked in `detached_source_items` with the source reference plus a snapshot of the object they were detached from; the frontend shows these under `Levalasztott forrasok`. Detached source items may originate from claims as well as entities/events/missing item candidates.
-- Detached sources can be reattached from the parked-source panel or marked irrelevant; source details also support direct move to another same-main-type target object without first parking the source manually. Subtype matching is intentionally not enforced for direct move or reattach.
+- Detached sources can be reattached from the parked-source panel or permanently deleted from the parked-source worklist; the old `irrelevant/discarded` parked-source state has been removed through migration `0032_delete_discarded_detached_sources`. Source details also support direct move to another same-main-type target object without first parking the source manually. Subtype matching is intentionally not enforced for direct move or reattach.
 - Users can select readonly text from document chunks and create source-bound manual claim/entity/event/missing item candidate objects through `manual_entry` provenance runs.
+- Users can also attach a manually selected document-chunk quote directly to an existing claim/entity/event/missing item candidate through `POST /api/v1/cases/{case_id}/manual-source-attachments`. The backend validates the source quote, active source document, target object, and exact duplicate attachments before creating the source reference; this workflow intentionally has no user-entered comment field.
 - Detached source items can also create new source-bound manual claim/entity/event/missing item candidate objects and then store the created object as their handled target.
+- Review report items that are `corrected` or `source_invalid` can be permanently deleted through an explicit backend/frontend action; dependent contradiction candidates are cleaned up so no broken references remain.
+- Source-valid, non-corrected review report items can have their title and description edited from the object detail panel through a backend-validated text update endpoint.
 - Missing item candidate persistence, source linkage, API, review workflow, and review report inclusion.
 - Missing item candidates remain supported as structured review objects through manual/finding-conversion workflows; the raw `detect_missing_items` analysis module has been retired.
 - Claim, event, source, review, export, and audit persistence.
@@ -244,8 +247,9 @@ Reviewable objects:
 - `POST /api/v1/cases/{case_id}/research-findings/bulk-delete`
 - `GET /api/v1/cases/{case_id}/detached-source-items`
 - `POST /api/v1/cases/{case_id}/detached-source-items/{item_id}/attach`
-- `POST /api/v1/cases/{case_id}/detached-source-items/{item_id}/discard`
+- `DELETE /api/v1/cases/{case_id}/detached-source-items/{item_id}`
 - `POST /api/v1/cases/{case_id}/detached-source-items/{item_id}/manual-object`
+- `POST /api/v1/cases/{case_id}/manual-source-attachments`
 - `GET /api/v1/cases/{case_id}/review-report`
   - Optional filters: `object_type`, `review_status`, `source_validation_status`
 

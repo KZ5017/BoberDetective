@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.manual_entry import ManualObjectCreate, ManualObjectFromSourceCreate
+from app.schemas.manual_entry import ManualObjectCreate, ManualObjectFromSourceCreate, ManualSourceAttachmentCreate
 from app.schemas.source_reference import SourceReferenceCreate
 
 
@@ -44,3 +44,24 @@ def test_manual_object_from_existing_source_uses_same_field_rules() -> None:
     )
 
     assert payload.object_type == "missing_item_candidate"
+
+
+def test_manual_source_attachment_accepts_supported_target_type() -> None:
+    target_object_id = uuid4()
+    payload = ManualSourceAttachmentCreate(
+        source_reference=_source(),
+        target_object_type="event",
+        target_object_id=target_object_id,
+    )
+
+    assert payload.target_object_type == "event"
+    assert payload.target_object_id == target_object_id
+
+
+def test_manual_source_attachment_rejects_unsupported_target_type() -> None:
+    with pytest.raises(ValidationError):
+        ManualSourceAttachmentCreate(
+            source_reference=_source(),
+            target_object_type="summary_item",
+            target_object_id=uuid4(),
+        )
