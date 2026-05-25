@@ -476,15 +476,17 @@ label {
 }
 
 .source-action {
-  margin-top: 0.55rem;
+  flex: 0 0 auto;
+  margin-top: 0;
 }
 
 .source-action-row {
   align-items: end;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.55rem;
   margin-top: 0.55rem;
+  width: 100%;
 }
 
 .source-action-row select {
@@ -493,9 +495,14 @@ label {
 
 .searchable-select {
   display: grid;
+  flex: 1 1 auto;
   gap: 0.35rem;
   min-width: min(100%, 26rem);
   position: relative;
+}
+
+.source-action-row .searchable-select {
+  min-width: 0;
 }
 
 .searchable-select-row {
@@ -1089,6 +1096,30 @@ pre {
   padding: 0.18rem 0.5rem;
 }
 
+.source-quote-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+}
+
+.source-quote-item {
+  background: #f8fafb;
+  border: 1px solid #e3e8ec;
+  border-radius: 6px;
+  padding: 0.65rem;
+}
+
+.source-quote-item strong {
+  color: #27343b;
+  display: block;
+  font-size: 0.86rem;
+  margin-bottom: 0.35rem;
+}
+
+.source-shared-text {
+  margin-top: 0.75rem;
+}
+
 .excerpt {
   background: #f8fafb;
   border: 1px solid #e3e8ec;
@@ -1290,6 +1321,10 @@ pre {
     min-width: 100%;
   }
 
+  .source-action-row .searchable-select {
+    min-width: 0;
+  }
+
   .status-strip {
     gap: 0.4rem;
   }
@@ -1461,7 +1496,7 @@ pre {
   }
 
   .source-action {
-    margin-top: 0.4rem;
+    margin-top: 0;
   }
 
   .item-list {
@@ -1509,6 +1544,10 @@ pre {
   .operation-grid,
   .object-facts {
     grid-template-columns: 1fr;
+  }
+
+  .source-action-row {
+    flex-wrap: wrap;
   }
 
   .report-panel {

@@ -386,7 +386,7 @@ class LMStudioNativeProvider:
                 "/api/v1/models/load",
                 json={
                     "model": self._settings.llm_chat_model,
-                    "context_length": self._settings.llm_context_length,
+                    "context_length": self._settings.llm_chat_context_length,
                     "eval_batch_size": self._settings.llm_eval_batch_size,
                     "flash_attention": self._settings.llm_flash_attention,
                     "offload_kv_cache_to_gpu": self._settings.llm_offload_kv_cache_to_gpu,
@@ -418,7 +418,7 @@ class LMStudioNativeProvider:
                 "/api/v1/models/load",
                 json={
                     "model": self._settings.llm_embedding_model,
-                    "context_length": self._settings.llm_context_length,
+                    "context_length": self._settings.llm_embedding_context_length,
                     "echo_load_config": True,
                 },
             )

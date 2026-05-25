@@ -129,6 +129,8 @@ export type ReviewReportSource = {
   document_filename: string | null;
   document_sha256_hash: string | null;
   document_lifecycle_status: string | null;
+  page_id: string | null;
+  chunk_id: string | null;
   page_number: number | null;
   chunk_index: number | null;
   quote_char_start: number | null;
@@ -138,6 +140,7 @@ export type ReviewReportSource = {
   citation_label: string | null;
   quote_text: string;
   source_text_excerpt: string | null;
+  source_kind: string;
   support_type: string;
   relevance_rank: number | null;
 };

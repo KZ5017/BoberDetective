@@ -31,6 +31,8 @@ Minden MVP LLM promptban szerepeljen:
 7. Minden output idézetének szó szerint vagy ellenőrizhetően szerepelnie kell valamelyik input chunkban.
 8. Csak a kért JSON formátumot adhatja vissza, magyarázó szöveg nélkül.
 
+> **Aktuális implementációs megjegyzés, 2026-05-25:** az aktív `search_findings` workflow-nál a tényleges LLM-instrukciós nyelv angol, mert a helyi Qwen modell ezzel stabilabban követi a precíz feladatkorlátokat. Ez nem változtatja meg a felhasználói vagy forrásnyelvet: a SOURCE chunkok magyar szövegek, a felhasználó felé megjelenő `title`, `finding_text`, `suggested_type_reason`, `relevance_reason` és `unsupported_reason` mezők magyarul készülnek, a `quote_text` pedig karakterpontosan a magyar forrásból másolandó, fordítás és javítás nélkül.
+
 ## 3. Közös input contract
 
 > **Aktualis megjegyzes, 2026-05-17:** a kozos elv maradt, de a tenyleges analysis run inputok batchelt forraschunk metadata-t is tartalmaznak (`batch_index`, `batch_count`, `chunk_labels`, `retrieval_match_type`, `retrieval_score`). A raw-chunk modulok kotelezo fokuszszoveg alapjan valasztanak forrast keyword/semantic/hybrid retrievallel. Az ellentmondas modul ettol elteroen source-valid claim-parokon dolgozik. Reszletek: `Design_documents/10_analysis_batch_processing_plan.md`.

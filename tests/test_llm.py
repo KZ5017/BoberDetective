@@ -18,7 +18,8 @@ def _settings(*, auto_load: bool = True, auto_load_embedding: bool = True) -> Se
         llm_chat_model="chat-model",
         llm_embedding_model="embedding-model",
         llm_timeout_seconds=1,
-        llm_context_length=12288,
+        llm_chat_context_length=30720,
+        llm_embedding_context_length=12288,
         llm_eval_batch_size=6144,
         llm_flash_attention=True,
         llm_offload_kv_cache_to_gpu=True,
@@ -202,7 +203,7 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
                 "load_time_seconds": 1.25,
                 "status": "loaded",
                 "load_config": {
-                    "context_length": 12288,
+                    "context_length": 30720,
                     "eval_batch_size": 6144,
                     "flash_attention": True,
                     "offload_kv_cache_to_gpu": True,
@@ -217,7 +218,7 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
 
     assert captured_payload == {
         "model": "chat-model",
-        "context_length": 12288,
+        "context_length": 30720,
         "eval_batch_size": 6144,
         "flash_attention": True,
         "offload_kv_cache_to_gpu": True,
@@ -227,7 +228,7 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
     assert result.instance_id == "chat-model"
     assert result.status == "loaded"
     assert result.load_config == {
-        "context_length": 12288,
+        "context_length": 30720,
         "eval_batch_size": 6144,
         "flash_attention": True,
         "offload_kv_cache_to_gpu": True,

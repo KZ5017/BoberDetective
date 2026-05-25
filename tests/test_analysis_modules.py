@@ -389,8 +389,11 @@ def test_build_search_findings_user_prompt_is_source_bound_and_type_flexible() -
     assert "QUERY:\nmatrózzal kapcsolatos releváns találatok" in prompt
     assert "BATCH:\n1/2" in prompt
     assert "chunk_1:" in prompt
-    assert "Ha több, egymástól elkülönülő, közvetlenül forrásolt találat van" in prompt
-    assert "Ne erőltesd, hogy a találat állítás, esemény vagy entitás legyen" in prompt
+    assert "If there are multiple separate, directly sourced findings" in prompt
+    assert "do not force this classification" in prompt
+    assert "do not create a finding that only states the absence of information" in prompt
+    assert "Do not identify another person in the source" in prompt
+    assert "Return title, finding_text, suggested_type_reason, relevance_reason, and unsupported_reason in Hungarian" in prompt
     assert "suggested_type" in prompt
 
 

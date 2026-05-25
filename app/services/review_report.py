@@ -19,7 +19,6 @@ from app.schemas.review_report import CaseReviewReport, ReviewReportCounts, Revi
 ALLOWED_OBJECT_TYPES = {"claim", "contradiction_candidate", "entity", "event", "missing_item_candidate"}
 ALLOWED_REVIEW_STATUSES = {"new", "needs_review", "verified", "rejected", "corrected"}
 ALLOWED_SOURCE_VALIDATION_STATUSES = {"pending_source_validation", "source_valid", "source_invalid"}
-SOURCE_EXCERPT_CONTEXT_CHARS = 160
 
 
 class ReviewReportValidationError(ValueError):
@@ -379,9 +378,7 @@ def _source_excerpt(
             return None, None, None
         quote_start = found_at
         quote_end = found_at + len(quote_text)
-    excerpt_start = max(0, quote_start - SOURCE_EXCERPT_CONTEXT_CHARS)
-    excerpt_end = min(len(source_text), quote_end + SOURCE_EXCERPT_CONTEXT_CHARS)
-    return source_text[excerpt_start:excerpt_end], excerpt_start, excerpt_end
+    return source_text, 0, len(source_text)
 
 
 def _reviews(db: Session, case_id: UUID, object_type: str, object_id: UUID) -> list[HumanReviewRead]:

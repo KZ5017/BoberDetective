@@ -1890,12 +1890,97 @@ export function App() {
             <span>forrás irat állapota: {labelDocumentLifecycleStatus(sourceDocument.lifecycle_status)}</span>
           )}
           <span>idézet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
-          <span>szövegkörnyezet {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
+          <span>{labelSourceExcerpt(source.source_kind)} {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
         </div>
         <blockquote>{source.quote_text}</blockquote>
         {source.source_text_excerpt && <p className="excerpt">{source.source_text_excerpt}</p>}
         <code className="hash">{source.id}</code>
       </details>
+    );
+  }
+
+  function reportSourceTextUnitKey(source: ReviewReportSource) {
+    if (source.chunk_id) {
+      return `chunk:${source.document_id}:${source.chunk_id}`;
+    }
+    if (source.page_id) {
+      return `page:${source.document_id}:${source.page_id}`;
+    }
+    return `source:${source.source_reference_id}`;
+  }
+
+  function groupedReportSources(sources: ReviewReportSource[]) {
+    const groups: { key: string; sources: { source: ReviewReportSource; originalIndex: number }[] }[] = [];
+    const groupIndexes = new Map<string, number>();
+    sources.forEach((source, originalIndex) => {
+      const key = reportSourceTextUnitKey(source);
+      const existingIndex = groupIndexes.get(key);
+      if (existingIndex === undefined) {
+        groupIndexes.set(key, groups.length);
+        groups.push({ key, sources: [{ source, originalIndex }] });
+        return;
+      }
+      groups[existingIndex].sources.push({ source, originalIndex });
+    });
+    return groups;
+  }
+
+  function reportSourceUnitSummary(source: ReviewReportSource, sourceCount: number, groupIndex: number) {
+    const prefix = sourceCount > 1 ? `${sourceCount} forráshivatkozás` : `${groupIndex + 1}. forráshivatkozás`;
+    const pageLabel = source.page_number ? `${source.page_number}. oldal` : "";
+    const chunkLabel = source.chunk_index !== null ? `${source.chunk_index}. szövegrész` : "";
+    return `${prefix}: ${source.document_filename ?? "irat"} ${pageLabel} ${chunkLabel}`.trim();
+  }
+
+  function renderReportSourceQuote(item: ReviewReportItem, source: ReviewReportSource, originalIndex: number, showOrdinal: boolean) {
+    return (
+      <article key={source.source_link_id ?? source.source_reference_id} className="source-quote-item">
+        {showOrdinal && <strong>{originalIndex + 1}. idézet</strong>}
+        <div className="source-meta">
+          <span>{labelSupportType(source.support_type)}</span>
+          <span>sorrend {source.relevance_rank ?? originalIndex}</span>
+          <span>{source.citation_label ?? "nincs hivatkozási címke"}</span>
+          {source.document_lifecycle_status && source.document_lifecycle_status !== "active" && (
+            <span>forrás irat állapota: {labelDocumentLifecycleStatus(source.document_lifecycle_status)}</span>
+          )}
+          <span>idézet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
+        </div>
+        <blockquote>{source.quote_text}</blockquote>
+        {renderSourceDetachButton(item, source)}
+      </article>
+    );
+  }
+
+  function renderReportSourceGroups(item: ReviewReportItem, mode: "card" | "detail") {
+    const groups = groupedReportSources(item.sources);
+    return (
+      <div className={mode === "card" ? "source-list" : "detail-list"}>
+        {groups.map((group, groupIndex) => {
+          const firstSource = group.sources[0].source;
+          return (
+            <details key={group.key} className="source-detail">
+              <summary>{reportSourceUnitSummary(firstSource, group.sources.length, groupIndex)}</summary>
+              <div className="source-quote-list">
+                {group.sources.map(({ source, originalIndex }) =>
+                  renderReportSourceQuote(item, source, originalIndex, group.sources.length > 1)
+                )}
+              </div>
+              {firstSource.source_text_excerpt && (
+                <div className="source-shared-text">
+                  <div className="source-meta">
+                    <span>
+                      {labelSourceExcerpt(firstSource.source_kind)}{" "}
+                      {formatRange(firstSource.source_text_excerpt_char_start, firstSource.source_text_excerpt_char_end)}
+                    </span>
+                  </div>
+                  <p className="excerpt">{firstSource.source_text_excerpt}</p>
+                </div>
+              )}
+              {firstSource.document_sha256_hash && <code className="hash">{firstSource.document_sha256_hash}</code>}
+            </details>
+          );
+        })}
+      </div>
     );
   }
 
@@ -3571,29 +3656,7 @@ export function App() {
                           </button>
                         )}
                       </div>
-                      <div className="source-list">
-                        {item.sources.map((source, index) => (
-                          <details key={source.source_link_id ?? source.source_reference_id} className="source-detail">
-                            <summary>
-                              {index + 1}. forráshivatkozás: {source.document_filename ?? "irat"} {source.page_number ? `${source.page_number}. oldal` : ""} {source.chunk_index !== null ? `${source.chunk_index}. szövegrész` : ""}
-                            </summary>
-                            <div className="source-meta">
-                              <span>{labelSupportType(source.support_type)}</span>
-                              <span>sorrend {source.relevance_rank ?? index}</span>
-                              <span>{source.citation_label ?? "nincs hivatkozási címke"}</span>
-                              {source.document_lifecycle_status && source.document_lifecycle_status !== "active" && (
-                                <span>forrás irat állapota: {labelDocumentLifecycleStatus(source.document_lifecycle_status)}</span>
-                              )}
-                              <span>idézet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
-                              <span>szövegkörnyezet {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
-                            </div>
-                            <blockquote>{source.quote_text}</blockquote>
-                            {source.source_text_excerpt && <p className="excerpt">{source.source_text_excerpt}</p>}
-                            {source.document_sha256_hash && <code className="hash">{source.document_sha256_hash}</code>}
-                            {renderSourceDetachButton(item, source)}
-                          </details>
-                        ))}
-                      </div>
+                      {renderReportSourceGroups(item, "card")}
                       {renderClaimMergeControls(item, true)}
                       {renderEntityMergeControls(item, true)}
                       {renderEventMergeControls(item, true)}
@@ -3808,27 +3871,7 @@ export function App() {
                 {renderMissingItemMergeControls(selectedReportItem)}
                 <details>
                   <summary>Forráshivatkozások</summary>
-                  <div className="detail-list">
-                    {selectedReportItem.sources.map((source, index) => (
-                      <article key={source.source_link_id ?? source.source_reference_id} className="text-sample">
-                        <strong>{index + 1}. {source.document_filename ?? "irat"}</strong>
-                        <div className="source-meta">
-                          <span>{labelSupportType(source.support_type)}</span>
-                          <span>sorrend {source.relevance_rank ?? index}</span>
-                          <span>{source.citation_label ?? "nincs hivatkozási címke"}</span>
-                          {source.document_lifecycle_status && source.document_lifecycle_status !== "active" && (
-                            <span>forrás irat állapota: {labelDocumentLifecycleStatus(source.document_lifecycle_status)}</span>
-                          )}
-                          <span>idézet {formatRange(source.quote_char_start, source.quote_char_end)}</span>
-                          <span>szövegkörnyezet {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
-                        </div>
-                        <blockquote>{source.quote_text}</blockquote>
-                        {source.source_text_excerpt && <p className="excerpt">{source.source_text_excerpt}</p>}
-                        {source.document_sha256_hash && <code className="hash">{source.document_sha256_hash}</code>}
-                        {renderSourceDetachButton(selectedReportItem, source)}
-                      </article>
-                    ))}
-                  </div>
+                  {renderReportSourceGroups(selectedReportItem, "detail")}
                 </details>
                 <details>
                   <summary>Ellenőrzési előzmények</summary>
@@ -4295,6 +4338,15 @@ function labelSourceKind(value: string) {
     manual: "Kézi forráshivatkozás"
   };
   return labels[value] ?? value;
+}
+
+function labelSourceExcerpt(value: string) {
+  const labels: Record<string, string> = {
+    chunk_quote: "teljes szövegrész",
+    page_quote: "teljes oldal",
+    manual: "forrásszöveg"
+  };
+  return labels[value] ?? "forrásszöveg";
 }
 
 function labelAnalysisInputType(value: string) {

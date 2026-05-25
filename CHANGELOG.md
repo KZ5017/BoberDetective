@@ -1,5 +1,13 @@
 # CHANGELOG.md
 
+## 2026-05-25
+
+### Changed
+
+- Increased the configured LM Studio chat-model context window to `context_length=30720` while keeping embedding model loading at `context_length=12288`.
+- Switched the active `search_findings` operational prompt instructions to English while explicitly requiring Hungarian source processing, Hungarian user-facing output fields, and character-exact Hungarian `quote_text` copying.
+- Added person-identity-focused prompt wording and retrieval stopword tuning for generic Hungarian query phrases such as `Minden információ a következő személyről ...`.
+
 ## 2026-05-24
 
 ### Added

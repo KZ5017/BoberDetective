@@ -32,7 +32,6 @@ from app.services.research_findings import (
 
 
 router = APIRouter()
-SOURCE_EXCERPT_CONTEXT_CHARS = 160
 
 
 @router.get("/cases/{case_id}/research-findings", response_model=ResearchFindingList)
@@ -186,6 +185,4 @@ def _source_excerpt(
             return None, None, None
         quote_start = found_at
         quote_end = found_at + len(quote_text)
-    excerpt_start = max(0, quote_start - SOURCE_EXCERPT_CONTEXT_CHARS)
-    excerpt_end = min(len(source_text), quote_end + SOURCE_EXCERPT_CONTEXT_CHARS)
-    return source_text[excerpt_start:excerpt_end], excerpt_start, excerpt_end
+    return source_text, 0, len(source_text)

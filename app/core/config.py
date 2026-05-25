@@ -30,7 +30,8 @@ class Settings:
     llm_chat_model: str
     llm_embedding_model: str
     llm_timeout_seconds: float
-    llm_context_length: int
+    llm_chat_context_length: int
+    llm_embedding_context_length: int
     llm_eval_batch_size: int
     llm_flash_attention: bool
     llm_offload_kv_cache_to_gpu: bool
@@ -62,7 +63,8 @@ def get_settings() -> Settings:
         llm_chat_model=_getenv("BOBERDETECTIVE_LLM_CHAT_MODEL", "qwen/qwen3.5-9b"),
         llm_embedding_model=_getenv("BOBERDETECTIVE_LLM_EMBEDDING_MODEL", "text-embedding-qwen3-embedding-4b@q6_k"),
         llm_timeout_seconds=float(_getenv("BOBERDETECTIVE_LLM_TIMEOUT_SECONDS", "120")),
-        llm_context_length=int(_getenv("BOBERDETECTIVE_LLM_CONTEXT_LENGTH", "12288")),
+        llm_chat_context_length=int(_getenv("BOBERDETECTIVE_LLM_CHAT_CONTEXT_LENGTH", "30720")),
+        llm_embedding_context_length=int(_getenv("BOBERDETECTIVE_LLM_EMBEDDING_CONTEXT_LENGTH", "12288")),
         llm_eval_batch_size=int(_getenv("BOBERDETECTIVE_LLM_EVAL_BATCH_SIZE", "6144")),
         llm_flash_attention=_getenv_bool("BOBERDETECTIVE_LLM_FLASH_ATTENTION", True),
         llm_offload_kv_cache_to_gpu=_getenv_bool("BOBERDETECTIVE_LLM_OFFLOAD_KV_CACHE_TO_GPU", True),

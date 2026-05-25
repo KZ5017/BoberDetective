@@ -91,14 +91,14 @@ def test_review_report_filters_reject_unknown_values() -> None:
         _filter_items([_item("claim", "needs_review", "source_valid")], ReviewReportFilters(object_types=["export"]))
 
 
-def test_source_excerpt_uses_bounded_context_around_quote() -> None:
+def test_source_excerpt_returns_full_source_text_when_quote_matches() -> None:
     source_text = f"{'a' * 200}bizonyito idezet{'b' * 200}"
 
     excerpt, start, end = _source_excerpt(source_text, "bizonyito idezet", 200, 216)
 
-    assert excerpt == f"{'a' * 160}bizonyito idezet{'b' * 160}"
-    assert start == 40
-    assert end == 376
+    assert excerpt == source_text
+    assert start == 0
+    assert end == len(source_text)
 
 
 def test_source_excerpt_falls_back_to_quote_search() -> None:

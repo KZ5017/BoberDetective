@@ -25,16 +25,16 @@ from app.services.source_references import create_source_reference_for_run
 SUPPORTED_FINDING_TYPES = {"claim", "event", "entity", "document_reference", "other"}
 SEARCH_FINDINGS_MAX_OUTPUT_TOKENS = 6000
 
-SEARCH_FINDINGS_SYSTEM_PROMPT = """Te egy forráshű kutatási találatkereső komponens vagy.
-Csak a megadott forrásszövegekből dolgozhatsz.
-Nem használhatsz külső tudást és nem egészítheted ki a hiányzó tényeket.
-Maradj tárgyilagos: ne feltételezz, ne következtess, és ne adj hozzá olyan értelmezést, amelyet a forrás nem támaszt alá közvetlenül.
-Nem dönthetsz bűnösségről, jogi minősítésről, kockázatról vagy személyi felelősségről.
-Nem kell minden találatot állításnak, eseménynek vagy entitásnak minősítened.
-Ha egy találat nem sorolható biztosan konkrét típusba, használj általános típust.
-Válaszolj kizárólag érvényes JSON objektummal.
-Ha nincs elég közvetlen forrás egy találathoz, ne tedd a findings listába; tedd az unsupported_findings listába.
-Elvárt JSON alak:
+SEARCH_FINDINGS_SYSTEM_PROMPT = """You are a source-faithful research finding extraction component.
+You are analyzing Hungarian source text.
+You may only use the provided SOURCE texts.
+You must not use external knowledge and must not fill in missing facts.
+Stay factual: do not assume, do not infer, and do not add any interpretation that is not directly supported by the source.
+Do not decide guilt, legal classification, risk, or personal responsibility.
+Return all user-facing textual fields in Hungarian.
+Return quote_text exactly as copied from the Hungarian SOURCE text: do not translate it and do not rewrite it.
+Respond only with a valid JSON object.
+Expected JSON shape:
 {"findings":[{"title":"...","finding_text":"...","suggested_type":"other","suggested_type_reason":"...","relevance_reason":"...","quote_text":"...","source_label":"chunk_1"}],"unsupported_findings":[{"title":"...","finding_text":"...","suggested_type":"other","suggested_type_reason":"...","relevance_reason":"...","quote_text":"...","source_label":"chunk_1","unsupported_reason":"..."}]}
 """
 
@@ -214,29 +214,33 @@ def build_search_findings_user_prompt(
         f"QUERY:\n{focus_text}\n\n"
         f"BATCH:\n{batch_index}/{batch_count}\n\n"
         f"SOURCE:\n{build_source_blocks(retrieved_chunks)}\n\n"
-        "FELADAT:\n"
-        "Keresd meg a QUERY szempontjából releváns, forrással alátámasztott kutatási találatokat. "
-        "Minden lehetséges találatot külön-külön vizsgálj meg a QUERY szempontjából. "
-        "Csak olyan találatot adj vissza, amely önmagában és közvetlenül kapcsolódik a QUERY-ben megadott fókuszhoz. "
-        "Ha a kapcsolat csak laza, közvetett, kontextuális vagy magyarázkodást igényel, ne add vissza találatként; tedd az unsupported_findings listába. "
-        "Ha több, egymástól elkülönülő, közvetlenül forrásolt találat van, add vissza őket külön elemekként. "
-        "Ne állj meg egyetlen találatnál, ha a batch több releváns forráshelyet tartalmaz. "
-        "A title legyen rövid, tárgyilagos és forráshű: csak a quote_text által közvetlenül alátámasztott kapcsolatot vagy tényt nevezze meg. "
-        "A finding_text ne feltételezzen, ne következtessen, és ne mondjon többet annál, mint amit a quote_text közvetlenül alátámaszt. "
-        "Ha a forrás csak kapcsolatot, reakciót, jelenlétet, ismeretet vagy elmondást támaszt alá, akkor a title és a finding_text is csak ezt rögzítse. "
-        "Ne nevezz meg senkit elkövetőként, gyilkosként, bűnösként vagy felelősként, hacsak a quote_text ezt szó szerint és közvetlenül nem állítja. "
-        "Ne minősíts egy megszólalót tanúnak, vallomástevőnek, szakértőnek, sértettnek vagy más eljárási szereplőnek, hacsak a quote_text ezt közvetlenül alá nem támasztja. "
-        "Ha a QUERY tanúkra, vallomásokra vagy eljárási szerepekre vonatkozik, ne adj vissza puszta párbeszédet, narrátori megjegyzést vagy háttérjelenetet találatként csak azért, mert lazán kapcsolódik a témához. "
-        "A relevance_reason ne általános kontextust említsen; konkrétan azt indokolja, hogy a quote_text mely része kapcsolódik közvetlenül a QUERY fókuszához. "
-        "Önmagában az, hogy egy SOURCE chunk bekerült a batchbe, nem elég ok találat kinyerésére. "
-        "Ne erőltesd, hogy a találat állítás, esemény vagy entitás legyen. "
-        "Ha a találat típusa nem egyértelmű, suggested_type értéke legyen other. "
-        "A suggested_type csak javaslat, nem döntés. "
-        "Minden findings elemhez kötelező a source_label és quote_text. "
-        "A quote_text mezőt karakterpontosan másold ki a megfelelő SOURCE chunkból: ne fordítsd, ne javítsd, ne ékezetesítsd, ne normalizáld. "
-        "A quote_text ne legyen túl szűk: önmagában is tegye ellenőrizhetővé, hogy a finding_text kire vagy mire vonatkozik, és mi a találat lényege. "
-        "Ha a találat alanya, tárgya vagy oka csak az előző vagy következő mondatból derül ki, akkor a quote_text tartalmazza együtt ezeket a szükséges mondatokat is. "
-        "Ne másolj teljes chunkot vagy indokolatlanul hosszú szakaszt quote_text mezőbe; célzott, összefüggő, általában 1-4 mondatos idézetet adj."
+        "TASK:\n"
+        "Find research findings that are relevant to the QUERY and supported by source text. "
+        "The SOURCE texts are Hungarian. Return title, finding_text, suggested_type_reason, relevance_reason, and unsupported_reason in Hungarian. "
+        "Evaluate every possible finding separately from the perspective of the QUERY. "
+        "Return only a finding that is independently and directly related to the focus given in the QUERY. "
+        "If the connection is only loose, indirect, contextual, or requires explanation, do not return it as a finding; put it into unsupported_findings. "
+        "If there are multiple separate, directly sourced findings, return them as separate items. "
+        "Do not stop at a single finding if the batch contains multiple relevant source locations. "
+        "The title must be short, factual, and source-faithful: it may name only the relationship or fact directly supported by quote_text. "
+        "The finding_text must not assume, infer, or say more than what quote_text directly supports. "
+        "If the source only supports a relationship, reaction, presence, knowledge, or statement, then the title and finding_text must record only that. "
+        "Do not call anyone a perpetrator, killer, guilty person, or responsible person unless quote_text states this literally and directly. "
+        "Do not classify a speaker as a witness, deponent, expert, victim, or other procedural role unless quote_text directly supports this. "
+        "If the QUERY concerns witnesses, statements, or procedural roles, do not return mere dialogue, narrator comments, or background scenes as findings only because they are loosely related to the topic. "
+        "The relevance_reason must not mention general context; it must specifically explain which part of quote_text is directly related to the QUERY focus. "
+        "The fact that a SOURCE chunk was included in the batch is not enough reason to extract a finding. "
+        "If the SOURCE chunk does not contain direct information about the QUERY focus, do not create a finding that only states the absence of information. "
+        "Do not return as a finding the fact that the source contains no information about the searched person, object, or topic. "
+        "If the QUERY contains a specific person name, return a finding about that person only if quote_text directly contains that name, or if quote_text itself clearly identifies the same person. "
+        "Do not identify another person in the source as the person named in the QUERY. "
+        "If quote_text does not contain or directly identify the person named in the QUERY, do not create a finding about that person. "
+        "If it is clear that a finding is a claim, event, or entity, set suggested_type to claim, event, or entity accordingly, but do not force this classification; if the finding type is unclear, set suggested_type to other. "
+        "Every findings item must have source_label and quote_text. "
+        "Copy quote_text character-exactly from the corresponding SOURCE chunk: do not translate, fix, add accents, or normalize it. "
+        "The quote_text must not be too narrow: by itself, it must make it possible to verify who or what finding_text is about and what the core finding is. "
+        "If the subject, object, or reason of the finding is clear only from the previous or next sentence, quote_text must include those necessary sentences together. "
+        "Do not copy a full chunk or an unnecessarily long passage into quote_text; provide a focused, coherent quote, usually 1-4 sentences."
     )
 
 
