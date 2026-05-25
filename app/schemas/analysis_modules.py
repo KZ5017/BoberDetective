@@ -18,7 +18,7 @@ class AnalysisModuleRunRequest(BaseModel):
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
     max_chunks: int = Field(default=30, ge=1, le=50)
-    batch_size: int = Field(default=5, ge=1, le=10)
+    batch_size: int = Field(default=5, ge=1, le=15)
     claim_review_scope: Literal["reviewable", "verified", "needs_review", "all_source_valid"] = "reviewable"
     retrieval_strategy: Literal["keyword", "semantic", "hybrid"] = "keyword"
     contradiction_candidate_limit: int = Field(default=5, ge=1, le=10)

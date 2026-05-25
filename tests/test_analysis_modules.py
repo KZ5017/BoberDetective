@@ -389,10 +389,16 @@ def test_build_search_findings_user_prompt_is_source_bound_and_type_flexible() -
     assert "QUERY:\nmatrózzal kapcsolatos releváns találatok" in prompt
     assert "BATCH:\n1/2" in prompt
     assert "chunk_1:" in prompt
+    assert "Selection rules:" in prompt
+    assert "Unsupported items:" in prompt
+    assert "Identity and role rules:" in prompt
     assert "If there are multiple separate, directly sourced findings" in prompt
-    assert "do not force this classification" in prompt
+    assert "Do not force this classification" in prompt
     assert "do not create a finding that only states the absence of information" in prompt
     assert "Do not identify another person in the source" in prompt
+    assert "the SOURCE directly contains that same item" in prompt
+    assert "Concrete focus items may include persons, organizations, locations" in prompt
+    assert "treat it as direct information about the QUERY focus" in prompt
     assert "Return title, finding_text, suggested_type_reason, relevance_reason, and unsupported_reason in Hungarian" in prompt
     assert "suggested_type" in prompt
 
@@ -484,14 +490,17 @@ def test_build_detect_contradiction_candidates_user_prompt_handles_empty_focus()
 
     prompt = build_detect_contradiction_candidates_user_prompt(None, pairs, max_candidates=3)
 
-    assert "Nincs kulon fokusz" in prompt
+    assert "No specific focus" in prompt
     assert "CLAIM_PAIRS" in prompt
     assert "pair_1:" in prompt
     assert "claim_label_a: claim_1" in prompt
     assert "claim_label_b: claim_2" in prompt
-    assert "legfeljebb 3" in prompt
-    assert "Ne allitsd, hogy az ellentmondas bizonyitott" in prompt
-    assert "Keruld a dupla idezojelet" in prompt
+    assert "Conflict rules:" in prompt
+    assert "Unsupported items:" in prompt
+    assert "Pair and label rules:" in prompt
+    assert "at most 3" in prompt
+    assert "Do not state that the contradiction is proven" in prompt
+    assert "Avoid text containing double quotes" in prompt
 
 
 def test_select_claim_pairs_is_deterministic_and_limits_pairs() -> None:

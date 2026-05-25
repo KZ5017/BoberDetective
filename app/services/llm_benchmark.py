@@ -8,15 +8,16 @@ from app.services.llm import LLMChatMessage, LLMProvider
 
 
 BENCHMARK_SYSTEM_PROMPT = """/no_think
-Te egy forrashu iratelemzo komponens vagy.
-Csak a megadott SOURCE szovegre tamaszkodhatsz.
-Nem kovetkeztethetsz es nem egeszitheted ki a hianyzo tenyeket.
-Valaszolj kizarolag ervenyes JSON objektummal, magyar nyelven.
-Minden claims elemhez kotelezo a quote_text, amelynek szo szerint szerepelnie kell a SOURCE szovegben.
-quote_text mezot karakterpontosan masold ki a SOURCE szovegbol: ne fordisd, ne javitsd, ne ekezetesitsd, ne normalizald.
-Ha nincs eleg forras egy allitashoz, ne tedd claims koze; tedd az unsupported_claims listaba.
-Ha a feladatban kert allitas nincs a SOURCE szovegben, a claims lista kotelezoen ures legyen.
-Elvart JSON alak:
+You are a source-faithful document analysis component.
+You are analyzing Hungarian source text.
+You may rely only on the provided SOURCE text.
+Do not infer and do not fill in missing facts.
+Return only a valid JSON object, with user-facing text in Hungarian.
+Every claims item must include quote_text, and quote_text must appear literally in the SOURCE text.
+Copy quote_text character-exactly from the SOURCE text: do not translate, fix, add accents, or normalize it.
+If there is not enough source support for a claim, do not put it into claims; put it into unsupported_claims.
+If the claim requested in the task is not present in the SOURCE text, the claims list must be empty.
+Expected JSON shape:
 {"claims":[{"claim_text":"...","quote_text":"...","source_label":"chunk_1"}],"unsupported_claims":["..."]}
 """
 
@@ -52,7 +53,7 @@ BENCHMARK_TASKS = [
             "A jegyzokonyv szerint 2024. marcius 12-en 18:42-kor telefonhivas tortent "
             "Kovacs Anna es Nagy Peter kozott. A hivas idotartama 3 perc 14 masodperc volt."
         ),
-        instruction="Emelj ki egy bizonyitott allitast a telefonhivasrol.",
+        instruction="Extract one source-supported claim about the phone call. Return the claim text in Hungarian.",
         expected_quote="2024. marcius 12-en 18:42-kor telefonhivas tortent Kovacs Anna es Nagy Peter kozott",
     ),
     BenchmarkTask(
@@ -61,7 +62,7 @@ BENCHMARK_TASKS = [
             "chunk_1:\n"
             "A helyszini szemle 09:15-kor kezdodott. A jegyzokonyv csak a lezart ajto allapotat rogzitette."
         ),
-        instruction="Allapitsd meg, hogy ki nyitotta ki az ajtot.",
+        instruction="Determine who opened the door. If the SOURCE does not state this, return an empty claims list.",
         expected_quote=None,
         expected_no_claims=True,
     ),
@@ -72,7 +73,7 @@ BENCHMARK_TASKS = [
             "A tanukent meghallgatott szemely azt mondta: \"a kek taskat a lepcso mellett lattam\". "
             "Mas targyrol nem tett emlitest."
         ),
-        instruction="Emeld ki, mit latott a tanu.",
+        instruction="Extract what the witness saw. Return the claim text in Hungarian.",
         expected_quote="a kek taskat a lepcso mellett lattam",
     ),
 ]
@@ -190,7 +191,7 @@ def summarize_results(results: list[BenchmarkResult]) -> dict[str, dict[str, flo
 
 
 def _task_prompt(task: BenchmarkTask) -> str:
-    return f"SOURCE:\n{task.source_text}\n\nFELADAT:\n{task.instruction}"
+    return f"SOURCE:\n{task.source_text}\n\nTASK:\n{task.instruction}"
 
 
 def _parse_json_object(raw_content: str) -> dict[str, Any] | None:

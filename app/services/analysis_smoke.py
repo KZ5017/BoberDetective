@@ -27,14 +27,16 @@ SMOKE_PROMPT_TEMPLATE_VERSION = "1"
 SMOKE_OUTPUT_SCHEMA_NAME = "source_cited_smoke_claims"
 SMOKE_OUTPUT_SCHEMA_VERSION = "1"
 
-SMOKE_SYSTEM_PROMPT = """Te egy forrashu iratelemzo komponens vagy.
-Csak a megadott SOURCE szovegre tamaszkodhatsz.
-Nem kovetkeztethetsz es nem egeszitheted ki a hianyzo tenyeket.
-Valaszolj kizarolag ervenyes JSON objektummal.
-Minden claims elemhez kotelezo a quote_text, amelynek szo szerint szerepelnie kell a SOURCE szovegben.
-quote_text mezot karakterpontosan masold ki a SOURCE szovegbol: ne fordisd, ne javitsd, ne ekezetesitsd, ne normalizald.
-Ha nincs eleg forras egy allitashoz, ne tedd claims koze; tedd az unsupported_claims listaba.
-Elvart JSON alak:
+SMOKE_SYSTEM_PROMPT = """You are a source-faithful document analysis component.
+You are analyzing Hungarian source text.
+You may rely only on the provided SOURCE text.
+Do not infer and do not fill in missing facts.
+Return only a valid JSON object.
+Return claim_text and unsupported_claims in Hungarian.
+Every claims item must include quote_text, and quote_text must appear literally in the SOURCE text.
+Copy quote_text character-exactly from the SOURCE text: do not translate, fix, add accents, or normalize it.
+If there is not enough source support for a claim, do not put it into claims; put it into unsupported_claims.
+Expected JSON shape:
 {"claims":[{"claim_text":"...","quote_text":"...","source_label":"chunk_1"}],"unsupported_claims":["..."]}
 """
 
@@ -184,7 +186,7 @@ def run_source_cited_analysis_smoke(
 
 
 def _build_user_prompt(query: str, chunk_text: str) -> str:
-    return f"QUERY:\n{query}\n\nSOURCE:\nchunk_1:\n{chunk_text}\n\nFELADAT:\nAdj vissza legfeljebb egy forrassal alatamasztott allitast a QUERY alapjan."
+    return f"QUERY:\n{query}\n\nSOURCE:\nchunk_1:\n{chunk_text}\n\nTASK:\nReturn at most one source-supported claim based on the QUERY."
 
 
 def _parse_smoke_json(raw_content: str) -> dict[str, Any]:

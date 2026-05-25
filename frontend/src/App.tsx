@@ -3273,9 +3273,9 @@ export function App() {
                   <input
                     type="number"
                     min={1}
-                    max={10}
+                    max={15}
                     value={batchSize}
-                    onChange={(event) => setBatchSize(clampNumberInput(event.target.value, 1, 10, 5))}
+                    onChange={(event) => setBatchSize(clampNumberInput(event.target.value, 1, 15, 10))}
                   />
                 </label>
               </div>
@@ -3335,7 +3335,7 @@ export function App() {
               <span className="field-hint">
                 {isContradictionModule
                   ? "Kötelező: ez szűri a már kinyert állításokat és forráshivatkozási idézeteiket."
-                  : "Kötelező: ez választja ki a releváns szövegrészeket a megadott forráskörben."}
+                  : "Kötelező: ez választja ki a releváns szövegrészeket a megadott forráskörben. (Rövid, konkrét fókusznál a 3 feletti batch méret ronthatja a találatok kiemelését. Ilyenkor érdemes 1-3 közötti értéket próbálni.)"}
               </span>
             </label>
             {requiresFocusText && query.trim().length === 0 && (
