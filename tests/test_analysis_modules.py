@@ -394,11 +394,15 @@ def test_build_search_findings_user_prompt_is_source_bound_and_type_flexible() -
     assert "Identity and role rules:" in prompt
     assert "If there are multiple separate, directly sourced findings" in prompt
     assert "Do not force this classification" in prompt
+    assert "about the QUERY focus, not general facts from the SOURCE" in prompt
+    assert "A source-backed fact is not enough" in prompt
+    assert "same focus item in a clear Hungarian inflected form" in prompt
+    assert "If it is not directly about the QUERY focus, put it into unsupported_findings." in prompt
+    assert "If your relevance_reason would say that the item is not relevant to the QUERY" in prompt
     assert "do not create a finding that only states the absence of information" in prompt
     assert "Do not identify another person in the source" in prompt
-    assert "the SOURCE directly contains that same item" in prompt
-    assert "Concrete focus items may include persons, organizations, locations" in prompt
-    assert "treat it as direct information about the QUERY focus" in prompt
+    assert "the SOURCE directly contains that same item or its clear Hungarian inflected form" in prompt
+    assert "treat it as a finding candidate" in prompt
     assert "Return title, finding_text, suggested_type_reason, relevance_reason, and unsupported_reason in Hungarian" in prompt
     assert "suggested_type" in prompt
 
