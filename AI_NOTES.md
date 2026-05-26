@@ -267,17 +267,19 @@ Previously unverified items now checked:
 - Raw-chunk analysis source selection supports `page_start` / `page_end` filters only inside selected-document source scope. Page filtering uses overlap logic and is wired through keyword, semantic, and hybrid retrieval; it is not a separate source mode.
 - Whole-case raw-chunk analysis has no page-range fields or backend page-range requirement. Selected-document analysis defaults to document page bounds in the frontend; if API callers omit page fields for document scope, the backend uses the full document and rejects only out-of-document ranges.
 - User-side retrieval/analysis smoke after selected-document page-range filtering produced especially precise results, making this workflow the current preferred path for large documents when the user knows the approximate page interval.
-- Recent local-LLM quality testing showed that module-first raw chunk extraction is too rigid for the long-term workflow: `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` force object categories too early and can create noisy or artificial outputs. The new planned direction is source-bound `research_finding` records first, with human-controlled conversion into structured objects later.
+- Recent local-LLM quality testing showed that module-first raw chunk extraction is too rigid for the long-term workflow: `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` force object categories too early and can create noisy or artificial outputs. The active research workflow is source-bound `research_finding` records first, with human-controlled conversion into structured objects later.
 - The planned `research_finding` schema should be graph-view compatible from the start: keep source-reference -> finding -> structured-object relationships explicit and queryable, but do not introduce a graph database or graph UI prematurely.
+- A promising full-document prompt experiment extracted person-focused search seeds from a whole coherent document instead of selected chunks. This should become a separate, well-defined work surface later, not a replacement for the current source-bound research workflow.
 
 ## Suggested Next Steps
 
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Finish documentation cleanup around the retired raw module workflow; older historical notes may remain, but active capability lists should point to `search_findings`.
-3. Keep `search_findings` as the main source-bound research workflow and preserve the worklist -> structured object conversion path.
-4. Design and implement a full `Audit naplo` API/panel backed by `audit_events`; it should include lifecycle, taxonomy, source movement, review, import/OCR/chunking, export, and analysis-run audit events in one searchable place.
+2. Plan the UI/UX architecture for multiple well-defined work surfaces instead of one increasingly dense workbench.
+3. First target work surface: a dedicated full-document processing surface that works over already uploaded documents and can produce reusable person/entity/search-focus material with data interoperability back into the current workflow.
+4. Second target work surface: a dedicated surface for the previously planned full `Audit naplo` workflow/API/panel backed by `audit_events`.
+5. Implement the full-document processing surface, then its backend integration; after that, implement the dedicated audit-log surface and backend workflow.
 
 Strategic rationale:
 
@@ -360,9 +362,9 @@ Implementation status:
 - LM Studio native API notes captured in `Design_documents/04_runtime_and_deployment_v1.md`: use `max_output_tokens`, not `maxTokens`; prefer `store: false`; prefer `system_prompt`; send `reasoning: "off"` only for reasoning-capable models such as Qwen.
 - Backend now supports explicit LM Studio native chat-model loading through `POST /api/v1/system/llm/load-chat-model`.
 - LM Studio native chat calls now auto-ensure the configured chat model is loaded before sending `/api/v1/chat`; loaded instance ids are reused when present, and the configured load profile is applied only when no matching instance is loaded.
-- Current preferred chat-model LM Studio load profile is configured as `context_length=30720`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
-- Embedding model load uses `context_length=12288`; LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load.
-- Latest empty-state model-load smoke accepted the reduced profile: `text-embedding-qwen3-embedding-4b` loaded in 3.461s and `qwen/qwen3.5-9b` loaded in 16.942s with `eval_batch_size=6144`.
+- Current preferred chat-model LM Studio load profile is configured as `context_length=61440`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
+- Embedding model load uses `context_length=8192`; LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load.
+- Latest empty-state model-load smoke accepted an earlier reduced profile: `text-embedding-qwen3-embedding-4b` loaded in 3.461s and `qwen/qwen3.5-9b` loaded in 16.942s with `eval_batch_size=6144`. The current balanced two-model profile uses chat `context_length=61440`, chat `eval_batch_size=4096`, and embedding `context_length=8192`.
 - Live model-load smoke accepted the profile and returned `qwen/qwen3.5-9b:2`, `status=loaded`, `load_time_seconds=10.784`, with echoed `parallel=4`.
 - Future native provider refinement: switch benchmark/runtime payload from locally tested `input.type="text"` to documented `input.type="message"` if local testing confirms compatibility.
 - First source-cited analysis smoke works through `POST /api/v1/cases/{case_id}/analysis/source-cited-smoke`.

@@ -985,6 +985,14 @@ export function loadChatModel(): Promise<unknown> {
   return request("/system/llm/load-chat-model", { method: "POST" });
 }
 
+export function unloadEmbeddingModel(): Promise<unknown> {
+  return request("/system/llm/unload-embedding-model", { method: "POST" });
+}
+
+export function unloadChatModel(): Promise<unknown> {
+  return request("/system/llm/unload-chat-model", { method: "POST" });
+}
+
 export function getReviewReport(caseId: string, filters: ReviewReportFilterValues = {}): Promise<ReviewReport> {
   const params = new URLSearchParams();
   if (filters.objectType) {

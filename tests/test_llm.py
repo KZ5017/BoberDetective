@@ -3,7 +3,12 @@ from pathlib import Path
 import httpx
 
 from app.core.config import Settings
-from app.services.llm import LMStudioNativeProvider, LLMChatMessage, OpenAICompatibleLocalProvider
+from app.services.llm import (
+    LMStudioNativeProvider,
+    LLMChatMessage,
+    LLMModelAlreadyLoadedError,
+    OpenAICompatibleLocalProvider,
+)
 
 
 def _settings(*, auto_load: bool = True, auto_load_embedding: bool = True) -> Settings:
@@ -18,9 +23,9 @@ def _settings(*, auto_load: bool = True, auto_load_embedding: bool = True) -> Se
         llm_chat_model="chat-model",
         llm_embedding_model="embedding-model",
         llm_timeout_seconds=1,
-        llm_chat_context_length=30720,
-        llm_embedding_context_length=12288,
-        llm_eval_batch_size=6144,
+        llm_chat_context_length=61440,
+        llm_embedding_context_length=8192,
+        llm_eval_batch_size=4096,
         llm_flash_attention=True,
         llm_offload_kv_cache_to_gpu=True,
         llm_auto_load_chat_model=auto_load,
@@ -126,7 +131,7 @@ def test_openai_compatible_provider_auto_loads_embedding_model() -> None:
 
     assert paths == ["GET /api/v1/models", "POST /api/v1/models/load", "POST /v1/embeddings"]
     assert captured_payloads[0]["model"] == "embedding-model"
-    assert captured_payloads[0]["context_length"] == 12288
+    assert captured_payloads[0]["context_length"] == 8192
     assert "eval_batch_size" not in captured_payloads[0]
     assert "offload_kv_cache_to_gpu" not in captured_payloads[0]
     assert "flash_attention" not in captured_payloads[0]
@@ -190,9 +195,13 @@ def test_lm_studio_native_provider_lists_loaded_models() -> None:
 
 
 def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly_profile() -> None:
+    paths: list[str] = []
     captured_payload = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(f"{request.method} {request.url.path}")
+        if request.method == "GET" and request.url.path == "/api/v1/models":
+            return httpx.Response(200, json={"models": [{"key": "chat-model", "loaded_instances": []}]})
         assert request.url.path == "/api/v1/models/load"
         captured_payload.update(__import__("json").loads(request.content))
         return httpx.Response(
@@ -203,8 +212,8 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
                 "load_time_seconds": 1.25,
                 "status": "loaded",
                 "load_config": {
-                    "context_length": 30720,
-                    "eval_batch_size": 6144,
+                    "context_length": 61440,
+                    "eval_batch_size": 4096,
                     "flash_attention": True,
                     "offload_kv_cache_to_gpu": True,
                 },
@@ -216,10 +225,11 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
 
     result = provider.load_configured_chat_model()
 
+    assert paths == ["GET /api/v1/models", "POST /api/v1/models/load"]
     assert captured_payload == {
         "model": "chat-model",
-        "context_length": 30720,
-        "eval_batch_size": 6144,
+        "context_length": 61440,
+        "eval_batch_size": 4096,
         "flash_attention": True,
         "offload_kv_cache_to_gpu": True,
         "echo_load_config": True,
@@ -228,11 +238,101 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
     assert result.instance_id == "chat-model"
     assert result.status == "loaded"
     assert result.load_config == {
-        "context_length": 30720,
-        "eval_batch_size": 6144,
+        "context_length": 61440,
+        "eval_batch_size": 4096,
         "flash_attention": True,
         "offload_kv_cache_to_gpu": True,
     }
+
+
+def test_lm_studio_native_provider_rejects_loading_already_loaded_chat_model() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/api/v1/models"
+        return httpx.Response(
+            200,
+            json={"models": [{"key": "chat-model", "loaded_instances": [{"id": "chat-model:7"}]}]},
+        )
+
+    client = httpx.Client(base_url="http://llm.local", transport=httpx.MockTransport(handler))
+    provider = LMStudioNativeProvider(_settings(), client)
+
+    try:
+        provider.load_configured_chat_model()
+    except LLMModelAlreadyLoadedError as exc:
+        assert str(exc) == "Configured chat model is already loaded"
+    else:
+        raise AssertionError("Expected already-loaded chat model to be rejected")
+
+
+def test_lm_studio_native_provider_rejects_loading_already_loaded_embedding_model() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/api/v1/models"
+        return httpx.Response(
+            200,
+            json={"models": [{"key": "embedding-model", "loaded_instances": [{"id": "embedding-model:2"}]}]},
+        )
+
+    client = httpx.Client(base_url="http://llm.local", transport=httpx.MockTransport(handler))
+    provider = LMStudioNativeProvider(_settings(), client)
+
+    try:
+        provider.load_configured_embedding_model()
+    except LLMModelAlreadyLoadedError as exc:
+        assert str(exc) == "Configured embedding model is already loaded"
+    else:
+        raise AssertionError("Expected already-loaded embedding model to be rejected")
+
+
+def test_lm_studio_native_provider_unloads_configured_chat_model_instance() -> None:
+    paths: list[str] = []
+    captured_payload = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(f"{request.method} {request.url.path}")
+        if request.method == "GET" and request.url.path == "/api/v1/models":
+            return httpx.Response(
+                200,
+                json={"models": [{"key": "chat-model", "loaded_instances": [{"id": "chat-model:7"}]}]},
+            )
+        assert request.url.path == "/api/v1/models/unload"
+        captured_payload.update(__import__("json").loads(request.content))
+        return httpx.Response(200, json={"instance_id": "chat-model:7"})
+
+    client = httpx.Client(base_url="http://llm.local", transport=httpx.MockTransport(handler))
+    provider = LMStudioNativeProvider(_settings(), client)
+
+    result = provider.unload_configured_chat_model()
+
+    assert paths == ["GET /api/v1/models", "POST /api/v1/models/unload"]
+    assert captured_payload == {"instance_id": "chat-model:7"}
+    assert result.instance_id == "chat-model:7"
+
+
+def test_lm_studio_native_provider_unloads_configured_embedding_model_instance() -> None:
+    paths: list[str] = []
+    captured_payload = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(f"{request.method} {request.url.path}")
+        if request.method == "GET" and request.url.path == "/api/v1/models":
+            return httpx.Response(
+                200,
+                json={"models": [{"key": "embedding-model", "loaded_instances": [{"id": "embedding-model:2"}]}]},
+            )
+        assert request.url.path == "/api/v1/models/unload"
+        captured_payload.update(__import__("json").loads(request.content))
+        return httpx.Response(200, json={"instance_id": "embedding-model:2"})
+
+    client = httpx.Client(base_url="http://llm.local", transport=httpx.MockTransport(handler))
+    provider = LMStudioNativeProvider(_settings(), client)
+
+    result = provider.unload_configured_embedding_model()
+
+    assert paths == ["GET /api/v1/models", "POST /api/v1/models/unload"]
+    assert captured_payload == {"instance_id": "embedding-model:2"}
+    assert result.instance_id == "embedding-model:2"
 
 
 def test_lm_studio_native_provider_uses_loaded_instance_when_available() -> None:

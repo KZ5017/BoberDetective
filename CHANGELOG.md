@@ -9,6 +9,7 @@
 - Tuned the `search_findings` prompt to keep the QUERY focus as the gate while accepting clear Hungarian inflected forms of the same focus item.
 - Reset the default analysis `Batch meret` to `5` while keeping backend/frontend validation at `1..15`, after user-side smoke testing showed short concrete focus terms can lose recall in larger batches.
 - Added a static frontend focus helper explaining that short concrete focus terms may work better with `Batch meret` between `1` and `3`.
+- Reordered the next larger project direction: first plan multiple dedicated work surfaces, then build a full-document processing surface for already uploaded documents, and move the full `Audit naplo` API/panel after that.
 
 ## 2026-05-25
 

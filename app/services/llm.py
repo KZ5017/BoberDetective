@@ -10,6 +10,10 @@ class LLMProviderError(RuntimeError):
     pass
 
 
+class LLMModelAlreadyLoadedError(LLMProviderError):
+    pass
+
+
 @dataclass(frozen=True)
 class LLMModel:
     id: str
@@ -56,6 +60,11 @@ class LLMModelLoadResult:
     load_time_seconds: float | None
     status: str
     load_config: dict | None
+
+
+@dataclass(frozen=True)
+class LLMModelUnloadResult:
+    instance_id: str
 
 
 class LLMProvider(Protocol):
@@ -352,7 +361,7 @@ class LMStudioNativeProvider:
         if instance_id is not None:
             self._loaded_chat_model_instance_id = instance_id
             return instance_id
-        result = self.load_configured_chat_model()
+        result = self._load_configured_chat_model_unchecked()
         if result.status != "loaded" or result.instance_id == "":
             raise LLMProviderError("LM Studio did not return a loaded chat model instance")
         self._loaded_chat_model_instance_id = result.instance_id
@@ -363,7 +372,7 @@ class LMStudioNativeProvider:
         if instance_id is not None:
             self._loaded_embedding_model_instance_id = instance_id
             return instance_id
-        result = self.load_configured_embedding_model()
+        result = self._load_configured_embedding_model_unchecked()
         if result.status != "loaded" or result.instance_id == "":
             raise LLMProviderError("LM Studio did not return a loaded embedding model instance")
         self._loaded_embedding_model_instance_id = result.instance_id
@@ -379,6 +388,11 @@ class LMStudioNativeProvider:
         return None
 
     def load_configured_chat_model(self) -> LLMModelLoadResult:
+        if self._matching_loaded_instance_id(self._settings.llm_chat_model, self._loaded_chat_model_instance_id) is not None:
+            raise LLMModelAlreadyLoadedError("Configured chat model is already loaded")
+        return self._load_configured_chat_model_unchecked()
+
+    def _load_configured_chat_model_unchecked(self) -> LLMModelLoadResult:
         client = self._client or self._build_client()
         close_client = self._client is None
         try:
@@ -411,6 +425,17 @@ class LMStudioNativeProvider:
                 client.close()
 
     def load_configured_embedding_model(self) -> LLMModelLoadResult:
+        if (
+            self._matching_loaded_instance_id(
+                self._settings.llm_embedding_model,
+                self._loaded_embedding_model_instance_id,
+            )
+            is not None
+        ):
+            raise LLMModelAlreadyLoadedError("Configured embedding model is already loaded")
+        return self._load_configured_embedding_model_unchecked()
+
+    def _load_configured_embedding_model_unchecked(self) -> LLMModelLoadResult:
         client = self._client or self._build_client()
         close_client = self._client is None
         try:
@@ -431,6 +456,49 @@ class LMStudioNativeProvider:
                 status=str(payload.get("status", "")),
                 load_config=payload.get("load_config") if isinstance(payload.get("load_config"), dict) else None,
             )
+        except httpx.HTTPStatusError as exc:
+            raise LLMProviderError(_http_status_error_message(exc)) from exc
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise LLMProviderError(str(exc)) from exc
+        finally:
+            if close_client:
+                client.close()
+
+    def unload_configured_chat_model(self) -> LLMModelUnloadResult:
+        instance_id = self._matching_loaded_instance_id(self._settings.llm_chat_model, self._loaded_chat_model_instance_id)
+        if instance_id is None:
+            raise LLMProviderError("Configured chat model is not loaded")
+        result = self.unload_model_instance(instance_id)
+        self._loaded_chat_model_instance_id = None
+        return result
+
+    def unload_configured_embedding_model(self) -> LLMModelUnloadResult:
+        instance_id = self._matching_loaded_instance_id(
+            self._settings.llm_embedding_model,
+            self._loaded_embedding_model_instance_id,
+        )
+        if instance_id is None:
+            raise LLMProviderError("Configured embedding model is not loaded")
+        result = self.unload_model_instance(instance_id)
+        self._loaded_embedding_model_instance_id = None
+        return result
+
+    def unload_model_instance(self, instance_id: str) -> LLMModelUnloadResult:
+        if instance_id == "":
+            raise LLMProviderError("Model instance id is required")
+        client = self._client or self._build_client()
+        close_client = self._client is None
+        try:
+            response = client.post(
+                "/api/v1/models/unload",
+                json={"instance_id": instance_id},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            unloaded_instance_id = str(payload.get("instance_id", ""))
+            if unloaded_instance_id == "":
+                raise LLMProviderError("LM Studio did not return an unloaded model instance id")
+            return LLMModelUnloadResult(instance_id=unloaded_instance_id)
         except httpx.HTTPStatusError as exc:
             raise LLMProviderError(_http_status_error_message(exc)) from exc
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:

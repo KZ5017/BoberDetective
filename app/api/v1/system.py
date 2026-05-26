@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 
 from app.core.config import get_settings
-from app.services.llm import LLMProviderError, LMStudioNativeProvider, get_llm_provider
+from app.services.llm import LLMModelAlreadyLoadedError, LLMProviderError, LMStudioNativeProvider, get_llm_provider
 from app.services.storage import StoragePaths
 
 router = APIRouter()
@@ -47,6 +47,8 @@ def llm_smoke() -> dict:
 def load_llm_chat_model() -> dict:
     try:
         result = LMStudioNativeProvider(get_settings()).load_configured_chat_model()
+    except LLMModelAlreadyLoadedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except LLMProviderError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {
@@ -62,6 +64,8 @@ def load_llm_chat_model() -> dict:
 def load_llm_embedding_model() -> dict:
     try:
         result = LMStudioNativeProvider(get_settings()).load_configured_embedding_model()
+    except LLMModelAlreadyLoadedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except LLMProviderError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {
@@ -71,3 +75,21 @@ def load_llm_embedding_model() -> dict:
         "status": result.status,
         "load_config": result.load_config,
     }
+
+
+@router.post("/llm/unload-chat-model")
+def unload_llm_chat_model() -> dict:
+    try:
+        result = LMStudioNativeProvider(get_settings()).unload_configured_chat_model()
+    except LLMProviderError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {"instance_id": result.instance_id}
+
+
+@router.post("/llm/unload-embedding-model")
+def unload_llm_embedding_model() -> dict:
+    try:
+        result = LMStudioNativeProvider(get_settings()).unload_configured_embedding_model()
+    except LLMProviderError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {"instance_id": result.instance_id}

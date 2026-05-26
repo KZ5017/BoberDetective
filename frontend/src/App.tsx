@@ -91,6 +91,8 @@ import {
   runDocumentOcr,
   setAsideResearchFinding,
   startChunkIndexJob,
+  unloadChatModel,
+  unloadEmbeddingModel,
   updateDocumentLifecycle,
   updateDocumentTaxonomy,
   updateReviewReportItemText
@@ -159,7 +161,9 @@ const busyLabels: Record<string, string> = {
   "chunk-index": "Chunk indexeles",
   "llm-smoke": "LLM modell allapot",
   "chat-load": "Chat modell betoltese",
-  "embedding-load": "Embedding modell betoltese"
+  "chat-unload": "Chat modell leválasztása",
+  "embedding-load": "Embedding modell betoltese",
+  "embedding-unload": "Embedding modell leválasztása"
 };
 
 const moduleLabels: Record<string, string> = {
@@ -1097,6 +1101,16 @@ export function App() {
     });
   }
 
+  async function handleUnloadChatModel() {
+    await perform("chat-unload", async () => {
+      await unloadChatModel();
+      const response = await getLlmSmoke();
+      setLlmSmoke(response);
+      setNotice("Chat modell leválasztva.");
+      setLastActionSummary(`Leválasztott chat modell: ${response.configured_chat_model}`);
+    });
+  }
+
   async function handleLoadEmbeddingModel() {
     await perform("embedding-load", async () => {
       await loadEmbeddingModel();
@@ -1104,6 +1118,16 @@ export function App() {
       setLlmSmoke(response);
       setNotice("Embedding modell betoltve.");
       setLastActionSummary(`Betoltott embedding modell: ${response.configured_embedding_model}`);
+    });
+  }
+
+  async function handleUnloadEmbeddingModel() {
+    await perform("embedding-unload", async () => {
+      await unloadEmbeddingModel();
+      const response = await getLlmSmoke();
+      setLlmSmoke(response);
+      setNotice("Embedding modell leválasztva.");
+      setLastActionSummary(`Leválasztott embedding modell: ${response.configured_embedding_model}`);
     });
   }
 
@@ -3015,9 +3039,22 @@ export function App() {
                       <span>{labelModelAvailability(llmSmoke.configured_chat_model_available)}</span>
                       <span>{labelModelLoadState(llmSmoke.configured_chat_model_loaded)}</span>
                     </div>
-                    <button className="secondary-button" onClick={handleLoadChatModel} disabled={Boolean(busy)}>
-                      Chat modell betoltese
-                    </button>
+                    <div className="button-row">
+                      <button
+                        className="secondary-button"
+                        onClick={handleLoadChatModel}
+                        disabled={Boolean(busy) || llmSmoke.configured_chat_model_loaded === true}
+                      >
+                        Chat modell betöltése
+                      </button>
+                      <button
+                        className="secondary-button"
+                        onClick={handleUnloadChatModel}
+                        disabled={Boolean(busy) || llmSmoke.configured_chat_model_loaded !== true}
+                      >
+                        Chat modell leválasztása
+                      </button>
+                    </div>
                   </div>
                   <div className="model-status-card">
                     <strong>Embedding modell</strong>
@@ -3026,9 +3063,22 @@ export function App() {
                       <span>{labelModelAvailability(llmSmoke.configured_embedding_model_available)}</span>
                       <span>{labelModelLoadState(llmSmoke.configured_embedding_model_loaded)}</span>
                     </div>
-                    <button className="secondary-button" onClick={handleLoadEmbeddingModel} disabled={Boolean(busy)}>
-                      Embedding modell betoltese
-                    </button>
+                    <div className="button-row">
+                      <button
+                        className="secondary-button"
+                        onClick={handleLoadEmbeddingModel}
+                        disabled={Boolean(busy) || llmSmoke.configured_embedding_model_loaded === true}
+                      >
+                        Embedding modell betöltése
+                      </button>
+                      <button
+                        className="secondary-button"
+                        onClick={handleUnloadEmbeddingModel}
+                        disabled={Boolean(busy) || llmSmoke.configured_embedding_model_loaded !== true}
+                      >
+                        Embedding modell leválasztása
+                      </button>
+                    </div>
                   </div>
                 </div>
                 {llmSmoke.loaded_model_ids.length > 0 && (

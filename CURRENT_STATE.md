@@ -68,9 +68,9 @@ alembic: 0034_review_edit_text (head)
 - Embedding index creation is hardware-guarded with `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` defaulting to `8`; chunks are embedded and upserted to Qdrant batch-by-batch instead of one large request, reducing LM Studio timeout/RAM spikes on 32 GB systems.
 - Chunk index status endpoint exists at `GET /api/v1/cases/{case_id}/indexes/chunks/status`; it reports current/indexed/missing chunk counts for the configured embedding model, readiness, collection name, latest `embed_chunks` run metadata, and latest run input/output progress. It accepts the same source-subset fields as case-scope indexing/analysis (`document_ids`, `document_group_code`, `document_type_code`) and evaluates readiness for that resolved document set. Frontend shows this in a semantic index status panel, disables semantic/hybrid analysis runs when the current source scope is not fully indexed, and displays background indexing progress such as `8/16`.
 - Hybrid retrieval foundation exists: `POST /api/v1/cases/{case_id}/search/hybrid` supports `keyword`, `semantic`, and `hybrid` strategies. `search_findings` can receive `retrieval_strategy`, and analysis run chunk inputs record `retrieval_match_type`.
-- Configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`. Embedding calls auto-ensure the configured embedding model is loaded through LM Studio native `/api/v1/models/load` before calling OpenAI-compatible `/v1/embeddings`. Embedding model loading uses `context_length=12288`; LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load. Chat model loading uses `context_length=30720`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
+- Configured embedding model defaults to `text-embedding-qwen3-embedding-4b@q6_k`. Embedding calls auto-ensure the configured embedding model is loaded through LM Studio native `/api/v1/models/load` before calling OpenAI-compatible `/v1/embeddings`. Embedding model loading uses `context_length=8192`; LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load. Chat model loading uses `context_length=61440`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
 - Latest Qwen3 8B embedding smoke loaded the embedding model, reindexed 49 chunks from the Morgue PDF into `boberdetective_chunks_text_embedding_qwen3_embedding_8b`, and returned semantic hits through hybrid search. The current configured embedding default is now the smaller `text-embedding-qwen3-embedding-4b@q6_k`; reindexing will use a separate model-specific Qdrant collection.
-- Latest local model-load smoke before the chat context increase succeeded with `text-embedding-qwen3-embedding-4b` at `context_length=12288`; the current configured chat profile for `qwen/qwen3.5-9b` now uses `context_length=30720`, `eval_batch_size=6144`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
+- Latest local model-load smoke before the chat context increase succeeded with `text-embedding-qwen3-embedding-4b` at `context_length=12288`; the current balanced two-model profile uses chat `context_length=61440`, chat `eval_batch_size=4096`, and embedding `context_length=8192`.
 - Latest 4B embedding reindex smoke succeeded with `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE=8`: 49 Morgue PDF chunks were indexed into `boberdetective_chunks_text_embedding_qwen3_embedding_4b` in about 120s.
 - Latest background indexing smoke succeeded against the Morgue PDF: a 16-chunk forced reindex returned immediately with run `603f6b0b-1337-4048-a1c4-139a8f9a049d`, status polling showed `0/16 -> 8/16 -> 16/16`, and the run finished `succeeded` / `passed`.
 - Historical focused analysis smokes with the removed raw modules remain useful as test history, but they no longer describe active workflows.
@@ -331,15 +331,17 @@ Latest document-processing/PDF smoke:
 
 Recommended order:
 
-1. Finish documentation cleanup around the retired raw module workflow: older design/status documents may keep historical notes, but active capability lists should point to `search_findings`.
-2. Keep hardening `search_findings` as the main source-bound research workflow and preserve the research finding worklist -> structured object conversion path.
-3. Design and implement a full `Audit naplo` workflow/API/panel backed by `audit_events`. Keep it conceptually separate from the current `Elemzesi elozmenyek` panel, which lists `analysis_runs`, not all audit events.
+1. Plan the UI/UX architecture for multiple well-defined work surfaces so future major workflows can be added without destabilizing the current two-column workbench.
+2. Build a dedicated full-document processing surface for already uploaded documents, initially focused on whole-document extraction of person/entity search seeds and reusable context.
+3. Implement and integrate the full-document processing workflow with the existing document/source/finding infrastructure.
+4. Build a dedicated surface for the full `Audit naplo` workflow.
+5. Implement the `Audit naplo` API/panel backed by `audit_events`, conceptually separate from the current `Elemzesi elozmenyek` panel, which lists `analysis_runs`, not all audit events.
 
 Rationale:
 
 - Focus text remains valuable and required for analysis runs, while source scope stays cleanly separated as whole-case or selected-document.
 - Structured document taxonomy is now the preferred foundation for large-case source narrowing; do not build new filtering behavior on free-text document type values.
-- Document reclassification is intentionally audit-only plus metadata-only; the next audit-log UI should surface `document_reclassified` events and their optional comments from `audit_events`.
+- Document reclassification is intentionally audit-only plus metadata-only; the later audit-log UI should surface `document_reclassified` events and their optional comments from `audit_events`.
 - Document lifecycle is now an active-source gate. Inactive documents must remain historically visible where already cited, but must not become new source material unless restored to `active`.
 - The former raw-chunk automatic extraction modules have already been retired from active code paths. Keep cleanup/documentation focused on the current source-bound `search_findings` workflow and the downstream claim-pair contradiction workflow.
 - Contradiction detection is downstream of source-cited claims, so it should remain claim-pair based and preserve `no source -> no claim` through claim/source-reference provenance.
@@ -354,7 +356,7 @@ Rationale:
 - Send `reasoning: "off"` only for Qwen-style reasoning models.
 - `POST /api/v1/system/llm/load-chat-model` loads the configured chat model through LM Studio native `/api/v1/models/load`.
 - LM Studio native chat calls auto-ensure the configured chat model is loaded before `/api/v1/chat`; if no matching loaded instance is found, the backend loads it once with the configured load profile and then sends the chat request to the loaded instance id.
-- Current preferred chat-model LM Studio load profile: `context_length=30720`, `eval_batch_size=6144`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`, `echo_load_config=true`.
+- Current preferred chat-model LM Studio load profile: `context_length=61440`, `eval_batch_size=4096`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`, `echo_load_config=true`.
 - Current preferred embedding model: `text-embedding-qwen3-embedding-4b@q6_k`; reindex chunks after switching because model-specific Qdrant collections isolate embeddings by configured model name.
 - Keep generated data under the configured data root, not inside the Git repository.
 - Frontend dev server proxies `/api` to backend port `8000`.
