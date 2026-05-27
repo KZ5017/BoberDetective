@@ -97,7 +97,8 @@ Completed:
 - Analysis retrieval fallback improved for short/inflected Hungarian queries such as `mellekletet`
 - Source-bound finding search requires explicit focus text and fails clearly when retrieval finds no matching source chunk, avoiding blind processing on large cases
 - Local chunk indexing through LM Studio/OpenAI-compatible embeddings and Qdrant, with `embed_chunks` analysis run provenance
-- Explicit LM Studio embedding model load workflow; the default local embedding model is `text-embedding-qwen3-embedding-4b@q6_k`
+- Explicit LM Studio embedding model load workflow; the default local embedding model is `text-embedding-bge-m3`
+- Current embedding load profile uses `text-embedding-bge-m3` with `context_length=4096`; previous Qwen embedding defaults are retired
 - Model-specific Qdrant chunk collections, so switching embedding models does not mix vector dimensions
 - Batched embedding index creation through `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` to avoid oversized LM Studio embedding requests
 - Background chunk indexing with frontend progress polling, so larger LM Studio/Qdrant indexing work does not depend on one long HTTP request

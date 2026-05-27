@@ -160,7 +160,7 @@ Az API kulcs ebben a fejlesztési modellben technikai kompatibilitási érték l
 
 ## 4.4a LM Studio native API adapter megjegyzések
 
-> **Aktualis megjegyzes, 2026-05-25:** az implementacio mar kulon chat- es embedding-modell betoltesi utat hasznal LM Studio native API-n. A jelenlegi helyi profil: chat `context_length=61440`, `eval_batch_size=4096`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`; embedding default `text-embedding-qwen3-embedding-4b@q6_k`, `context_length=8192`. Az LM Studio jelenleg nem fogadja el embedding modellre az `eval_batch_size`, `flash_attention` es `offload_kv_cache_to_gpu` mezoket, ezert azokat embedding loadnal nem kuldjuk. A friss session allapotot mindig a `CURRENT_STATE.md` es `AI_NOTES.md` tartalmazza.
+> **Aktualis megjegyzes, 2026-05-27:** az implementacio mar kulon chat- es embedding-modell betoltesi utat hasznal LM Studio native API-n. A jelenlegi helyi profil: chat `context_length=61440`, `eval_batch_size=4096`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`; embedding default `text-embedding-bge-m3`, `context_length=4096`. Az LM Studio jelenleg nem fogadja el embedding modellre az `eval_batch_size`, `flash_attention` es `offload_kv_cache_to_gpu` mezoket, ezert azokat embedding loadnal nem kuldjuk. A friss session allapotot mindig a `CURRENT_STATE.md` es `AI_NOTES.md` tartalmazza.
 
 2026-05-12 update:
 

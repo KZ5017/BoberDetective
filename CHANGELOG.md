@@ -4,10 +4,13 @@
 
 ### Changed
 
+- Switched the default embedding profile to LM Studio model id `text-embedding-bge-m3` with `context_length=4096`, keeping embedding load payloads limited to fields LM Studio accepts for embedding models.
+- Marked the previous Qwen embedding profile as retired from the active default path; BGE-M3 is now the intended embedding baseline.
+- Changed the default analysis `Batch meret` to `1` while keeping backend/frontend validation limits unchanged.
 - Generalized the `search_findings` prompt's positive focus rule from person-only matching to concrete focus items such as persons, organizations, locations, phone numbers, email addresses, license plates, money amounts, case references, document references, and attachments.
 - Kept `search_findings` operational instructions in English while requiring Hungarian source processing, Hungarian user-facing output fields, and character-exact Hungarian `quote_text` copying.
 - Tuned the `search_findings` prompt to keep the QUERY focus as the gate while accepting clear Hungarian inflected forms of the same focus item.
-- Reset the default analysis `Batch meret` to `5` while keeping backend/frontend validation at `1..15`, after user-side smoke testing showed short concrete focus terms can lose recall in larger batches.
+- Earlier `Batch meret` default tuning to `5` has been superseded by the current default `1`; backend/frontend validation remains `1..15`.
 - Added a static frontend focus helper explaining that short concrete focus terms may work better with `Batch meret` between `1` and `3`.
 - Reordered the next larger project direction: first plan multiple dedicated work surfaces, then build a full-document processing surface for already uploaded documents, and move the full `Audit naplo` API/panel after that.
 

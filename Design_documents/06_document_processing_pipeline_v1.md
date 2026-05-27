@@ -371,7 +371,7 @@ A chunknak mindig visszavezethetőnek kell lennie:
 
 ## 6.7 Embedding
 
-> **Aktualis megjegyzes, 2026-05-17:** a chunk indexing mar hatterjobkent is elerheto, LM Studio/OpenAI-compatible embeddinggel es Qdrant model-specifikus collectionokkel. A jelenlegi default embedding modell `text-embedding-qwen3-embedding-4b@q6_k`; index batching default `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE=8`. A friss operationalis reszleteket `CURRENT_STATE.md` es `AI_NOTES.md` tartalmazza.
+> **Aktualis megjegyzes, 2026-05-27:** a chunk indexing mar hatterjobkent is elerheto, LM Studio/OpenAI-compatible embeddinggel es Qdrant model-specifikus collectionokkel. A jelenlegi default embedding modell `text-embedding-bge-m3`; index batching default `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE=8`. A friss operationalis reszleteket `CURRENT_STATE.md` es `AI_NOTES.md` tartalmazza.
 
 ### Cél
 

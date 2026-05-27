@@ -25,7 +25,7 @@ def _settings() -> Settings:
         llm_embedding_model="embedding-model",
         llm_timeout_seconds=1,
         llm_chat_context_length=61440,
-        llm_embedding_context_length=8192,
+        llm_embedding_context_length=4096,
         llm_eval_batch_size=4096,
         llm_flash_attention=True,
         llm_offload_kv_cache_to_gpu=True,

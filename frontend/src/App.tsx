@@ -318,7 +318,7 @@ export function App() {
   const [analysisPageStart, setAnalysisPageStart] = useState("");
   const [analysisPageEnd, setAnalysisPageEnd] = useState("");
   const [maxChunks, setMaxChunks] = useState(30);
-  const [batchSize, setBatchSize] = useState(5);
+  const [batchSize, setBatchSize] = useState(1);
   const [claimReviewScope, setClaimReviewScope] = useState<ClaimReviewScope>("reviewable");
   const [contradictionCandidateLimit, setContradictionCandidateLimit] = useState(5);
   const [retrievalStrategy, setRetrievalStrategy] = useState<RetrievalStrategy>("keyword");

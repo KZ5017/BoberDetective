@@ -24,7 +24,7 @@ def _settings(*, auto_load: bool = True, auto_load_embedding: bool = True) -> Se
         llm_embedding_model="embedding-model",
         llm_timeout_seconds=1,
         llm_chat_context_length=61440,
-        llm_embedding_context_length=8192,
+        llm_embedding_context_length=4096,
         llm_eval_batch_size=4096,
         llm_flash_attention=True,
         llm_offload_kv_cache_to_gpu=True,
@@ -131,7 +131,7 @@ def test_openai_compatible_provider_auto_loads_embedding_model() -> None:
 
     assert paths == ["GET /api/v1/models", "POST /api/v1/models/load", "POST /v1/embeddings"]
     assert captured_payloads[0]["model"] == "embedding-model"
-    assert captured_payloads[0]["context_length"] == 8192
+    assert captured_payloads[0]["context_length"] == 4096
     assert "eval_batch_size" not in captured_payloads[0]
     assert "offload_kv_cache_to_gpu" not in captured_payloads[0]
     assert "flash_attention" not in captured_payloads[0]
