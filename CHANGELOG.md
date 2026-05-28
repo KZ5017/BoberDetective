@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Added `Design_documents/14_work_surface_ui_architecture_plan.md`, defining the AppShell, shared case context, surface navigation, and first work-surface rollout plan.
+- Updated the next-step handoff so the immediate frontend target is the first AppShell/surface-navigation slice rather than adding more panels to the current workbench.
+- Implemented the first work-surface navigation slice: the existing page is now `Ügy munkapad`, with placeholder surfaces for `Teljes iratfeldolgozás` and `Audit napló`.
+- Expanded `Teljes iratfeldolgozás` from placeholder into a frontend-only first UI slice with active-document selection, profile selection, selected-document summary, and output scaffold.
+- Added `Design_documents/15_full_document_processing_plan.md`, defining the backend contract for full-document processing runs and preparatory `document_processing_item` records.
 - Switched the default embedding profile to LM Studio model id `text-embedding-bge-m3` with `context_length=4096`, keeping embedding load payloads limited to fields LM Studio accepts for embedding models.
 - Marked the previous Qwen embedding profile as retired from the active default path; BGE-M3 is now the intended embedding baseline.
 - Changed the default analysis `Batch meret` to `1` while keeping backend/frontend validation limits unchanged.
@@ -12,7 +17,7 @@
 - Tuned the `search_findings` prompt to keep the QUERY focus as the gate while accepting clear Hungarian inflected forms of the same focus item.
 - Earlier `Batch meret` default tuning to `5` has been superseded by the current default `1`; backend/frontend validation remains `1..15`.
 - Added a static frontend focus helper explaining that short concrete focus terms may work better with `Batch meret` between `1` and `3`.
-- Reordered the next larger project direction: first plan multiple dedicated work surfaces, then build a full-document processing surface for already uploaded documents, and move the full `Audit naplo` API/panel after that.
+- Reordered the next larger project direction: first use the dedicated work-surface UI architecture, then build a full-document processing surface for already uploaded documents, and move the full `Audit naplo` API/panel after that.
 
 ## 2026-05-25
 

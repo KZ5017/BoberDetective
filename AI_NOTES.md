@@ -276,14 +276,16 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Plan the UI/UX architecture for multiple well-defined work surfaces instead of one increasingly dense workbench.
-3. First target work surface: a dedicated full-document processing surface that works over already uploaded documents and can produce reusable person/entity/search-focus material with data interoperability back into the current workflow.
-4. Second target work surface: a dedicated surface for the previously planned full `Audit naplo` workflow/API/panel backed by `audit_events`.
-5. Implement the full-document processing surface, then its backend integration; after that, implement the dedicated audit-log surface and backend workflow.
+2. Implement the first backend slice from `Design_documents/15_full_document_processing_plan.md`: schema/migration for `document_processing_items`, `full_document_processing` run type support, and a backend profile registry.
+3. Add the full-document processing service/API for page-block prompt input, source quote validation, item persistence, and item list/status operations.
+4. Connect the `Teljes iratfeldolgozás` frontend surface to the backend run and item list.
+5. Expand `Audit napló` from placeholder into the dedicated full `Audit naplo` workflow/API/panel backed by `audit_events` after the full-document processing path is established.
 
 Strategic rationale:
 
 - The frontend is currently usable enough for the MVP workflow and now has Hungarian visible labels.
+- The work-surface UI architecture is planned in `Design_documents/14_work_surface_ui_architecture_plan.md`; the first shell slice is implemented with `Ügy munkapad`, `Teljes iratfeldolgozás`, and `Audit napló` surfaces. The `Teljes iratfeldolgozás` surface now has a frontend-only first UI slice for document/profile selection and output structure.
+- Full-document processing backend contract is planned in `Design_documents/15_full_document_processing_plan.md`; it keeps full-document extraction outputs as separate preparatory `document_processing_item` records before any human-driven conversion or research workflow handoff.
 - The document ingestion foundation now handles native PDF parsing, explicit OCR, review-required states, confidence metadata, and medium scanned PDF uploads well enough to move forward.
 - The raw-chunk analysis modules are batch-capable and live-smoke passed on document/case source modes, but they are now retirement candidates rather than the future main workflow.
 - Large-case usability now uses structured document metadata for import/list display and analysis source filtering. The old free-text `documents.document_type` column/API field has been removed through `0019_drop_legacy_document_type`; do not reintroduce uncontrolled free-text document classification.

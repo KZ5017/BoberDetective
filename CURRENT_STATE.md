@@ -331,10 +331,10 @@ Latest document-processing/PDF smoke:
 
 Recommended order:
 
-1. Plan the UI/UX architecture for multiple well-defined work surfaces so future major workflows can be added without destabilizing the current two-column workbench.
-2. Build a dedicated full-document processing surface for already uploaded documents, initially focused on whole-document extraction of person/entity search seeds and reusable context.
-3. Implement and integrate the full-document processing workflow with the existing document/source/finding infrastructure.
-4. Build a dedicated surface for the full `Audit naplo` workflow.
+1. Implement the first backend slice from `Design_documents/15_full_document_processing_plan.md`: schema/migration for `document_processing_items`, `full_document_processing` run type support, and a backend profile registry.
+2. Add the full-document processing service/API for page-block prompt input, source quote validation, item persistence, and item list/status operations.
+3. Connect the `Teljes iratfeldolgozás` frontend surface to the backend run and item list.
+4. Expand the new `Audit napló` work surface into the dedicated full audit-log workflow surface.
 5. Implement the `Audit naplo` API/panel backed by `audit_events`, conceptually separate from the current `Elemzesi elozmenyek` panel, which lists `analysis_runs`, not all audit events.
 
 Rationale:
@@ -345,6 +345,9 @@ Rationale:
 - Document lifecycle is now an active-source gate. Inactive documents must remain historically visible where already cited, but must not become new source material unless restored to `active`.
 - The former raw-chunk automatic extraction modules have already been retired from active code paths. Keep cleanup/documentation focused on the current source-bound `search_findings` workflow and the downstream claim-pair contradiction workflow.
 - Contradiction detection is downstream of source-cited claims, so it should remain claim-pair based and preserve `no source -> no claim` through claim/source-reference provenance.
+- UI work-surface architecture is captured in `Design_documents/14_work_surface_ui_architecture_plan.md`. The first shell/navigation slice is implemented: the current workbench is available as `Ügy munkapad`, with surfaces for `Teljes iratfeldolgozás` and `Audit napló`.
+- The first `Teljes iratfeldolgozás` UI slice exists: active-document search/selection, processing profile selection, selected-document summary, and an output scaffold for reusable search-focus material. It is intentionally frontend-only until the backend contract is designed.
+- Full-document processing backend contract is captured in `Design_documents/15_full_document_processing_plan.md`. It introduces `document_processing_item` as a separate preparatory work item, not a `research_finding` and not a structured review object.
 
 ## Important Local Notes
 

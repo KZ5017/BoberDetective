@@ -132,7 +132,7 @@ PDF/OCR sample checks:
 
 Next:
 
-- Plan a UI/UX structure for multiple dedicated work surfaces, then build a first full-document processing surface for already uploaded documents
+- Implement the first backend slice from `Design_documents/15_full_document_processing_plan.md` for full-document processing work items
 - After the full-document processing surface and integration, design and implement the full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
 - Keep documentation cleanup around retired raw modules opportunistic; active capability lists should continue to point to `search_findings`
 - Consider durable job supervision if indexing grows beyond FastAPI background tasks

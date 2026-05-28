@@ -114,6 +114,37 @@ const sourceValidationStatuses = ["", "source_valid", "source_invalid", "pending
 const analysisSourceModes: AnalysisSourceMode[] = ["case", "document"];
 const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
 const retrievalStrategies: RetrievalStrategy[] = ["keyword", "semantic", "hybrid"];
+const workSurfaces = ["case_workbench", "full_document_processing", "audit_log"] as const;
+
+type WorkSurface = (typeof workSurfaces)[number];
+
+const workSurfaceLabels: Record<WorkSurface, string> = {
+  case_workbench: "Ügy munkapad",
+  full_document_processing: "Teljes iratfeldolgozás",
+  audit_log: "Audit napló"
+};
+
+const workSurfaceHints: Record<WorkSurface, string> = {
+  case_workbench: "Kutatási találatok, áttekintési jelentés és forrásmunka",
+  full_document_processing: "Teljes iratokból kinyert újrahasznosítható keresési alapanyag",
+  audit_log: "Audit események önálló, idősoros áttekintése"
+};
+
+const fullDocumentProfiles = ["person_search_seeds", "entity_search_seeds"] as const;
+
+type FullDocumentProfile = (typeof fullDocumentProfiles)[number];
+
+const fullDocumentProfileLabels: Record<FullDocumentProfile, string> = {
+  person_search_seeds: "Személyek és keresési fókuszok",
+  entity_search_seeds: "Entitások és keresési fókuszok"
+};
+
+const fullDocumentProfileHints: Record<FullDocumentProfile, string> = {
+  person_search_seeds:
+    "Teljes iratból személyeket, névváltozatokat, rövid forráshű leírást és újrahasznosítható keresési fókuszokat készít elő.",
+  entity_search_seeds:
+    "Teljes iratból szervezeteket, helyeket, irat- vagy ügyhivatkozásokat és ezekhez kapcsolható keresési fókuszokat készít elő."
+};
 
 type SearchableSelectOption = {
   id: string;
@@ -307,6 +338,10 @@ export function App() {
   const [documentGroupCode, setDocumentGroupCode] = useState("uncategorized");
   const [documentTypeCode, setDocumentTypeCode] = useState("uncategorized");
   const [documentListSearch, setDocumentListSearch] = useState("");
+  const [activeSurface, setActiveSurface] = useState<WorkSurface>("case_workbench");
+  const [fullDocumentSearch, setFullDocumentSearch] = useState("");
+  const [fullDocumentId, setFullDocumentId] = useState("");
+  const [fullDocumentProfile, setFullDocumentProfile] = useState<FullDocumentProfile>("person_search_seeds");
   const [moduleKey, setModuleKey] = useState("search_findings");
   const [query, setQuery] = useState("");
   const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("case");
@@ -399,6 +434,14 @@ export function App() {
   const activeDocuments = useMemo(
     () => documents.filter((document) => document.lifecycle_status === "active"),
     [documents]
+  );
+  const filteredFullDocuments = useMemo(
+    () => filterDocumentsByName(activeDocuments, fullDocumentSearch),
+    [activeDocuments, fullDocumentSearch]
+  );
+  const selectedFullDocument = useMemo(
+    () => activeDocuments.find((document) => document.id === fullDocumentId) ?? null,
+    [activeDocuments, fullDocumentId]
   );
   const selectedAnalysisDocument = useMemo(
     () => activeDocuments.find((item) => item.id === analysisDocumentId) ?? null,
@@ -2583,6 +2626,24 @@ export function App() {
           </div>
         </section>
 
+        <nav className="surface-nav" aria-label="Munkafelület választása">
+          {workSurfaces.map((surface) => (
+            <button
+              key={surface}
+              className={`surface-tab ${activeSurface === surface ? "is-active" : ""}`}
+              onClick={() => setActiveSurface(surface)}
+              type="button"
+              aria-current={activeSurface === surface ? "page" : undefined}
+            >
+              {surface === "case_workbench" && <Database size={18} />}
+              {surface === "full_document_processing" && <FilePlus2 size={18} />}
+              {surface === "audit_log" && <Archive size={18} />}
+              <span>{workSurfaceLabels[surface]}</span>
+            </button>
+          ))}
+        </nav>
+
+        {activeSurface === "case_workbench" && (
         <section className="main-grid">
           <section className="panel hero-panel">
             <div>
@@ -4071,6 +4132,149 @@ export function App() {
           </div>
 
         </section>
+        )}
+
+        {activeSurface === "full_document_processing" && (
+          <section className="surface-placeholder">
+            <section className="panel hero-panel">
+              <div>
+                <h2>{workSurfaceLabels.full_document_processing}</h2>
+                <p>{workSurfaceHints.full_document_processing}</p>
+              </div>
+              <div className="run-stack">
+                <span className="run-state"><FilePlus2 size={18} /> előkészítés alatt</span>
+              </div>
+            </section>
+            <section className="full-document-grid">
+              <section className="panel">
+              <div className="section-heading">
+                <h2>Irat és feldolgozási profil</h2>
+                <FilePlus2 size={20} />
+              </div>
+              <div className="surface-form">
+                <label>
+                  Iratnév keresése
+                  <input
+                    value={fullDocumentSearch}
+                    onChange={(event) => setFullDocumentSearch(event.target.value)}
+                    placeholder="Keresés az aktív iratok között"
+                    disabled={activeDocuments.length === 0}
+                  />
+                </label>
+                <label>
+                  Feldolgozandó irat
+                  <select
+                    value={fullDocumentId}
+                    onChange={(event) => setFullDocumentId(event.target.value)}
+                    disabled={filteredFullDocuments.length === 0}
+                  >
+                    <option value="">Válassz aktív iratot</option>
+                    {filteredFullDocuments.map((document) => (
+                      <option key={document.id} value={document.id}>
+                        {document.original_filename}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Feldolgozási profil
+                  <select
+                    value={fullDocumentProfile}
+                    onChange={(event) => setFullDocumentProfile(event.target.value as FullDocumentProfile)}
+                  >
+                    {fullDocumentProfiles.map((profile) => (
+                      <option key={profile} value={profile}>
+                        {fullDocumentProfileLabels[profile]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="module-note">{fullDocumentProfileHints[fullDocumentProfile]}</div>
+                <button disabled className="secondary-button">
+                  <Play size={18} /> Feldolgozás indítása
+                </button>
+                <p className="field-hint">
+                  A futtatás a következő backend szeletben kapcsolódik be. A cél az, hogy teljes iratból készüljön forráshű, később keresési fókuszként újrahasznosítható munkalista.
+                </p>
+              </div>
+            </section>
+              <section className="panel">
+                <div className="section-heading">
+                  <h2>Iratösszefoglaló</h2>
+                  <Database size={20} />
+                </div>
+                {!selectedFullDocument && <p className="muted">Válassz aktív iratot a teljes iratfeldolgozáshoz.</p>}
+                {selectedFullDocument && (
+                  <div className="detail-stack">
+                    <strong>{selectedFullDocument.original_filename}</strong>
+                    <div className="metrics">
+                      <span>{labelDocumentTaxonomy(selectedFullDocument)}</span>
+                      <span>{labelProcessingStatus(selectedFullDocument.processing_status)}</span>
+                      <span>{labelDocumentLifecycleStatus(selectedFullDocument.lifecycle_status)}</span>
+                      <span>{formatBytes(selectedFullDocument.file_size_bytes)}</span>
+                    </div>
+                    <code>{selectedFullDocument.sha256_hash}</code>
+                    <p className="field-hint">
+                      A teljes iratfeldolgozás csak aktív, feldolgozott iratokon fog dolgozni. A létrejövő munkadarabok nem lesznek automatikusan szakmai tények; később emberi döntéssel kerülhetnek át a kutatási vagy strukturált objektum workflow-ba.
+                    </p>
+                  </div>
+                )}
+              </section>
+            </section>
+            <section className="panel">
+              <div className="section-heading">
+                <h2>Előkészített kimenet</h2>
+                <Search size={20} />
+              </div>
+              <div className="full-document-output">
+                <div>
+                  <span>Várható elem</span>
+                  <strong>név / cím</strong>
+                  <p>Rövid, forráshű leírás és keresési fókuszjavaslatok.</p>
+                </div>
+                <div>
+                  <span>Adatátadás</span>
+                  <strong>kutatási fókusz</strong>
+                  <p>Az eredmény később átadható lesz a kutatási találatok munkafolyamatának.</p>
+                </div>
+                <div>
+                  <span>Forráselv</span>
+                  <strong>No source - no claim</strong>
+                  <p>A teljes iratfeldolgozás sem hozhat létre forrás nélküli állítást.</p>
+                </div>
+              </div>
+            </section>
+          </section>
+        )}
+
+        {activeSurface === "audit_log" && (
+          <section className="surface-placeholder">
+            <section className="panel hero-panel">
+              <div>
+                <h2>{workSurfaceLabels.audit_log}</h2>
+                <p>{workSurfaceHints.audit_log}</p>
+              </div>
+              <div className="run-stack">
+                <span className="run-state"><Archive size={18} /> előkészítés alatt</span>
+              </div>
+            </section>
+            <section className="panel">
+              <div className="section-heading">
+                <h2>Tervezett naplófelület</h2>
+                <Archive size={20} />
+              </div>
+              <div className="module-note">
+                Ez a felület az audit események önálló áttekintésére készül. Nem azonos az Elemzési előzmények panellel: az ottani lista elemzési futásokat mutat, az audit napló pedig később az audit_events eseményeit fogja időrendben és szűrhetően megjeleníteni.
+              </div>
+              <div className="metrics">
+                <span>iratbesorolás</span>
+                <span>iratállapot</span>
+                <span>forrásműveletek</span>
+                <span>kézi beavatkozások</span>
+              </div>
+            </section>
+          </section>
+        )}
       </section>
     </main>
   );
