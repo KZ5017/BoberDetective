@@ -2,13 +2,14 @@
 
 ## 0. Aktualisitas
 
-Frissitve: 2026-05-28.
+Frissitve: 2026-05-30.
 
-Ez a dokumentum a `Teljes iratfeldolgozás` munkafelület backend-szerzodeset es elso implementacios iranyat rogziti.
+Ez a dokumentum a `Teljes iratfeldolgozás` munkafelület backend-szerzodeset, aktualis implementalt allapotat es kovetkezo iranyait rogziti.
 
 Kapcsolodo dokumentumok:
 
 - `Design_documents/14_work_surface_ui_architecture_plan.md`
+- `Design_documents/16_large_case_document_storage_and_retrieval_plan.md`
 - `Design_documents/12_source_bound_findings_model_plan.md`
 - `Design_documents/13_legacy_analysis_module_retirement_plan.md`
 
@@ -17,7 +18,7 @@ Aktualis UI allapot:
 ```text
 AppShell / munkafelület-valto kesz
 Ügy munkapad = jelenlegi munkapad
-Teljes iratfeldolgozás = frontend-only elso szelet
+Teljes iratfeldolgozás = backendhez kotott munkafelület
 Audit napló = placeholder
 ```
 
@@ -26,9 +27,16 @@ A `Teljes iratfeldolgozás` feluleten mar van:
 - aktiv irat kereses/valasztas,
 - feldolgozasi profil valasztas,
 - kivalasztott irat osszefoglalo,
-- kimeneti struktura helye.
+- oldaltol/oldalig tartomanyvalasztas,
+- futtatas inditasa,
+- utolso futas validacios osszegzese,
+- aktiv es felretett munkalista nezet,
+- munkadarab felretetele es visszaallitasa,
+- torlesre jeloles es csoportos soft delete,
+- forrasbizonyitek megjelenitese,
+- ajanlott fokusz atadasa az `Ügy munkapad` `search_findings` workflow-jaba.
 
-Most a backend szerzodest kell megtervezni.
+A nagyugyes tarolasi/retrieval kapu elso kritikus szeletei mar megvalosultak: a teljes page/chunk szoveg a data-root text store-bol olvashato, es a regi DB text oszlopok ki vannak vezetve. A teljes iratfeldolgozas jelenlegi szelete erre a text-store alapra epul.
 
 ## 1. Cel
 
@@ -277,7 +285,7 @@ Az `analysis_runs` rogzitse:
 `analysis_run_inputs`:
 
 - legalabb dokumentum input,
-- opcionálisan oldal inputok, ha a teljes irat tul nagy es oldalcsoportokra kell bontani.
+- oldal inputok a kivalasztott oldaltartomany aktualis, nem ures oldalaihoz. **A run-start szeletben egy futtatas egy LLM-keres: a kivalasztott oldaltartomany egyszerre megy ki.**
 
 `analysis_run_outputs`:
 
@@ -317,7 +325,9 @@ Payload:
 
 ```json
 {
-  "profile_key": "person_search_seeds"
+  "profile_key": "person_search_seeds",
+  "page_start": 1,
+  "page_end": 12
 }
 ```
 
@@ -326,12 +336,19 @@ Valasz:
 ```json
 {
   "analysis_run_id": "...",
-  "status": "succeeded",
-  "items_created": 12
+  "document_id": "...",
+  "profile_key": "person_search_seeds",
+  "created_item_count": 12,
+  "unsupported_count": 1,
+  "validation_status": "warning",
+  "items": [],
+  "unsupported_items": []
 }
 ```
 
-Elso korben szinkron futas is elfogadhato kisebb iratokhoz, de a teljes irat jellege miatt jobb a hatterjob-szeru modell:
+Elso implementalt szeletben a futas szinkron. A service a kivalasztott oldaltartomany aktualis oldalait egyetlen LLM-keresben kuldi ki, es csak karakterpontosan validalt `source_evidence.quote_text` mellett ment `document_processing_item` rekordot.
+
+Kesobbi nagyobb iratokhoz jobb lehet a hatterjob-szeru modell:
 
 ```text
 POST -> run id
@@ -369,6 +386,32 @@ Payload:
 ```
 
 Torlesnel elso korben lehet valodi torles, mert ez munkalista jellegu elokeszito adat. Ha mar konvertalt, ne legyen torolheto vakon.
+
+Aktualis implementacio:
+
+- az egyedi `PATCH` kezeli az `active`, `set_aside`, `deleted` statuszvaltast,
+- a frontend nem torol azonnal kartyarol, hanem elobb torlesre jelol,
+- a tenyleges csoportos soft delete a munkalista toolbarbol indul.
+
+```http
+POST /api/v1/cases/{case_id}/full-document-processing/items/bulk-delete
+```
+
+Payload:
+
+```json
+{
+  "item_ids": ["..."]
+}
+```
+
+Valasz:
+
+```json
+{
+  "deleted_count": 3
+}
+```
 
 ### 7.5 Keresesi fokusz atadasa
 
@@ -475,19 +518,25 @@ Backend validacio:
 - profil ismert,
 - modell JSON ervenyes,
 - `source_evidence` nem ures,
-- minden `quote_text` megtalalhato a megjelolt oldalon,
+- minden `quote_text` megtalalhato a megjelolt oldalon; az aktualis implementacio OCR-spacing tolerans egyezest is elfogad, de a mentett bizonyitek az eredeti forrasszoveg pontos substringje es karakterpozicioja,
 - nincs kulso forras,
-- output meret korlatozott.
+- duplikalt munkadarabok normalizalt identitaskulccsal szurodnek,
+- nincs onkenyes `max_items` plafon: ha egy iratban sok forrassal igazolhato munkadarab van, nem dobjuk el oket csak elemszam miatt.
 
 Nem kell tul agressziv deduplikacio elso korben. A teljes iratfeldolgozo munkalista emberi elokeszito felulet lesz, nem vegleges szakmai rekord.
 
 ## 11. UI integracio
 
-Elso backend integracio utan a `Teljes iratfeldolgozás` feluleten:
+Aktualis `Teljes iratfeldolgozás` feluleten:
 
-- feldolgozas inditasa gomb aktiv lesz,
+- feldolgozas inditasa gomb aktiv,
 - mutatja az utolso futast,
-- listazza a munkadarabokat,
+- listazza az aktiv vagy felretett munkadarabokat,
+- a panel tetejen nezetvalto van:
+  - `Aktív`,
+  - `Félretett`,
+- a panel tetejen csoportos tenyleges torles van:
+  - `Jelöltek törlése (...)`,
 - munkadarab kartyan:
   - cim,
   - rovid leiras,
@@ -495,7 +544,8 @@ Elso backend integracio utan a `Teljes iratfeldolgozás` feluleten:
   - forrasidezetek,
   - gomb: `Fókusz átvitele kutatási keresésbe`,
   - gomb: `Félreteszem`,
-  - gomb: `Törlés`.
+  - felretett nezetben gomb: `Vissza az aktív listába`,
+  - gomb: `Törlésre jelölés`.
 
 Kesobb:
 
@@ -507,24 +557,31 @@ Kesobb:
 
 Javasolt sorrend:
 
-1. Backend schema/migration `document_processing_items`.
-2. Run type bovites: `full_document_processing`.
-3. Profil registry backend oldalon.
-4. Service: oldalak osszeallitasa `PAGE page_n` blokkokba.
-5. Prompt + JSON parser + source quote validation.
-6. API: run inditas, item lista, item statusz modositas.
-7. Frontend: futtatas gomb bekotese, lista megjelenitese.
-8. Frontend: ajanlott fokusz atvitele az `Ügy munkapad` elemzesi fokusz mezobe.
+1. Backend schema/migration `document_processing_items`. **Kesz: `0039_doc_proc_items`.**
+2. Run type bovites: `full_document_processing`. **Kesz.**
+3. Profil registry backend oldalon. **Elso szelet kesz.**
+4. Service: oldalak osszeallitasa `PAGE page_n` blokkokba. **Elso run-start szelet kesz.**
+5. Prompt + JSON parser + source quote validation. **Elso run-start szelet kesz: csak karakterpontosan oldalhoz kotheto idezet mentheto.**
+6. API: run inditas, item lista, item statusz modositas, csoportos soft delete. **Elso teljes backend szelet kesz.**
+7. Frontend: futtatas gomb bekotese, lista megjelenitese. **Elso szelet kesz: profilok, oldaltartomany, futtatas, aktiv/felretett munkalista, forrasbizonyitek, felretetel/visszaallitas, torlesre jeloles, csoportos torles, fokusz atadas.**
+8. Frontend: ajanlott fokusz atvitele az `Ügy munkapad` elemzesi fokusz mezobe. **Elso szelet kesz.**
 
 ## 13. Nyitott dontesek
 
-Ezeket implementacio elott vagy kozben kell tisztazni:
+Ezek mar eldolt vagy implementalt pontok:
 
-- szinkron vagy hatterjob legyen-e az elso futtatas,
-- egy teljes irat belefer-e stabilan a chat modell aktualis context ablakaba,
-- hosszu iratoknal oldalblokkokra bontunk-e,
+- az elso futtatas szinkron,
+- a felhasznalo valasztott oldaltartomanyt ad meg,
+- egy futtatas egy LLM-keres a kivalasztott oldaltartomanyra,
+- nincs `max_items` alapu eredmenyeldobas,
+- a munkalista torlese soft statuszvaltas.
+
+Nyitott dontesek:
+
 - kell-e kulon munkadarab export,
-- mikor es hogyan legyen munkadarabbol valodi `entity`.
+- mikor es hogyan legyen munkadarabbol valodi `entity`,
+- a kovetkezo handoff lepest `research_finding` letrehozasa, strukturalt objektum letrehozasa vagy csak elore kitoltott `search_findings` futtatas jelentse-e,
+- kell-e kesobb aszinkron/hatterjob modell nagyon hosszu futasokhoz.
 
 ## 14. Dontesi osszegzes
 

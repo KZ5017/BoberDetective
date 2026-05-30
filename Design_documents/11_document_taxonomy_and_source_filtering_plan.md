@@ -1,5 +1,19 @@
 # 11. Document Taxonomy and Source Filtering Plan
 
+## Statusz
+
+Torteneti terv.
+
+A strukturalt irattaxonomia elso implementacios kore elkeszult, de a nagy ugyes
+celallapot felulirta ezt az iranyt. Az aktiv kivezetesi terv:
+
+```text
+Design_documents/19_document_taxonomy_retirement_plan.md
+```
+
+A dokumentumot csak torteneti kontextuskent kezeld. Uj funkciot ne epits
+importkori `document_group_code` / `document_type_code` dontesre.
+
 ## 1. Cel
 
 Ez a terv azt rogziti, hogyan vezessunk be kotott iratcsoportokat es irattipusokat a korabbi szabad szoveges `document_type` mezo helyett, majd hogyan hasznaljuk ezt a strukturat az elemzesi forraskor szukitesere. A legacy `document_type` oszlop/API mezo az implementacioban mar kivezetesre kerult.

@@ -4,12 +4,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.core.document_taxonomy import (
-    default_document_taxonomy_codes,
-    document_taxonomy_labels,
-    validate_document_taxonomy,
-)
-
 from app.schemas.analysis import AnalysisRunRead
 
 
@@ -29,10 +23,6 @@ class DocumentRead(BaseModel):
     file_extension: str | None
     file_size_bytes: int
     sha256_hash: str
-    document_group_code: str
-    document_group_label: str | None = None
-    document_type_code: str
-    document_type_label: str | None = None
     language_code: str | None
     imported_by_user_id: UUID
     imported_at: datetime
@@ -42,6 +32,7 @@ class DocumentRead(BaseModel):
     lifecycle_status_changed_by_user_id: UUID | None = None
     lifecycle_status_reason: str | None = None
     page_count: int | None
+    current_chunk_count: int = 0
     parser_name: str | None
     parser_version: str | None
     notes: str | None
@@ -53,31 +44,8 @@ class DocumentList(BaseModel):
 
 
 class DocumentImportMetadata(BaseModel):
-    document_group_code: str | None = Field(default=None, max_length=100)
-    document_type_code: str | None = Field(default=None, max_length=100)
     language_code: str | None = Field(default="hu", max_length=16)
     notes: str | None = None
-
-    @model_validator(mode="after")
-    def validate_taxonomy(self) -> "DocumentImportMetadata":
-        default_group, default_type = default_document_taxonomy_codes()
-        group_code = self.document_group_code or default_group
-        type_code = self.document_type_code or default_type
-        validate_document_taxonomy(group_code, type_code)
-        self.document_group_code = group_code
-        self.document_type_code = type_code
-        return self
-
-
-class DocumentTaxonomyUpdateRequest(BaseModel):
-    document_group_code: str = Field(max_length=100)
-    document_type_code: str = Field(max_length=100)
-    comment: str | None = Field(default=None, max_length=500)
-
-    @model_validator(mode="after")
-    def validate_taxonomy(self) -> "DocumentTaxonomyUpdateRequest":
-        validate_document_taxonomy(self.document_group_code, self.document_type_code)
-        return self
 
 
 class DocumentLifecycleUpdateRequest(BaseModel):
@@ -85,9 +53,7 @@ class DocumentLifecycleUpdateRequest(BaseModel):
 
 
 def document_read_with_labels(document: object) -> DocumentRead:
-    read = DocumentRead.model_validate(document)
-    group_label, type_label = document_taxonomy_labels(read.document_group_code, read.document_type_code)
-    return read.model_copy(update={"document_group_label": group_label, "document_type_label": type_label})
+    return DocumentRead.model_validate(document)
 
 
 class DocumentProcessRequest(BaseModel):
@@ -106,6 +72,24 @@ class DocumentProcessResponse(BaseModel):
 class DocumentOcrRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
     language: str | None = Field(default=None, max_length=64)
+
+
+class DocumentPartialOcrAcceptRequest(BaseModel):
+    ocr_run_id: UUID
+    page_numbers: list[int] | None = None
+    reason: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_page_numbers(self) -> "DocumentPartialOcrAcceptRequest":
+        if self.page_numbers is not None:
+            if not self.page_numbers:
+                raise ValueError("page_numbers must not be empty when provided")
+            if any(page_number < 1 for page_number in self.page_numbers):
+                raise ValueError("page_numbers must contain positive page numbers")
+            if len(set(self.page_numbers)) != len(self.page_numbers):
+                raise ValueError("page_numbers must not contain duplicates")
+            self.page_numbers = sorted(self.page_numbers)
+        return self
 
 
 class DocumentPageRead(BaseModel):

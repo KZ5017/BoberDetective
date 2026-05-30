@@ -29,6 +29,7 @@ from app.services.research_findings import (
     restore_research_finding,
     set_aside_research_finding,
 )
+from app.services.text_store import read_chunk_text_from_store, read_page_text_from_store
 
 
 router = APIRouter()
@@ -162,10 +163,10 @@ def _source_reference_read_with_excerpt(db: Session, source_reference: SourceRef
 def _source_text_for_excerpt(db: Session, source_reference: SourceReferenceModel) -> str | None:
     if source_reference.chunk_id is not None:
         chunk = db.get(DocumentChunkModel, source_reference.chunk_id)
-        return chunk.chunk_text if chunk is not None else None
+        return read_chunk_text_from_store(db, chunk) if chunk is not None else None
     if source_reference.page_id is not None:
         page = db.get(DocumentPageModel, source_reference.page_id)
-        return page.extracted_text if page is not None else None
+        return read_page_text_from_store(db, page) if page is not None else None
     return None
 
 

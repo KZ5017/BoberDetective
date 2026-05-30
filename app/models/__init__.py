@@ -4,7 +4,15 @@ from app.models.case import CaseModel, CaseUserModel
 from app.models.claim import ClaimModel, ClaimSourceModel
 from app.models.contradiction import ContradictionCandidateModel, ContradictionCandidateSourceModel
 from app.models.detached_source import DetachedSourceItemModel
-from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
+from app.models.document import (
+    DocumentChunkManifestModel,
+    DocumentChunkModel,
+    DocumentModel,
+    DocumentPageModel,
+    DocumentSearchEntryModel,
+    DocumentTextLayerModel,
+)
+from app.models.document_processing import DocumentProcessingItemModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.export import ExportItemModel, ExportModel
@@ -26,9 +34,13 @@ __all__ = [
     "ContradictionCandidateModel",
     "ContradictionCandidateSourceModel",
     "DetachedSourceItemModel",
+    "DocumentChunkManifestModel",
     "DocumentChunkModel",
     "DocumentModel",
     "DocumentPageModel",
+    "DocumentProcessingItemModel",
+    "DocumentSearchEntryModel",
+    "DocumentTextLayerModel",
     "EventModel",
     "EventSourceModel",
     "EntityMentionModel",

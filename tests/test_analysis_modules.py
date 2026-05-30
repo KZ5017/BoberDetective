@@ -64,25 +64,26 @@ def test_analysis_module_request_rejects_page_range_in_case_mode() -> None:
 
 
 def _retrieved_chunk(label: str, text: str) -> RetrievedChunk:
+    chunk = DocumentChunkModel(
+        id=uuid4(),
+        case_id=uuid4(),
+        document_id=uuid4(),
+        page_start=1,
+        page_end=1,
+        chunk_index=0,
+        char_start=0,
+        char_end=len(text),
+        token_count=10,
+        chunking_strategy="char_window_v1",
+        chunker_version="1",
+        version_no=1,
+        is_current=True,
+    )
+    chunk._text_store_text = text
     return RetrievedChunk(
         label=label,
         document_name="irat.txt",
-        chunk=DocumentChunkModel(
-            id=uuid4(),
-            case_id=uuid4(),
-            document_id=uuid4(),
-            page_start=1,
-            page_end=1,
-            chunk_index=0,
-            chunk_text=text,
-            char_start=0,
-            char_end=len(text),
-            token_count=10,
-            chunking_strategy="char_window_v1",
-            chunker_version="1",
-            version_no=1,
-            is_current=True,
-        ),
+        chunk=chunk,
         retrieval_score=1.0,
     )
 
@@ -180,6 +181,92 @@ def test_retrieve_chunks_raises_when_focus_matches_no_source(monkeypatch) -> Non
         )
 
 
+def test_hybrid_retrieval_does_not_starve_keyword_variants(monkeypatch) -> None:
+    case_id = uuid4()
+    semantic_chunk = DocumentChunkModel(
+        id=uuid4(),
+        case_id=case_id,
+        document_id=uuid4(),
+        page_start=1,
+        page_end=1,
+        chunk_index=0,
+        char_start=0,
+        char_end=36,
+        token_count=6,
+        chunking_strategy="char_window_v1",
+        chunker_version="1",
+        version_no=1,
+        is_current=True,
+    )
+    keyword_chunk = DocumentChunkModel(
+        id=uuid4(),
+        case_id=case_id,
+        document_id=uuid4(),
+        page_start=2,
+        page_end=2,
+        chunk_index=1,
+        char_start=0,
+        char_end=54,
+        token_count=7,
+        chunking_strategy="char_window_v1",
+        chunker_version="1",
+        version_no=1,
+        is_current=True,
+    )
+    semantic_chunk._text_store_text = "Szemantikus, de nem konkret talalat."
+    keyword_chunk._text_store_text = "Dupin a rendorseggel kapcsolatos megallapitast tesz."
+    chunks = {semantic_chunk.id: semantic_chunk, keyword_chunk.id: keyword_chunk}
+
+    def fake_keyword_search(db, case_id_arg, request):
+        if request.query == "dupin rendorseg":
+            return [
+                KeywordSearchHit(
+                    source_type="chunk",
+                    document_id=keyword_chunk.document_id,
+                    document_name="irat.pdf",
+                    page_start=2,
+                    page_end=2,
+                    score=0.4,
+                    chunk_id=keyword_chunk.id,
+                    chunk_index=1,
+                )
+            ]
+        return []
+
+    def fake_hybrid_search(db, case_id_arg, query, keyword_hits, limit, **kwargs):
+        if keyword_hits:
+            return keyword_hits
+        return [
+            KeywordSearchHit(
+                source_type="chunk",
+                document_id=semantic_chunk.document_id,
+                document_name="irat.pdf",
+                page_start=1,
+                page_end=1,
+                score=0.9,
+                chunk_id=semantic_chunk.id,
+                chunk_index=0,
+                match_type="semantic",
+            )
+        ]
+
+    db = SimpleNamespace(get=lambda model, item_id: chunks.get(item_id))
+    monkeypatch.setattr(analysis_module_common, "analysis_retrieval_queries", lambda query: [query, "dupin rendorseg"])
+    monkeypatch.setattr(analysis_module_common, "keyword_search", fake_keyword_search)
+    monkeypatch.setattr(analysis_module_common, "hybrid_chunk_search", fake_hybrid_search)
+    monkeypatch.setattr(analysis_module_common, "_effective_document_ids", lambda *args, **kwargs: [keyword_chunk.document_id])
+
+    retrieved = analysis_module_common._retrieve_chunks_by_query(  # noqa: SLF001
+        db,
+        case_id,
+        "dupin velemenye a rendorsegrol",
+        1,
+        "hybrid",
+    )
+
+    assert [item.chunk.id for item in retrieved] == [keyword_chunk.id]
+
+
 def test_retrieve_chunks_requires_query() -> None:
     with pytest.raises(AnalysisModuleError):
         analysis_module_common.retrieve_chunks(
@@ -273,21 +360,6 @@ def test_select_source_chunks_case_mode_passes_document_ids(monkeypatch) -> None
     assert captured_document_ids == document_ids
 
 
-def test_analysis_request_rejects_taxonomy_filters_in_document_mode() -> None:
-    with pytest.raises(ValidationError):
-        AnalysisModuleRunRequest(
-            source_mode="document",
-            document_id=uuid4(),
-            query="fokusz",
-            document_group_code="procedural_records",
-        )
-
-
-def test_analysis_request_rejects_document_type_without_group() -> None:
-    with pytest.raises(ValidationError):
-        AnalysisModuleRunRequest(source_mode="case", query="fokusz", document_type_code="jegyzokonyv")
-
-
 def test_select_source_chunks_uses_retrieval_for_document_mode_with_focus(monkeypatch) -> None:
     case_id = uuid4()
     document_id = uuid4()
@@ -298,7 +370,6 @@ def test_select_source_chunks_uses_retrieval_for_document_mode_with_focus(monkey
         page_start=3,
         page_end=3,
         chunk_index=2,
-        chunk_text="A keresett esemeny itt szerepel.",
         char_start=0,
         char_end=32,
         token_count=6,
@@ -307,6 +378,7 @@ def test_select_source_chunks_uses_retrieval_for_document_mode_with_focus(monkey
         version_no=1,
         is_current=True,
     )
+    chunk._text_store_text = "A keresett esemeny itt szerepel."
     captured_document_ids = []
     captured_page_ranges = []
 

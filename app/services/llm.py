@@ -82,7 +82,7 @@ class LLMProvider(Protocol):
         messages: list[LLMChatMessage],
         *,
         temperature: float = 0.1,
-        max_tokens: int = 800,
+        max_tokens: int | None = 800,
     ) -> LLMChatCompletion:
         raise NotImplementedError
 
@@ -163,7 +163,7 @@ class OpenAICompatibleLocalProvider:
         messages: list[LLMChatMessage],
         *,
         temperature: float = 0.1,
-        max_tokens: int = 800,
+        max_tokens: int | None = 800,
     ) -> LLMChatCompletion:
         client = self._client or self._build_client()
         close_client = self._client is None
@@ -529,9 +529,10 @@ class LMStudioNativeProvider:
                 "input": [{"type": "text", "content": _messages_to_native_input(user_messages)}],
                 "system_prompt": system_prompt,
                 "temperature": temperature,
-                "max_output_tokens": max_tokens,
                 "store": False,
             }
+            if max_tokens is not None:
+                payload["max_output_tokens"] = max_tokens
             if _supports_native_reasoning_toggle(chat_model):
                 payload["reasoning"] = "off"
             response = client.post(

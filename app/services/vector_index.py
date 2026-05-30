@@ -16,6 +16,7 @@ from app.schemas.search import ChunkIndexRequest
 from app.services.analysis_runs import add_analysis_run_input, add_analysis_run_output, finish_analysis_run, start_analysis_run
 from app.services.llm import LLMProviderError, get_llm_provider
 from app.services.search import KeywordSearchHit
+from app.services.text_store import read_chunk_text, read_chunk_text_from_store
 
 
 class VectorIndexError(RuntimeError):
@@ -44,8 +45,6 @@ class ChunkIndexStatus:
     case_id: UUID
     document_id: UUID | None
     document_ids: list[UUID]
-    document_group_code: str | None
-    document_type_code: str | None
     collection_name: str
     embedding_model: str
     current_chunk_count: int
@@ -162,6 +161,26 @@ class QdrantChunkIndex:
             if close_client:
                 client.close()
 
+    def delete_case_points(self, case_id: UUID) -> None:
+        client = self._client or self._build_client()
+        close_client = self._client is None
+        try:
+            response = client.post(
+                f"/collections/{self.collection_name}/points/delete",
+                params={"wait": "true"},
+                json={"filter": {"must": [{"key": "case_id", "match": {"value": str(case_id)}}]}},
+            )
+            if response.status_code == 404:
+                return
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise VectorIndexError(_http_status_error_message(exc)) from exc
+        except httpx.HTTPError as exc:
+            raise VectorIndexError(str(exc)) from exc
+        finally:
+            if close_client:
+                client.close()
+
     def search(
         self,
         *,
@@ -265,8 +284,6 @@ def _start_chunk_index_run(
         input_parameters={
             "document_id": str(request.document_id) if request.document_id is not None else None,
             "document_ids": [str(document_id) for document_id in request.document_ids],
-            "document_group_code": request.document_group_code,
-            "document_type_code": request.document_type_code,
             "limit": request.limit,
             "force_reindex": request.force_reindex,
             "collection_name": chunk_collection_name(settings),
@@ -313,7 +330,7 @@ def _process_chunk_index_run(
 
         indexed_count = 0
         vector_index = QdrantChunkIndex(settings)
-        for embedding_batch in embed_chunks_in_batches(settings, chunks):
+        for embedding_batch in embed_chunks_in_batches(settings, chunks, db=db):
             vector_index.upsert_chunks(embedding_batch.chunks, embedding_batch.embeddings)
             for chunk in embedding_batch.chunks:
                 indexed_count += 1
@@ -481,8 +498,6 @@ def get_chunk_index_status(
         case_id=case_id,
         document_id=request.document_id,
         document_ids=request.document_ids,
-        document_group_code=request.document_group_code,
-        document_type_code=request.document_type_code,
         collection_name=chunk_collection_name(settings),
         embedding_model=settings.llm_embedding_model,
         current_chunk_count=current_chunk_count,
@@ -555,12 +570,21 @@ def _has_exact_phrase(query: str, text: str | None) -> bool:
     return normalized_query in normalized_text
 
 
-def embed_chunks_in_batches(settings: Settings, chunks: list[DocumentChunkModel]) -> Iterator[EmbeddingBatch]:
+def embed_chunks_in_batches(
+    settings: Settings,
+    chunks: list[DocumentChunkModel],
+    *,
+    db: Session | None = None,
+) -> Iterator[EmbeddingBatch]:
     batch_size = _valid_embedding_batch_size(settings.embedding_batch_size)
     provider = get_llm_provider(settings)
     for batch_start in range(0, len(chunks), batch_size):
         batch_chunks = chunks[batch_start : batch_start + batch_size]
-        embedding_result = provider.embeddings(settings.llm_embedding_model, [chunk.chunk_text for chunk in batch_chunks])
+        texts = [
+            read_chunk_text_from_store(db, chunk) if db is not None else read_chunk_text(chunk)
+            for chunk in batch_chunks
+        ]
+        embedding_result = provider.embeddings(settings.llm_embedding_model, texts)
         yield EmbeddingBatch(chunks=batch_chunks, embeddings=embedding_result.embeddings)
 
 
@@ -637,16 +661,12 @@ def _scope_document_ids(db: Session, case_id: UUID, request: ChunkIndexRequest) 
     if request.document_id is not None:
         active_id = db.execute(base_stmt.where(DocumentModel.id == request.document_id)).scalar_one_or_none()
         return [active_id] if active_id is not None else []
-    if not request.document_ids and request.document_group_code is None and request.document_type_code is None:
+    if not request.document_ids:
         return None
     stmt = base_stmt
     requested_ids = list(dict.fromkeys(request.document_ids))
     if requested_ids:
         stmt = stmt.where(DocumentModel.id.in_(requested_ids))
-    if request.document_group_code is not None:
-        stmt = stmt.where(DocumentModel.document_group_code == request.document_group_code)
-    if request.document_type_code is not None:
-        stmt = stmt.where(DocumentModel.document_type_code == request.document_type_code)
     return list(db.execute(stmt).scalars().all())
 
 

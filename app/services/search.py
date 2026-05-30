@@ -5,8 +5,9 @@ import re
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
+from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel, DocumentSearchEntryModel
 from app.schemas.search import KeywordSearchRequest
+from app.services.text_store import read_chunk_text_from_store, read_page_text_from_store
 
 
 MAX_QUOTE_CHARS = 280
@@ -31,6 +32,8 @@ def keyword_search(db: Session, case_id: UUID, request: KeywordSearchRequest) ->
     query = request.query.strip()
     if query == "":
         return []
+    if _make_prefix_tsquery(query) == "":
+        return []
 
     hits: list[KeywordSearchHit] = []
     if request.target in {"chunks", "all"}:
@@ -48,36 +51,52 @@ def _search_chunks(
     query: str,
 ) -> list[KeywordSearchHit]:
     ts_query = func.to_tsquery("simple", _make_prefix_tsquery(query))
-    vector = func.to_tsvector("simple", DocumentChunkModel.chunk_text)
-    rank = func.ts_rank_cd(vector, ts_query).label("score")
+    rank = func.ts_rank_cd(DocumentSearchEntryModel.search_vector, ts_query).label("score")
     stmt = (
-        select(DocumentChunkModel, DocumentModel.original_filename, rank)
-        .join(DocumentModel, DocumentModel.id == DocumentChunkModel.document_id)
+        select(DocumentSearchEntryModel, DocumentModel.original_filename, rank)
+        .join(DocumentModel, DocumentModel.id == DocumentSearchEntryModel.document_id)
         .where(
-            DocumentChunkModel.case_id == case_id,
-            DocumentChunkModel.is_current.is_(True),
+            DocumentSearchEntryModel.case_id == case_id,
+            DocumentSearchEntryModel.source_type == "chunk",
+            DocumentSearchEntryModel.is_current.is_(True),
+            DocumentSearchEntryModel.lifecycle_status == "active",
             DocumentModel.lifecycle_status == "active",
-            vector.op("@@")(ts_query),
+            DocumentSearchEntryModel.search_vector.op("@@")(ts_query),
         )
-        .order_by(desc(rank), DocumentChunkModel.chunk_index.asc())
+        .order_by(desc(rank), DocumentSearchEntryModel.chunk_index.asc())
         .limit(request.limit)
     )
-    stmt = _apply_common_filters(stmt, request, DocumentModel, DocumentChunkModel.page_start, DocumentChunkModel.page_end)
+    stmt = _apply_common_filters(
+        stmt,
+        request,
+        DocumentSearchEntryModel.document_id,
+        DocumentSearchEntryModel.page_start,
+        DocumentSearchEntryModel.page_end,
+    )
 
-    return [
-        KeywordSearchHit(
-            source_type="chunk",
-            document_id=row.DocumentChunkModel.document_id,
-            document_name=row.original_filename,
-            page_start=row.DocumentChunkModel.page_start,
-            page_end=row.DocumentChunkModel.page_end,
-            chunk_id=row.DocumentChunkModel.id,
-            chunk_index=row.DocumentChunkModel.chunk_index,
-            quote=_make_quote(row.DocumentChunkModel.chunk_text, query) if request.include_quotes else None,
-            score=float(row.score or 0),
+    hits: list[KeywordSearchHit] = []
+    for row in db.execute(stmt):
+        entry = row.DocumentSearchEntryModel
+        chunk = db.get(DocumentChunkModel, entry.chunk_id) if entry.chunk_id is not None else None
+        if chunk is None:
+            continue
+        quote = None
+        if request.include_quotes:
+            quote = _make_quote(read_chunk_text_from_store(db, chunk), query)
+        hits.append(
+            KeywordSearchHit(
+                source_type="chunk",
+                document_id=entry.document_id,
+                document_name=row.original_filename,
+                page_start=entry.page_start,
+                page_end=entry.page_end,
+                chunk_id=entry.chunk_id,
+                chunk_index=entry.chunk_index,
+                quote=quote,
+                score=float(row.score or 0),
+            )
         )
-        for row in db.execute(stmt)
-    ]
+    return hits
 
 
 def _search_pages(
@@ -87,44 +106,62 @@ def _search_pages(
     query: str,
 ) -> list[KeywordSearchHit]:
     ts_query = func.to_tsquery("simple", _make_prefix_tsquery(query))
-    vector = func.to_tsvector("simple", DocumentPageModel.extracted_text)
-    rank = func.ts_rank_cd(vector, ts_query).label("score")
+    rank = func.ts_rank_cd(DocumentSearchEntryModel.search_vector, ts_query).label("score")
     stmt = (
-        select(DocumentPageModel, DocumentModel.original_filename, rank)
-        .join(DocumentModel, DocumentModel.id == DocumentPageModel.document_id)
+        select(DocumentSearchEntryModel, DocumentModel.original_filename, rank)
+        .join(DocumentModel, DocumentModel.id == DocumentSearchEntryModel.document_id)
         .where(
-            DocumentPageModel.case_id == case_id,
-            DocumentPageModel.is_current.is_(True),
+            DocumentSearchEntryModel.case_id == case_id,
+            DocumentSearchEntryModel.source_type == "page",
+            DocumentSearchEntryModel.is_current.is_(True),
+            DocumentSearchEntryModel.lifecycle_status == "active",
             DocumentModel.lifecycle_status == "active",
-            vector.op("@@")(ts_query),
+            DocumentSearchEntryModel.search_vector.op("@@")(ts_query),
         )
-        .order_by(desc(rank), DocumentPageModel.page_number.asc())
+        .order_by(desc(rank), DocumentSearchEntryModel.page_start.asc())
         .limit(request.limit)
     )
-    stmt = _apply_common_filters(stmt, request, DocumentModel, DocumentPageModel.page_number, DocumentPageModel.page_number)
+    stmt = _apply_common_filters(
+        stmt,
+        request,
+        DocumentSearchEntryModel.document_id,
+        DocumentSearchEntryModel.page_start,
+        DocumentSearchEntryModel.page_end,
+    )
 
-    return [
-        KeywordSearchHit(
-            source_type="page",
-            document_id=row.DocumentPageModel.document_id,
-            document_name=row.original_filename,
-            page_start=row.DocumentPageModel.page_number,
-            page_end=row.DocumentPageModel.page_number,
-            page_id=row.DocumentPageModel.id,
-            quote=_make_quote(row.DocumentPageModel.extracted_text, query) if request.include_quotes else None,
-            score=float(row.score or 0),
+    hits: list[KeywordSearchHit] = []
+    for row in db.execute(stmt):
+        entry = row.DocumentSearchEntryModel
+        page = db.get(DocumentPageModel, entry.page_id) if entry.page_id is not None else None
+        if page is None:
+            continue
+        quote = None
+        if request.include_quotes:
+            quote = _make_quote(read_page_text_from_store(db, page), query)
+        hits.append(
+            KeywordSearchHit(
+                source_type="page",
+                document_id=entry.document_id,
+                document_name=row.original_filename,
+                page_start=entry.page_start,
+                page_end=entry.page_end,
+                page_id=entry.page_id,
+                quote=quote,
+                score=float(row.score or 0),
+            )
         )
-        for row in db.execute(stmt)
-    ]
+    return hits
 
 
-def _apply_common_filters(stmt, request: KeywordSearchRequest, document_model, page_start_column, page_end_column):
+def _apply_common_filters(
+    stmt,
+    request: KeywordSearchRequest,
+    document_id_column,
+    page_start_column,
+    page_end_column,
+):
     if request.filters.document_ids:
-        stmt = stmt.where(document_model.id.in_(request.filters.document_ids))
-    if request.filters.document_group_code is not None:
-        stmt = stmt.where(document_model.document_group_code == request.filters.document_group_code)
-    if request.filters.document_type_code is not None:
-        stmt = stmt.where(document_model.document_type_code == request.filters.document_type_code)
+        stmt = stmt.where(document_id_column.in_(request.filters.document_ids))
     if request.filters.page_start is not None:
         stmt = stmt.where(page_end_column >= request.filters.page_start)
     if request.filters.page_end is not None:

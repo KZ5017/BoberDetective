@@ -14,6 +14,7 @@ from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
 from app.schemas.review import HumanReviewRead
 from app.schemas.review_report import CaseReviewReport, ReviewReportCounts, ReviewReportFilters, ReviewReportItem, ReviewReportSource
+from app.services.text_store import read_chunk_text, read_chunk_text_from_store, read_page_text, read_page_text_from_store
 
 
 ALLOWED_OBJECT_TYPES = {"claim", "contradiction_candidate", "entity", "event", "missing_item_candidate"}
@@ -314,7 +315,7 @@ def _report_source_from_reference(
     document = db.get(DocumentModel, source_reference.document_id) if db is not None else None
     page = db.get(DocumentPageModel, source_reference.page_id) if db is not None and source_reference.page_id else None
     chunk = db.get(DocumentChunkModel, source_reference.chunk_id) if db is not None and source_reference.chunk_id else None
-    source_text = _source_text_for_excerpt(source_reference, page, chunk)
+    source_text = _source_text_for_excerpt(db, source_reference, page, chunk)
     excerpt, excerpt_start, excerpt_end = _source_excerpt(
         source_text,
         source_reference.quote_text,
@@ -351,14 +352,15 @@ def _report_source_from_reference(
 
 
 def _source_text_for_excerpt(
+    db: Session | None,
     source_reference: SourceReferenceModel,
     page: DocumentPageModel | None,
     chunk: DocumentChunkModel | None,
 ) -> str | None:
     if source_reference.chunk_id is not None and chunk is not None:
-        return chunk.chunk_text
+        return read_chunk_text_from_store(db, chunk) if db is not None else read_chunk_text(chunk)
     if source_reference.page_id is not None and page is not None:
-        return page.extracted_text
+        return read_page_text_from_store(db, page) if db is not None else read_page_text(page)
     return None
 
 

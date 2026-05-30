@@ -7,13 +7,15 @@ export type CaseRead = {
   created_at: string;
 };
 
+export type CaseDeleteResponse = {
+  case_id: string;
+  deleted_counts: Record<string, number>;
+  qdrant_collection: string;
+};
+
 export type DocumentRead = {
   id: string;
   original_filename: string;
-  document_group_code: string;
-  document_group_label: string | null;
-  document_type_code: string;
-  document_type_label: string | null;
   language_code: string | null;
   file_size_bytes: number;
   sha256_hash: string;
@@ -23,25 +25,13 @@ export type DocumentRead = {
   lifecycle_status_changed_by_user_id: string | null;
   lifecycle_status_reason: string | null;
   page_count: number | null;
+  current_chunk_count: number;
   imported_at: string;
   ocr_recommendation: {
     action: "hidden" | "recommended" | "optional";
     reason_code: string;
     message: string;
   } | null;
-};
-
-export type DocumentTaxonomyTypeRead = {
-  code: string;
-  label: string;
-  description: string;
-};
-
-export type DocumentTaxonomyGroupRead = {
-  code: string;
-  label: string;
-  description: string;
-  types: DocumentTaxonomyTypeRead[];
 };
 
 export type DocumentPageRead = {
@@ -444,8 +434,6 @@ export type AnalysisRunPayload = {
   source_mode?: AnalysisSourceMode;
   document_id?: string | null;
   document_ids?: string[];
-  document_group_code?: string | null;
-  document_type_code?: string | null;
   page_start?: number | null;
   page_end?: number | null;
   max_chunks?: number;
@@ -474,8 +462,6 @@ export type ChunkIndexStatusResponse = {
   case_id: string;
   document_id: string | null;
   document_ids: string[];
-  document_group_code: string | null;
-  document_type_code: string | null;
   collection_name: string;
   embedding_model: string;
   current_chunk_count: number;
@@ -506,6 +492,53 @@ export type LlmSmokeResponse = {
   configured_embedding_model_loaded: boolean | null;
   loaded_model_ids: string[];
   error_message: string | null;
+};
+
+export type FullDocumentProcessingProfileRead = {
+  key: string;
+  label: string;
+  description: string;
+  item_kinds: string[];
+};
+
+export type DocumentProcessingItemRead = {
+  id: string;
+  case_id: string;
+  document_id: string;
+  analysis_run_id: string;
+  profile_key: string;
+  item_kind: string;
+  display_label: string;
+  short_description: string | null;
+  mentioned_forms_json: unknown[];
+  source_supported_details_json: unknown[];
+  relationships_json: unknown[];
+  recommended_search_focus: string | null;
+  alternative_search_focuses_json: unknown[];
+  source_evidence_json: Array<{
+    source_label?: string;
+    quote_text?: string;
+    page_number?: number;
+    quote_char_start?: number;
+    quote_char_end?: number;
+    [key: string]: unknown;
+  }>;
+  work_status: string;
+  target_object_type: string | null;
+  target_object_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FullDocumentProcessingRunResponse = {
+  analysis_run_id: string;
+  document_id: string;
+  profile_key: string;
+  created_item_count: number;
+  unsupported_count: number;
+  validation_status: string;
+  items: DocumentProcessingItemRead[];
+  unsupported_items: string[];
 };
 
 const reviewPathByType: Record<string, (caseId: string, objectId: string) => string> = {
@@ -755,12 +788,14 @@ export function createCase(payload: { case_name: string; case_reference?: string
   });
 }
 
-export function listDocuments(caseId: string): Promise<{ data: DocumentRead[] }> {
-  return request(`/cases/${caseId}/documents`);
+export function deleteCase(caseId: string): Promise<CaseDeleteResponse> {
+  return request(`/cases/${caseId}`, {
+    method: "DELETE"
+  });
 }
 
-export function listDocumentTaxonomy(): Promise<{ data: DocumentTaxonomyGroupRead[] }> {
-  return request("/document-taxonomy");
+export function listDocuments(caseId: string): Promise<{ data: DocumentRead[] }> {
+  return request(`/cases/${caseId}/documents`);
 }
 
 export function listEntities(caseId: string): Promise<{ data: EntityRead[] }> {
@@ -781,6 +816,58 @@ export function listMissingItemCandidates(caseId: string): Promise<{ data: Missi
 
 export function listResearchFindings(caseId: string): Promise<{ data: ResearchFindingRead[] }> {
   return request(`/cases/${caseId}/research-findings`);
+}
+
+export function listFullDocumentProcessingProfiles(): Promise<{ data: FullDocumentProcessingProfileRead[] }> {
+  return request("/full-document-processing/profiles");
+}
+
+export function listDocumentProcessingItems(
+  caseId: string,
+  documentId: string,
+  filters: { profile_key?: string; work_status?: string; item_kind?: string; search?: string } = {}
+): Promise<{ data: DocumentProcessingItemRead[] }> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) params.set(key, value);
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return request(`/cases/${caseId}/documents/${documentId}/full-document-processing/items${suffix}`);
+}
+
+export function runFullDocumentProcessing(
+  caseId: string,
+  documentId: string,
+  payload: { profile_key: string; page_start?: number | null; page_end?: number | null }
+): Promise<FullDocumentProcessingRunResponse> {
+  return request(`/cases/${caseId}/documents/${documentId}/full-document-processing/runs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateDocumentProcessingItemStatus(
+  caseId: string,
+  itemId: string,
+  workStatus: "active" | "set_aside" | "deleted"
+): Promise<{ item: DocumentProcessingItemRead }> {
+  return request(`/cases/${caseId}/full-document-processing/items/${itemId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ work_status: workStatus })
+  });
+}
+
+export function bulkDeleteDocumentProcessingItems(
+  caseId: string,
+  itemIds: string[]
+): Promise<{ deleted_count: number }> {
+  return request(`/cases/${caseId}/full-document-processing/items/bulk-delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item_ids: itemIds })
+  });
 }
 
 export function convertResearchFinding(
@@ -847,30 +934,11 @@ export function listExports(caseId: string): Promise<{ data: ExportRead[] }> {
   return request(`/cases/${caseId}/exports`);
 }
 
-export function importDocument(
-  caseId: string,
-  file: File,
-  documentGroupCode: string,
-  documentTypeCode: string
-): Promise<unknown> {
+export function importDocument(caseId: string, file: File): Promise<unknown> {
   const body = new FormData();
   body.append("file", file);
-  body.append("document_group_code", documentGroupCode);
-  body.append("document_type_code", documentTypeCode);
   body.append("language_code", "hu");
   return request(`/cases/${caseId}/documents`, { method: "POST", body });
-}
-
-export function updateDocumentTaxonomy(
-  caseId: string,
-  documentId: string,
-  payload: { document_group_code: string; document_type_code: string; comment?: string | null }
-): Promise<DocumentRead> {
-  return request(`/cases/${caseId}/documents/${documentId}/taxonomy`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
 }
 
 export function updateDocumentLifecycle(
@@ -934,8 +1002,6 @@ export function startChunkIndexJob(
   payload: {
     document_id?: string | null;
     document_ids?: string[];
-    document_group_code?: string | null;
-    document_type_code?: string | null;
     limit?: number;
     force_reindex?: boolean;
   }
@@ -952,8 +1018,6 @@ export function getChunkIndexStatus(
   filters?: {
     document_id?: string | null;
     document_ids?: string[];
-    document_group_code?: string | null;
-    document_type_code?: string | null;
   } | null
 ): Promise<ChunkIndexStatusResponse> {
   const params = new URLSearchParams();
@@ -962,12 +1026,6 @@ export function getChunkIndexStatus(
   }
   for (const documentId of filters?.document_ids ?? []) {
     params.append("document_ids", documentId);
-  }
-  if (filters?.document_group_code) {
-    params.set("document_group_code", filters.document_group_code);
-  }
-  if (filters?.document_type_code) {
-    params.set("document_type_code", filters.document_type_code);
   }
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   return request(`/cases/${caseId}/indexes/chunks/status${suffix}`);

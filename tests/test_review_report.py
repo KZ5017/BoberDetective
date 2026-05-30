@@ -143,7 +143,6 @@ def test_report_source_expands_document_chunk_and_excerpt_details() -> None:
         case_id=source_reference.case_id,
         document_id=document_id,
         page_number=3,
-        extracted_text="oldal szoveg",
         text_source="native",
         ocr_used=False,
         text_char_count=11,
@@ -155,12 +154,13 @@ def test_report_source_expands_document_chunk_and_excerpt_details() -> None:
         page_start=3,
         page_end=3,
         chunk_index=2,
-        chunk_text="eleje fontos idezet vege",
         char_start=100,
         char_end=124,
         chunking_strategy="char_window",
         chunker_version="char_window_v1",
     )
+    page._text_store_text = "oldal szoveg"
+    chunk._text_store_text = "eleje fontos idezet vege"
     report_source = _report_source_from_reference(
         FakeDb(
             {

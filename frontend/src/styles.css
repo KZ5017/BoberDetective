@@ -98,6 +98,19 @@ button:disabled {
     0 1px 2px rgba(30, 55, 70, 0.14);
 }
 
+.danger-button {
+  background: linear-gradient(to bottom, #b34a45 0%, #8d312d 100%);
+  border-color: #6e211e;
+}
+
+.danger-button:hover:not(:disabled) {
+  background: linear-gradient(to bottom, #c65b55 0%, #9b3834 100%);
+}
+
+.danger-button:active:not(:disabled) {
+  background: linear-gradient(to bottom, #7c2925 0%, #65211e 100%);
+}
+
 input,
 select,
 textarea {
@@ -120,6 +133,18 @@ label {
   font-size: 0.83rem;
   font-weight: 700;
   gap: 0.35rem;
+}
+
+.form-field {
+  color: #52616b;
+  display: grid;
+  font-size: 0.83rem;
+  font-weight: 700;
+  gap: 0.35rem;
+}
+
+.field-label {
+  color: #52616b;
 }
 
 .checkbox-label {
@@ -185,6 +210,7 @@ label {
 }
 
 .workspace {
+  align-content: start;
   display: grid;
   gap: 1rem;
   grid-template-columns: 1fr;
@@ -205,7 +231,7 @@ label {
   align-items: end;
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: minmax(18rem, 1.5fr) minmax(13rem, 1fr) minmax(12rem, 0.8fr) auto auto;
+  grid-template-columns: minmax(18rem, 1.5fr) minmax(13rem, 1fr) minmax(12rem, 0.8fr) auto auto auto;
 }
 
 .surface-nav {
@@ -241,6 +267,7 @@ label {
 }
 
 .surface-placeholder {
+  align-content: start;
   display: grid;
   gap: 1rem;
 }
@@ -292,6 +319,75 @@ label {
   color: #52636f;
   font-size: 0.84rem;
   line-height: 1.42;
+}
+
+.full-document-items {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.full-document-item {
+  background: #f8fafb;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.8rem;
+}
+
+.full-document-item.is-set-aside {
+  background: #f2f4f6;
+  border-style: dashed;
+  opacity: 0.88;
+}
+
+.full-document-item.is-marked-delete {
+  border-color: #b66a55;
+  box-shadow: inset 0 0 0 1px rgba(182, 106, 85, 0.22);
+}
+
+.full-document-worklist-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: space-between;
+}
+
+.full-document-status-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.item-card-header {
+  align-items: start;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.source-stack {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.source-box {
+  background: #ffffff;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.65rem;
+}
+
+.source-box blockquote {
+  background: #f8fafb;
+  border-left: 3px solid #2a628b;
+  margin: 0;
+  padding: 0.45rem 0.6rem;
 }
 
 .main-grid {
@@ -761,6 +857,17 @@ label {
   font-weight: 700;
   line-height: 1.45;
   padding: 0.6rem 0.7rem;
+}
+
+.module-note-warning {
+  background: #fff7e6;
+  border-color: #e3c783;
+  color: #60420c;
+}
+
+.module-note ul {
+  margin: 0.45rem 0 0;
+  padding-left: 1.1rem;
 }
 
 .analysis-summary code,
@@ -1643,6 +1750,7 @@ pre {
   .main-grid,
   .full-document-grid,
   .full-document-output,
+  .item-card-header,
   .workflow-column,
   .review-column,
   .case-strip-controls,

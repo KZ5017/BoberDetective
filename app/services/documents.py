@@ -12,11 +12,16 @@ from app.core.config import get_settings
 from app.models.analysis import AnalysisRunInputModel, AnalysisRunModel, AnalysisRunOutputModel
 from app.models.audit import AuditEventModel
 from app.models.case import CaseModel
-from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
+from app.models.document import (
+    DocumentChunkManifestModel,
+    DocumentChunkModel,
+    DocumentModel,
+    DocumentPageModel,
+    DocumentTextLayerModel,
+)
 from app.models.source_reference import SourceReferenceModel
 from app.schemas.document import DocumentImportMetadata
 from app.schemas.document import DocumentOcrRecommendation
-from app.schemas.document import DocumentTaxonomyUpdateRequest
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.analysis_runs import (
     add_analysis_run_input,
@@ -33,7 +38,20 @@ from app.services.pdf_parsers import (
     parse_pdf,
 )
 from app.services.ocr import OcrDocumentResult, OcrError, ocr_pdf_document
+from app.services.lexical_index import (
+    deactivate_document_search_entries,
+    refresh_chunk_search_entries,
+    refresh_page_search_entries,
+)
 from app.services.storage import StoragePaths
+from app.services.text_store import (
+    StoredChunkText,
+    StoredPageText,
+    read_page_text_from_store,
+    read_pages_jsonl,
+    write_chunks_jsonl,
+    write_pages_jsonl,
+)
 from app.services.users import get_or_create_dev_user
 
 
@@ -74,6 +92,10 @@ class UnsupportedOcrDocumentError(DocumentProcessingError):
 
 
 class DocumentChunkingError(DocumentProcessingError):
+    pass
+
+
+class PartialOcrAcceptanceError(DocumentProcessingError):
     pass
 
 
@@ -136,59 +158,6 @@ def list_document_chunks(db: Session, case_id: UUID, document_id: UUID) -> list[
             .order_by(DocumentChunkModel.chunk_index.asc())
         ).scalars()
     )
-
-
-def update_document_taxonomy(
-    db: Session,
-    case_id: UUID,
-    document_id: UUID,
-    payload: DocumentTaxonomyUpdateRequest,
-) -> DocumentModel:
-    document = db.get(DocumentModel, document_id)
-    if document is None or document.case_id != case_id:
-        raise DocumentNotFoundError("Document not found")
-
-    user = get_or_create_dev_user(db)
-    previous_group_code = document.document_group_code
-    previous_type_code = document.document_type_code
-    changed = (
-        previous_group_code != payload.document_group_code
-        or previous_type_code != payload.document_type_code
-    )
-
-    document.document_group_code = payload.document_group_code
-    document.document_type_code = payload.document_type_code
-    db.add(document)
-    db.flush()
-
-    event = AuditEvent(
-        event_type="document_reclassified",
-        success=True,
-        case_id=str(case_id),
-        user_id=str(user.id),
-        related_object_type="document",
-        related_object_id=str(document.id),
-        related_document_id=str(document.id),
-        input_summary={
-            "document_id": str(document.id),
-            "previous_document_group_code": previous_group_code,
-            "previous_document_type_code": previous_type_code,
-            "new_document_group_code": payload.document_group_code,
-            "new_document_type_code": payload.document_type_code,
-            "comment": payload.comment,
-        },
-        output_summary={
-            "document_id": str(document.id),
-            "document_group_code": document.document_group_code,
-            "document_type_code": document.document_type_code,
-            "changed": changed,
-        },
-    )
-    DatabaseAuditWriter(db).write(event)
-    JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(event)
-    db.commit()
-    db.refresh(document)
-    return document
 
 
 def update_document_lifecycle_status(
@@ -532,9 +501,22 @@ def create_document_chunks(db: Session, case_id: UUID, document_id: UUID, *, rea
     db.add(document)
     db.flush()
 
-    chunk_count = _create_chunks_from_pages(db, case_id, document, current_pages, run.id)
+    chunk_count, chunk_texts = _create_chunks_from_pages(db, case_id, document, current_pages, run.id)
     current_chunks = _list_current_chunks(db, case_id, document_id)
     validation = _validate_current_document_processing(document, current_pages, current_chunks)
+    text_layer = _get_current_text_layer(db, case_id, document.id)
+    chunk_manifest = None
+    if validation["run_status"] == "succeeded" and text_layer is not None:
+        chunk_manifest = _persist_chunk_manifest(
+            db,
+            StoragePaths(get_settings().data_root),
+            case_id,
+            document,
+            text_layer,
+            current_chunks,
+            chunk_texts,
+            created_by_run_id=run.id,
+        )
     document.processing_status = validation["document_status"]
     db.add(document)
     db.flush()
@@ -551,6 +533,7 @@ def create_document_chunks(db: Session, case_id: UUID, document_id: UUID, *, rea
             "document_status": document.processing_status,
             "page_count": len(current_pages),
             "chunk_count": chunk_count,
+            "chunk_manifest_id": str(chunk_manifest.id) if chunk_manifest is not None else None,
             "issues": validation["issues"],
         },
     )
@@ -605,8 +588,59 @@ def ocr_document(
         if run.input_parameters is not None:
             run.input_parameters = {**run.input_parameters, "tool_version": result.tool_version}
         db.add(run)
-        _persist_ocr_pages(db, case_id, document, result, run.id)
         quality_issues = _ocr_quality_issues(result)
+        quality_decision = _ocr_quality_decision(result, quality_issues)
+        if quality_decision["decision"] != "passed":
+            current_pages = _list_current_pages(db, case_id, document.id)
+            ocr_candidate_storage_uri = None
+            if quality_decision["decision"] == "partial":
+                ocr_candidate_storage_uri = _write_ocr_candidate_pages(storage, case_id, document, run.id, result)
+            document.page_count = len(current_pages) if current_pages else 0
+            document.parser_name = result.tool_name if not current_pages else document.parser_name
+            document.parser_version = result.tool_version if not current_pages else document.parser_version
+            document.processing_status = document.processing_status if current_pages else "review_required"
+            db.add(document)
+            db.flush()
+            _write_ocr_audit(db, user.id, document, run, result, True, quality_issues=quality_issues)
+            finish_analysis_run(
+                db,
+                run,
+                status="succeeded",
+                validation_status="failed" if quality_decision["decision"] == "failed" else "warning",
+                output_summary={
+                    "document_id": str(document.id),
+                    "document_status": document.processing_status,
+                    "page_count": document.page_count,
+                    "ocr_page_count": len(result.pages),
+                    "chunk_count": 0,
+                    "tool_name": result.tool_name,
+                    "tool_version": result.tool_version,
+                    "language": result.language,
+                    "quality_issues": quality_issues,
+                    "usable_page_numbers": quality_decision["usable_page_numbers"],
+                    "failed_page_numbers": quality_decision["failed_page_numbers"],
+                    "ocr_candidate_storage_uri": ocr_candidate_storage_uri,
+                    "next_action": quality_decision["next_action"],
+                    "text_layer_created": False,
+                },
+            )
+            return run
+
+        _deactivate_current_text_manifests(db, case_id, document.id)
+        page_records, page_texts = _persist_ocr_pages(db, case_id, document, result, run.id)
+        text_layer = _persist_text_layer_manifest(
+            db,
+            storage,
+            case_id,
+            document,
+            page_records,
+            page_texts,
+            source_kind="ocr",
+            parser_name=result.tool_name,
+            parser_version=result.tool_version,
+            language_code=result.language,
+            created_by_run_id=run.id,
+        )
         document.page_count = len(result.pages)
         document.parser_name = result.tool_name
         document.parser_version = result.tool_version
@@ -629,6 +663,8 @@ def ocr_document(
                 "language": result.language,
                 "quality_issues": quality_issues,
                 "next_action": "review_text_layer_then_create_chunks",
+                "text_layer_created": True,
+                "text_layer_id": str(text_layer.id),
             },
         )
     except OcrError as exc:
@@ -647,6 +683,131 @@ def ocr_document(
         raise DocumentProcessingError(str(exc)) from exc
 
     return run
+
+
+def accept_partial_ocr_text_layer(
+    db: Session,
+    case_id: UUID,
+    document_id: UUID,
+    ocr_run_id: UUID,
+    *,
+    page_numbers: list[int] | None = None,
+    reason: str | None = None,
+) -> AnalysisRunModel:
+    storage = StoragePaths(get_settings().data_root)
+    document = db.get(DocumentModel, document_id)
+    if document is None or document.case_id != case_id:
+        raise DocumentNotFoundError("Document not found")
+    _ensure_active_document(document)
+
+    ocr_run = db.get(AnalysisRunModel, ocr_run_id)
+    if ocr_run is None or ocr_run.case_id != case_id or ocr_run.run_type != "ocr_document":
+        raise PartialOcrAcceptanceError("OCR run not found for this case")
+    if ocr_run.input_parameters is None or ocr_run.input_parameters.get("document_id") != str(document.id):
+        raise PartialOcrAcceptanceError("OCR run does not belong to this document")
+
+    candidate_path = _ocr_candidate_pages_path(storage, case_id, document.id, ocr_run.id)
+    candidate_pages = read_pages_jsonl(candidate_path)
+    selected_page_numbers = set(page_numbers or [page.page_number for page in candidate_pages if page.text.strip()])
+    accepted_pages = [page for page in candidate_pages if page.page_number in selected_page_numbers and page.text.strip()]
+    if not accepted_pages:
+        raise PartialOcrAcceptanceError("No usable OCR pages were selected")
+
+    run = start_analysis_run(
+        db,
+        case_id,
+        "extract_pages",
+        provider_type="local_pipeline",
+        model_name="partial_ocr_acceptance",
+        model_version="1",
+        input_parameters={
+            "document_id": str(document.id),
+            "ocr_run_id": str(ocr_run.id),
+            "reason": reason,
+            "accepted_page_numbers": [page.page_number for page in accepted_pages],
+        },
+    )
+    add_analysis_run_input(db, run.id, "document", 0, document_id=document.id)
+    add_analysis_run_input(
+        db,
+        run.id,
+        "filter",
+        1,
+        payload_json={
+            "ocr_run_id": str(ocr_run.id),
+            "accepted_page_numbers": [page.page_number for page in accepted_pages],
+        },
+    )
+
+    previous_pages = _list_current_pages(db, case_id, document.id)
+    previous_chunks = _list_current_chunks(db, case_id, document.id)
+    _deactivate_current_text_manifests(db, case_id, document.id)
+    for page in previous_pages:
+        page.is_current = False
+        db.add(page)
+    for chunk in previous_chunks:
+        chunk.is_current = False
+        db.add(chunk)
+    db.flush()
+
+    next_page_version = _next_page_version(db, document.id)
+    page_records: list[DocumentPageModel] = []
+    page_texts: dict[UUID, str] = {}
+    for output_position, accepted_page in enumerate(accepted_pages):
+        page_record = DocumentPageModel(
+            case_id=case_id,
+            document_id=document.id,
+            page_number=accepted_page.page_number,
+            text_source="ocr",
+            ocr_used=True,
+            ocr_confidence=accepted_page.ocr_confidence,
+            parser_name=ocr_run.model_name,
+            parser_version=ocr_run.model_version,
+            extraction_run_id=run.id,
+            version_no=next_page_version,
+            is_current=True,
+            text_char_count=len(accepted_page.text),
+        )
+        db.add(page_record)
+        db.flush()
+        page_records.append(page_record)
+        page_texts[page_record.id] = accepted_page.text
+        add_analysis_run_output(db, run.id, "page", page_record.id, output_position)
+
+    text_layer = _persist_text_layer_manifest(
+        db,
+        storage,
+        case_id,
+        document,
+        page_records,
+        page_texts,
+        source_kind="ocr",
+        parser_name=ocr_run.model_name,
+        parser_version=ocr_run.model_version,
+        language_code=(ocr_run.input_parameters or {}).get("language"),
+        created_by_run_id=run.id,
+    )
+    document.page_count = max(page.page_number for page in page_records)
+    document.parser_name = ocr_run.model_name
+    document.parser_version = ocr_run.model_version
+    document.processing_status = "text_review_required"
+    db.add(document)
+    db.flush()
+
+    return finish_analysis_run(
+        db,
+        run,
+        status="succeeded",
+        validation_status="warning",
+        output_summary={
+            "document_id": str(document.id),
+            "document_status": document.processing_status,
+            "accepted_page_numbers": [page.page_number for page in accepted_pages],
+            "text_layer_id": str(text_layer.id),
+            "text_layer_created": True,
+            "next_action": "review_text_layer_then_create_chunks",
+        },
+    )
 
 
 async def import_txt_document(
@@ -693,8 +854,6 @@ async def import_txt_document(
         file_extension="txt",
         file_size_bytes=len(content),
         sha256_hash=sha256_hash,
-        document_group_code=metadata.document_group_code or "uncategorized",
-        document_type_code=metadata.document_type_code or "uncategorized",
         language_code=metadata.language_code,
         is_encrypted=False,
         imported_by_user_id=user.id,
@@ -711,7 +870,6 @@ async def import_txt_document(
         case_id=case_id,
         document_id=document.id,
         page_number=1,
-        extracted_text=extracted_text,
         text_source="native",
         ocr_used=False,
         parser_name="txt_import",
@@ -722,27 +880,45 @@ async def import_txt_document(
     )
     db.add(page)
     db.flush()
+    page_texts = {page.id: extracted_text}
 
-    chunks = _build_text_chunks(extracted_text)
-    for chunk_index, chunk in enumerate(chunks):
-        db.add(
-            DocumentChunkModel(
-                case_id=case_id,
-                document_id=document.id,
-                page_start=1,
-                page_end=1,
-                chunk_index=chunk_index,
-                chunk_text=chunk.text,
-                char_start=chunk.char_start,
-                char_end=chunk.char_end,
-                token_count=None,
-                chunking_strategy=CHUNKING_STRATEGY,
-                chunker_version=CHUNKER_VERSION,
-                version_no=1,
-                is_current=True,
-            )
+    text_chunks = _build_text_chunks(extracted_text)
+    chunk_records: list[DocumentChunkModel] = []
+    chunk_texts: dict[UUID, str] = {}
+    for chunk_index, chunk in enumerate(text_chunks):
+        chunk_record = DocumentChunkModel(
+            case_id=case_id,
+            document_id=document.id,
+            page_start=1,
+            page_end=1,
+            chunk_index=chunk_index,
+            char_start=chunk.char_start,
+            char_end=chunk.char_end,
+            token_count=None,
+            chunking_strategy=CHUNKING_STRATEGY,
+            chunker_version=CHUNKER_VERSION,
+            version_no=1,
+            is_current=True,
         )
-    db.flush()
+        db.add(chunk_record)
+        chunk_records.append(chunk_record)
+        db.flush()
+        chunk_texts[chunk_record.id] = chunk.text
+    text_layer, chunk_manifest = _persist_text_store_manifests(
+        db,
+        storage,
+        case_id,
+        document,
+        [page],
+        chunk_records,
+        page_texts,
+        chunk_texts,
+        source_kind="native_text",
+        parser_name="txt_import",
+        parser_version="1",
+        language_code=metadata.language_code,
+        created_by_run_id=None,
+    )
 
     event = AuditEvent(
         event_type="document_imported",
@@ -761,9 +937,11 @@ async def import_txt_document(
         output_summary={
             "document_id": str(document.id),
             "page_count": document.page_count,
-            "chunk_count": len(chunks),
+            "chunk_count": len(text_chunks),
             "chunking_strategy": CHUNKING_STRATEGY,
             "chunker_version": CHUNKER_VERSION,
+            "text_layer_id": str(text_layer.id),
+            "chunk_manifest_id": str(chunk_manifest.id),
             "sha256_hash": sha256_hash,
         },
     )
@@ -829,8 +1007,6 @@ async def import_pdf_document(
         file_extension="pdf",
         file_size_bytes=len(content),
         sha256_hash=sha256_hash,
-        document_group_code=metadata.document_group_code or "uncategorized",
-        document_type_code=metadata.document_type_code or "uncategorized",
         language_code=metadata.language_code,
         is_encrypted=False,
         imported_by_user_id=user.id,
@@ -873,9 +1049,58 @@ async def import_pdf_document(
                 "parser_version": parse_result.parser_version,
                 "parser_profile_used": parse_result.parser_profile,
             }
-        db.add(run)
-        _persist_parsed_pages(db, case_id, document, parse_result.pages, run.id, parse_result)
         quality_issues = _pdf_parse_quality_issues(parse_result.pages)
+        db.add(run)
+        if quality_issues:
+            document.page_count = 0
+            document.processing_status = "review_required"
+            db.add(document)
+            db.flush()
+            _write_pdf_import_audit(
+                db,
+                user.id,
+                document,
+                run.id,
+                success=True,
+                page_count=0,
+                quality_issues=quality_issues,
+            )
+            finish_analysis_run(
+                db,
+                run,
+                status="succeeded",
+                validation_status="warning",
+                output_summary={
+                    "document_id": str(document.id),
+                    "document_status": document.processing_status,
+                    "page_count": 0,
+                    "parsed_page_count": len(parse_result.pages),
+                    "chunk_count": 0,
+                    "parser_name": parse_result.parser_name,
+                    "parser_version": parse_result.parser_version,
+                    "parser_profile": parse_result.parser_profile,
+                    "quality_issues": quality_issues,
+                    "next_action": "run_ocr",
+                    "text_layer_created": False,
+                },
+            )
+            db.refresh(document)
+            return document
+
+        page_records, page_texts = _persist_parsed_pages(db, case_id, document, parse_result.pages, run.id, parse_result)
+        text_layer = _persist_text_layer_manifest(
+            db,
+            storage,
+            case_id,
+            document,
+            page_records,
+            page_texts,
+            source_kind="native_text",
+            parser_name=parse_result.parser_name,
+            parser_version=parse_result.parser_version,
+            language_code=metadata.language_code,
+            created_by_run_id=run.id,
+        )
         document.page_count = len(parse_result.pages)
         document.processing_status = "text_review_required"
         db.add(document)
@@ -904,6 +1129,8 @@ async def import_pdf_document(
                 "parser_profile": parse_result.parser_profile,
                 "quality_issues": quality_issues,
                 "next_action": "review_text_layer_then_create_chunks",
+                "text_layer_created": True,
+                "text_layer_id": str(text_layer.id),
             },
         )
     except NoExtractedTextError as exc:
@@ -936,6 +1163,7 @@ async def import_pdf_document(
                 "parser_profile": parser_profile,
                 "quality_issues": quality_issues,
                 "next_action": "run_ocr",
+                "text_layer_created": False,
             },
         )
     except PdfParsingError as exc:
@@ -968,14 +1196,15 @@ def _persist_parsed_pages(
     pages: list[ParsedPdfPage],
     run_id: UUID,
     parse_result: PdfParseResult,
-) -> None:
+) -> tuple[list[DocumentPageModel], dict[UUID, str]]:
     output_position = 0
+    page_records: list[DocumentPageModel] = []
+    page_texts: dict[UUID, str] = {}
     for page in pages:
         page_record = DocumentPageModel(
             case_id=case_id,
             document_id=document.id,
             page_number=page.page_number,
-            extracted_text=page.text,
             text_source="native",
             ocr_used=False,
             parser_name=parse_result.parser_name,
@@ -987,8 +1216,11 @@ def _persist_parsed_pages(
         )
         db.add(page_record)
         db.flush()
+        page_records.append(page_record)
+        page_texts[page_record.id] = page.text
         add_analysis_run_output(db, run_id, "page", page_record.id, output_position)
         output_position += 1
+    return page_records, page_texts
 
 
 def _persist_ocr_pages(
@@ -997,7 +1229,7 @@ def _persist_ocr_pages(
     document: DocumentModel,
     result: OcrDocumentResult,
     run_id: UUID,
-) -> None:
+) -> tuple[list[DocumentPageModel], dict[UUID, str]]:
     previous_pages = _list_current_pages(db, case_id, document.id)
     previous_chunks = _list_current_chunks(db, case_id, document.id)
     previous_page_by_number = {page.page_number: page for page in previous_pages}
@@ -1013,12 +1245,13 @@ def _persist_ocr_pages(
 
     output_position = 0
     new_page_by_number: dict[int, DocumentPageModel] = {}
+    page_records: list[DocumentPageModel] = []
+    page_texts: dict[UUID, str] = {}
     for ocr_page in result.pages:
         page_record = DocumentPageModel(
             case_id=case_id,
             document_id=document.id,
             page_number=ocr_page.page_number,
-            extracted_text=ocr_page.text,
             text_source="ocr",
             ocr_used=True,
             ocr_confidence=ocr_page.confidence,
@@ -1032,6 +1265,8 @@ def _persist_ocr_pages(
         db.add(page_record)
         db.flush()
         new_page_by_number[ocr_page.page_number] = page_record
+        page_records.append(page_record)
+        page_texts[page_record.id] = ocr_page.text
         add_analysis_run_output(db, run_id, "page", page_record.id, output_position)
         output_position += 1
 
@@ -1040,6 +1275,7 @@ def _persist_ocr_pages(
             previous_page.superseded_by_id = new_page_by_number[page_number].id
             db.add(previous_page)
     db.flush()
+    return page_records, page_texts
 
 
 def _create_chunks_from_pages(
@@ -1048,7 +1284,7 @@ def _create_chunks_from_pages(
     document: DocumentModel,
     pages: list[DocumentPageModel],
     run_id: UUID,
-) -> int:
+) -> tuple[int, dict[UUID, str]]:
     previous_chunks = _list_current_chunks(db, case_id, document.id)
     for chunk in previous_chunks:
         chunk.is_current = False
@@ -1058,15 +1294,16 @@ def _create_chunks_from_pages(
     next_chunk_version = _next_chunk_version(db, document.id)
     output_position = 0
     next_chunk_index = 0
+    chunk_texts: dict[UUID, str] = {}
     for page in pages:
-        for chunk in _build_text_chunks(page.extracted_text):
+        page_text = read_page_text_from_store(db, page)
+        for chunk in _build_text_chunks(page_text):
             chunk_record = DocumentChunkModel(
                 case_id=case_id,
                 document_id=document.id,
                 page_start=page.page_number,
                 page_end=page.page_number,
                 chunk_index=next_chunk_index,
-                chunk_text=chunk.text,
                 char_start=chunk.char_start,
                 char_end=chunk.char_end,
                 token_count=None,
@@ -1078,10 +1315,235 @@ def _create_chunks_from_pages(
             )
             db.add(chunk_record)
             db.flush()
+            chunk_texts[chunk_record.id] = chunk.text
             add_analysis_run_output(db, run_id, "chunk", chunk_record.id, output_position)
             output_position += 1
             next_chunk_index += 1
-    return next_chunk_index
+    return next_chunk_index, chunk_texts
+
+
+def _persist_text_store_manifests(
+    db: Session,
+    storage: StoragePaths,
+    case_id: UUID,
+    document: DocumentModel,
+    pages: list[DocumentPageModel],
+    chunks: list[DocumentChunkModel],
+    page_texts: dict[UUID, str],
+    chunk_texts: dict[UUID, str],
+    *,
+    source_kind: str,
+    parser_name: str | None,
+    parser_version: str | None,
+    language_code: str | None,
+    created_by_run_id: UUID | None,
+) -> tuple[DocumentTextLayerModel, DocumentChunkManifestModel]:
+    text_layer = _persist_text_layer_manifest(
+        db,
+        storage,
+        case_id,
+        document,
+        pages,
+        page_texts,
+        source_kind=source_kind,
+        parser_name=parser_name,
+        parser_version=parser_version,
+        language_code=language_code,
+        created_by_run_id=created_by_run_id,
+    )
+    chunk_manifest = _persist_chunk_manifest(
+        db,
+        storage,
+        case_id,
+        document,
+        text_layer,
+        chunks,
+        chunk_texts,
+        created_by_run_id=created_by_run_id,
+    )
+    return text_layer, chunk_manifest
+
+
+def _persist_text_layer_manifest(
+    db: Session,
+    storage: StoragePaths,
+    case_id: UUID,
+    document: DocumentModel,
+    pages: list[DocumentPageModel],
+    page_texts: dict[UUID, str],
+    *,
+    source_kind: str,
+    parser_name: str | None,
+    parser_version: str | None,
+    language_code: str | None,
+    created_by_run_id: UUID | None,
+) -> DocumentTextLayerModel:
+    text_layer_id = uuid4()
+    text_layer_dir = storage.derived_dir(str(case_id), str(document.id)) / "text_layers" / str(text_layer_id)
+    pages_path = text_layer_dir / "pages.jsonl"
+    pages_result = write_pages_jsonl(
+        pages_path,
+        [
+            StoredPageText(
+                page_id=str(page.id),
+                page_number=page.page_number,
+                text=_required_text_store_text(page_texts, page.id, "page"),
+                text_char_count=page.text_char_count,
+            )
+            for page in pages
+        ],
+    )
+
+    text_layer = DocumentTextLayerModel(
+        id=text_layer_id,
+        case_id=case_id,
+        document_id=document.id,
+        source_kind=source_kind,
+        parser_name=parser_name,
+        parser_version=parser_version,
+        language_code=language_code,
+        page_count=len(pages),
+        char_count=sum(page.text_char_count for page in pages),
+        storage_uri=_storage_uri(storage, pages_result.path),
+        manifest_hash=pages_result.manifest_hash,
+        created_by_run_id=created_by_run_id,
+        version_no=1,
+        is_current=True,
+    )
+    db.add(text_layer)
+    db.flush()
+    refresh_page_search_entries(db, document, text_layer, pages)
+    return text_layer
+
+
+def _persist_chunk_manifest(
+    db: Session,
+    storage: StoragePaths,
+    case_id: UUID,
+    document: DocumentModel,
+    text_layer: DocumentTextLayerModel,
+    chunks: list[DocumentChunkModel],
+    chunk_texts: dict[UUID, str],
+    *,
+    created_by_run_id: UUID | None,
+) -> DocumentChunkManifestModel:
+    chunk_manifest_id = uuid4()
+    chunk_manifest_dir = storage.derived_dir(str(case_id), str(document.id)) / "chunk_manifests" / str(chunk_manifest_id)
+    chunks_path = chunk_manifest_dir / "chunks.jsonl"
+    chunks_result = write_chunks_jsonl(
+        chunks_path,
+        [
+            StoredChunkText(
+                chunk_id=str(chunk.id),
+                chunk_index=chunk.chunk_index,
+                page_start=chunk.page_start,
+                page_end=chunk.page_end,
+                char_start=chunk.char_start,
+                char_end=chunk.char_end,
+                text=_required_text_store_text(chunk_texts, chunk.id, "chunk"),
+            )
+            for chunk in chunks
+        ],
+    )
+    chunk_manifest = DocumentChunkManifestModel(
+        id=chunk_manifest_id,
+        case_id=case_id,
+        document_id=document.id,
+        text_layer_id=text_layer.id,
+        chunking_strategy=CHUNKING_STRATEGY,
+        chunker_version=CHUNKER_VERSION,
+        chunk_count=len(chunks),
+        storage_uri=_storage_uri(storage, chunks_result.path),
+        manifest_hash=chunks_result.manifest_hash,
+        created_by_run_id=created_by_run_id,
+        version_no=1,
+        is_current=True,
+    )
+    db.add(chunk_manifest)
+    db.flush()
+    refresh_chunk_search_entries(db, document, chunk_manifest, chunks)
+    return chunk_manifest
+
+
+def _required_text_store_text(texts: dict[UUID, str], item_id: UUID, item_kind: str) -> str:
+    try:
+        return texts[item_id]
+    except KeyError as exc:
+        raise DocumentProcessingError(f"Missing text-store text for {item_kind} {item_id}") from exc
+
+
+def _get_current_text_layer(
+    db: Session,
+    case_id: UUID,
+    document_id: UUID,
+) -> DocumentTextLayerModel | None:
+    return db.execute(
+        select(DocumentTextLayerModel)
+        .where(
+            DocumentTextLayerModel.case_id == case_id,
+            DocumentTextLayerModel.document_id == document_id,
+            DocumentTextLayerModel.is_current.is_(True),
+        )
+        .order_by(DocumentTextLayerModel.created_at.desc())
+    ).scalars().first()
+
+
+def _deactivate_current_text_manifests(db: Session, case_id: UUID, document_id: UUID) -> None:
+    deactivate_document_search_entries(db, document_id)
+    current_text_layers = db.execute(
+        select(DocumentTextLayerModel).where(
+            DocumentTextLayerModel.case_id == case_id,
+            DocumentTextLayerModel.document_id == document_id,
+            DocumentTextLayerModel.is_current.is_(True),
+        )
+    ).scalars()
+    for text_layer in current_text_layers:
+        text_layer.is_current = False
+        db.add(text_layer)
+
+    current_chunk_manifests = db.execute(
+        select(DocumentChunkManifestModel).where(
+            DocumentChunkManifestModel.case_id == case_id,
+            DocumentChunkManifestModel.document_id == document_id,
+            DocumentChunkManifestModel.is_current.is_(True),
+        )
+    ).scalars()
+    for chunk_manifest in current_chunk_manifests:
+        chunk_manifest.is_current = False
+        db.add(chunk_manifest)
+    db.flush()
+
+
+def _write_ocr_candidate_pages(
+    storage: StoragePaths,
+    case_id: UUID,
+    document: DocumentModel,
+    ocr_run_id: UUID,
+    result: OcrDocumentResult,
+) -> str:
+    path = _ocr_candidate_pages_path(storage, case_id, document.id, ocr_run_id)
+    write_pages_jsonl(
+        path,
+        [
+            StoredPageText(
+                page_id=f"ocr:{ocr_run_id}:{page.page_number}",
+                page_number=page.page_number,
+                text=page.text,
+                text_char_count=len(page.text),
+                ocr_confidence=page.confidence,
+            )
+            for page in result.pages
+        ],
+    )
+    return _storage_uri(storage, path)
+
+
+def _ocr_candidate_pages_path(storage: StoragePaths, case_id: UUID, document_id: UUID, ocr_run_id: UUID) -> Path:
+    return storage.derived_dir(str(case_id), str(document_id)) / "ocr_candidates" / str(ocr_run_id) / "pages.jsonl"
+
+
+def _storage_uri(storage: StoragePaths, path: Path) -> str:
+    return path.resolve().relative_to(storage.data_root).as_posix()
 
 
 def _pdf_parse_quality_issues(pages: list[ParsedPdfPage]) -> list[dict]:
@@ -1118,6 +1580,32 @@ def _ocr_quality_issues(result: OcrDocumentResult) -> list[dict]:
             }
         )
     return issues
+
+
+def _ocr_quality_decision(result: OcrDocumentResult, quality_issues: list[dict]) -> dict:
+    usable_page_numbers = [page.page_number for page in result.pages if page.text.strip()]
+    failed_page_numbers = [page.page_number for page in result.pages if not page.text.strip()]
+    total_text_chars = sum(len(page.text.strip()) for page in result.pages)
+    if not result.pages or total_text_chars == 0:
+        return {
+            "decision": "failed",
+            "usable_page_numbers": usable_page_numbers,
+            "failed_page_numbers": failed_page_numbers,
+            "next_action": "discard_or_replace_document",
+        }
+    if quality_issues:
+        return {
+            "decision": "partial",
+            "usable_page_numbers": usable_page_numbers,
+            "failed_page_numbers": failed_page_numbers,
+            "next_action": "review_partial_ocr_before_text_layer",
+        }
+    return {
+        "decision": "passed",
+        "usable_page_numbers": usable_page_numbers,
+        "failed_page_numbers": failed_page_numbers,
+        "next_action": "review_text_layer_then_create_chunks",
+    }
 
 
 def _next_page_version(db: Session, document_id: UUID) -> int:
@@ -1181,8 +1669,8 @@ def _validate_current_document_processing(
         issues.append({"code": "no_current_pages", "severity": "error"})
 
     page_numbers = [page.page_number for page in pages]
-    if page_numbers and page_numbers != list(range(1, len(page_numbers) + 1)):
-        issues.append({"code": "non_contiguous_pages", "severity": "error", "page_numbers": page_numbers})
+    if len(set(page_numbers)) != len(page_numbers):
+        issues.append({"code": "duplicate_pages", "severity": "error", "page_numbers": page_numbers})
 
     total_text_chars = sum(page.text_char_count for page in pages)
     if pages and total_text_chars == 0:

@@ -26,3 +26,8 @@ class CaseRead(BaseModel):
 class CaseList(BaseModel):
     data: list[CaseRead]
 
+
+class CaseDeleteResponse(BaseModel):
+    case_id: UUID
+    deleted_counts: dict[str, int]
+    qdrant_collection: str

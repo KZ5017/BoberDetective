@@ -23,7 +23,7 @@ def _settings(*, auto_load: bool = True, auto_load_embedding: bool = True) -> Se
         llm_chat_model="chat-model",
         llm_embedding_model="embedding-model",
         llm_timeout_seconds=1,
-        llm_chat_context_length=61440,
+        llm_chat_context_length=112640,
         llm_embedding_context_length=4096,
         llm_eval_batch_size=4096,
         llm_flash_attention=True,
@@ -174,6 +174,21 @@ def test_lm_studio_native_provider_omits_reasoning_for_non_reasoning_model() -> 
     assert "reasoning" not in captured_payload
 
 
+def test_lm_studio_native_provider_can_omit_max_output_tokens() -> None:
+    captured_payload = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_payload.update(__import__("json").loads(request.content))
+        return httpx.Response(200, json={"output": [{"type": "message", "content": "{\"ok\": true}"}]})
+
+    client = httpx.Client(base_url="http://llm.local", transport=httpx.MockTransport(handler))
+    provider = LMStudioNativeProvider(_settings(auto_load=False), client)
+
+    provider.chat_completion("qwen/qwen3.5-9b", [LLMChatMessage(role="user", content="hello")], max_tokens=None)
+
+    assert "max_output_tokens" not in captured_payload
+
+
 def test_lm_studio_native_provider_lists_loaded_models() -> None:
     client = httpx.Client(
         base_url="http://llm.local",
@@ -212,7 +227,7 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
                 "load_time_seconds": 1.25,
                 "status": "loaded",
                 "load_config": {
-                    "context_length": 61440,
+                    "context_length": 112640,
                     "eval_batch_size": 4096,
                     "flash_attention": True,
                     "offload_kv_cache_to_gpu": True,
@@ -228,7 +243,7 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
     assert paths == ["GET /api/v1/models", "POST /api/v1/models/load"]
     assert captured_payload == {
         "model": "chat-model",
-        "context_length": 61440,
+        "context_length": 112640,
         "eval_batch_size": 4096,
         "flash_attention": True,
         "offload_kv_cache_to_gpu": True,
@@ -238,7 +253,7 @@ def test_lm_studio_native_provider_loads_configured_chat_model_with_gpu_friendly
     assert result.instance_id == "chat-model"
     assert result.status == "loaded"
     assert result.load_config == {
-        "context_length": 61440,
+        "context_length": 112640,
         "eval_batch_size": 4096,
         "flash_attention": True,
         "offload_kv_cache_to_gpu": True,

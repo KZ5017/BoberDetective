@@ -22,7 +22,7 @@ Teljes iratfeldolgozás: elso frontend-only irat/profil/kimenet vaz kesz
 Audit napló: placeholder
 ```
 
-A kovetkezo implementacios iranyt a `Design_documents/15_full_document_processing_plan.md` tartalmazza.
+A kovetkezo szakmai full-document iranyt a `Design_documents/15_full_document_processing_plan.md` tartalmazza, de a backend implementacio elotti nagyugyes tarolasi/retrieval kaput a `Design_documents/16_large_case_document_storage_and_retrieval_plan.md` rogziti.
 
 A jelenlegi munkapad ertekes es mukodik. Nem cel az ujratervezese nullarol. Cel, hogy ez legyen az elso munkafelulet, es kesobb melle epulhessen:
 
@@ -250,8 +250,14 @@ Az `Audit napló` celja:
 - `audit_events` megjelenitese,
 - dokumentum atminosites,
 - eletciklus valtozas,
+- teljes ugy torlese utan is megmarado torteneti audit esemenyek, peldaul `case_deleted`,
 - forrasmozgatasi / torlesi / kezi muveleti esemenyek,
 - kesobbi felhasznaloi / idobeli / objektum szerinti szures.
+
+Friss implementacios alap: az `audit_events.case_id` es `audit_events.analysis_run_id`
+mar nem kemeny FK, hanem torteneti UUID metadata. Ez lehetove teszi, hogy egy
+ugy teljes munkatartalma torolheto legyen, mikozben az audit esemenyek
+megmaradnak a kesobbi `Audit napló` felulet szamara.
 
 Ez ne keruljon ra a jelenlegi munkapadra egy ujabb nagy panelkent.
 

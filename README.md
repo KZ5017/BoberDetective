@@ -112,7 +112,7 @@ Completed:
 - Frontend document page/chunk and analysis run input/output drill-down with human-readable selected-source and output summaries
 - Frontend TXT/PDF import selection and OCR action for review-required/no-page PDF documents
 - Frontend source scope controls for `search_findings`
-- Frontend structured document taxonomy controls for import/list display and whole-case analysis source filtering by document group, document type, and selected document list
+- Frontend import/detail/analysis taxonomy controls, backend taxonomy API/filter workflows, and DB/search-entry taxonomy columns have been retired; large-case source narrowing now moves toward concrete document selection, focus text, and retrieval strategy
 - Document lifecycle controls for active/excluded/archived documents, plus safe early discard for documents that have not yet become analysis/source material
 - Active-document gate for new indexing, retrieval, analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source movement, merge workflows, and contradiction candidate creation
 - Frontend optional-focus and claim-review-scope claim-pair display for contradiction analysis, contradiction analysis run details, and conservative contradiction review notes
@@ -123,6 +123,8 @@ Completed:
 - Frontend visible text localized to Hungarian with labels for backend enum/internal values
 - End-to-end frontend/API smoke history covers case creation, TXT import, review queue filtering, claim review, JSON export, export history backing endpoint, download, and Vite proxy
 - Source-bound `Kutatási találatok` workflow: `search_findings` creates source-cited research worklist items, users can set aside/restore/delete/bulk-delete them, and selected findings can be converted into structured claim/entity/event/missing item candidate objects
+- Full-case deletion through `Ügy végleges törlése`, preserving global audit history while removing case-owned rows, files, and Qdrant points
+- Full-document processing surface: selected active document plus page range and profile can create source-evidence-validated `document_processing_items`; users can switch between active/félretett views, restore set-aside items, mark items for deletion, bulk-delete marked items, and hand a recommended focus back to the `Ügy munkapad`
 - Retired raw chunk extraction modules (`extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`) are no longer active backend/frontend workflows
 
 PDF/OCR sample checks:
@@ -132,7 +134,9 @@ PDF/OCR sample checks:
 
 Next:
 
-- Implement the first backend slice from `Design_documents/15_full_document_processing_plan.md` for full-document processing work items
+- Continue full-document prompt/profile tuning from live output quality
+- Design the explicit handoff from full-document preparatory items into focused `search_findings` runs or reusable search-focus workflows
+- Decide whether item conversion should first create research findings, structured manual objects, or only prefilled search runs
 - After the full-document processing surface and integration, design and implement the full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
 - Keep documentation cleanup around retired raw modules opportunistic; active capability lists should continue to point to `search_findings`
 - Consider durable job supervision if indexing grows beyond FastAPI background tasks
@@ -165,6 +169,12 @@ See:
 - `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`
 - `Design_documents/12_source_bound_findings_model_plan.md`
 - `Design_documents/13_legacy_analysis_module_retirement_plan.md`
+- `Design_documents/14_work_surface_ui_architecture_plan.md`
+- `Design_documents/15_full_document_processing_plan.md`
+- `Design_documents/16_large_case_document_storage_and_retrieval_plan.md`
+- `Design_documents/17_storage_migration_impact_review.md`
+- `Design_documents/18_keyword_search_text_store_migration_plan.md`
+- `Design_documents/19_document_taxonomy_retirement_plan.md`
 
 ## Handoff notes
 
@@ -187,7 +197,7 @@ Initial backend scaffold exists under `app/` with:
 - JSONL audit writer skeleton
 - storage path resolver with path traversal protection
 - SQLAlchemy/psycopg DB layer
-- Alembic migration foundation through `0031_detached_source_claims`
+- Alembic migration foundation through `0041_detach_audit_lifecycle`
 - `users`, `cases`, `case_users`, `audit_events` tables
 - case create/list API
 - DB + JSONL audit on case creation
@@ -230,6 +240,6 @@ Frontend:
 - React/Vite scaffold under `frontend/`
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
-- Current UI workflows: case create/list, TXT/PDF import, document list, document taxonomy editing, document lifecycle actions, page/chunk drill-down, OCR recommendation, explicit PDF text review and chunk creation, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
-- Active `search_findings` UI supports selected-document and whole-case source scopes with required focus text, selected-document page range, `Szovegresz plafon` defaulting to 30 and capped at 50, retrieval strategy, and batch controls
+- Current UI workflows: case create/list, multi-file TXT/PDF import without import-time taxonomy selection, document list, document lifecycle actions, page/chunk drill-down, OCR recommendation, explicit PDF text review and chunk creation, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
+- Active `search_findings` UI supports selected-document and whole-case source scopes with required focus text, `Szovegresz plafon` defaulting to 30 and capped at 50, retrieval strategy, and batch controls. Selected-document mode searches the full selected document.
 - Raw-chunk analysis can choose keyword, semantic, or hybrid source retrieval after chunk indexing

@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 225 passed`, `alembic: 0034_review_edit_text (head)`.
+- Current verification baseline: `pytest: 249 passed`, `alembic: 0041_detach_audit_lifecycle (head)`.
 
 Initial implementation exists:
 
@@ -36,13 +36,24 @@ Initial implementation exists:
 - Alembic migration foundation,
 - case create/list API,
 - document/page/chunk persistence models and migration,
-- immutable TXT import API,
+- first large-case text storage contract tables through migration `0035_text_layer_manifests`: `document_text_layers` and `document_chunk_manifests`,
+- first keyword-search migration foundation through migration `0036_search_entries`: `document_search_entries` plus `app/services/lexical_index.py` writer helpers for page/chunk search-entry rows,
+- first full-document processing backend foundation through migration `0039_doc_proc_items`: `document_processing_items`, `full_document_processing` run type, `document_processing_item` output type, profile registry, read/list/status API, bulk soft-delete API, and a run-start service/API slice that creates source-evidence-validated preparatory items from selected current document pages,
+- migration `0040_drop_db_text_cols` removes legacy DB full-text storage columns `document_pages.extracted_text` and `document_chunks.chunk_text` plus their old FTS indexes; full page/chunk text is now stored in the data-root text store,
+- migration `0041_detach_audit_lifecycle` detaches `audit_events.case_id` and `audit_events.analysis_run_id` from hard foreign keys so audit rows can survive full case deletion,
+- full case deletion exists through `DELETE /api/v1/cases/{case_id}` and the frontend `Ügy végleges törlése` action; it deletes case-owned database rows, requests Qdrant point deletion by `case_id`, removes the case data-root directory, and writes a global `case_deleted` audit event,
+- immutable TXT import API; TXT import now also writes first physical `pages.jsonl` / `chunks.jsonl` text-store files and their manifest rows while preserving current DB-backed API behavior,
 - explicit imported-document processing validation run API,
 - native-text PDF import foundation with configurable `docling_then_pypdf` parser profile,
+- native PDF import quality gate before page persistence: partial/low-quality parser output such as empty pages keeps the original PDF for OCR but does not create pages, text layers, chunks, or indexing material,
+- clean native PDF parse results write `document_text_layers` plus `pages.jsonl` alongside current DB-backed page rows,
 - Docling optional dependency installed in `.venv` and explicit Docling PDF import smoke passed,
 - explicit Tesseract OCR foundation for PDF documents with page/chunk versioning,
+- OCR quality decision before page persistence: clean OCR can create the text-review layer, partial OCR reports usable/failed page numbers without creating a text layer automatically, and fully unusable OCR points to discard/replace,
+- partial OCR acceptance backend slice: partial OCR writes staged candidate pages under the data root, and selected usable pages can be explicitly promoted through `POST /api/v1/cases/{case_id}/documents/{document_id}/ocr/accept-partial`,
+- clean OCR and accepted partial OCR write `document_text_layers` plus `pages.jsonl`; OCR replacement marks older current text/chunk manifests non-current,
 - backend-provided OCR recommendation metadata for PDF documents; the frontend shows OCR actions only when the backend marks OCR as recommended or optional, and optional OCR is labeled as an OCR check because it may duplicate/noise native text,
-- document page/chunk detail endpoints list only current versions by default, keeping previous native/OCR versions auditably stored but out of the active working text view,
+- document page/chunk detail endpoints list only current versions by default, keeping previous native/OCR versions auditably stored but out of the active working text view; their compatible response fields `extracted_text` / `chunk_text` now come from the text-store helper,
 - native PDF import and OCR now stop at a `text_review_required` text layer with current pages but no current chunks; users explicitly create chunks after page review through the `chunk_document` workflow,
 - image-only/scanned PDF imports without native text remain audit-tracked `review_required` documents for explicit OCR processing,
 - average Tesseract confidence capture on a 0..1 scale and `low_ocr_confidence` quality warning,
@@ -52,6 +63,8 @@ Initial implementation exists:
 - deterministic TXT chunk creation during import,
 - keyword search over document pages/chunks,
 - source-reference persistence and quote validation,
+- DB-backed `SourceTextResolver` plus JSONL page/chunk text-store helpers with SHA256 manifest hashes; TXT import, clean PDF native parse, clean/accepted OCR, and explicit chunk creation write physical text-store files, while current runtime reads remain DB-backed through the resolver until source reads are rewired,
+- runtime source-text reads now use physical text-store helpers for analysis run previews, review report excerpts, research-finding excerpts, `search_findings` SOURCE blocks and quote validation, source-reference quote/span validation, source-cited smoke analysis, embedding input, explicit chunk creation, and page/chunk API responses,
 - LLMProvider abstraction with LM Studio/OpenAI-compatible model-list smoke,
 - analysis run provenance foundation,
 - synthetic LLM model benchmark script,
@@ -77,7 +90,7 @@ Initial implementation exists:
 - local chunk indexing foundation through LM Studio/OpenAI-compatible embeddings and model-specific Qdrant collections, with `embed_chunks` analysis run provenance and chunk-level embedding metadata; model switches make chunks eligible for reindexing instead of incorrectly treating an old-model vector id as current,
 - background chunk indexing through `POST /api/v1/cases/{case_id}/indexes/chunks/jobs`; the endpoint creates an `embed_chunks` analysis run and returns immediately, while FastAPI `BackgroundTasks` performs the LM Studio/Qdrant work,
 - embedding index creation uses `BOBERDETECTIVE_EMBEDDING_BATCH_SIZE` defaulting to `8`, so large documents are embedded and upserted in smaller LM Studio/Qdrant batches instead of one memory-heavy request,
-- chunk index status is available through `GET /api/v1/cases/{case_id}/indexes/chunks/status`; it supports whole-case, selected-document, and structured case-scope subsets (`document_ids`, `document_group_code`, `document_type_code`), and the frontend uses it to show semantic index readiness, latest run progress, and block semantic/hybrid focused analysis until the active source scope is indexed with the configured embedding model,
+- chunk index status is available through `GET /api/v1/cases/{case_id}/indexes/chunks/status`; it supports whole-case, selected-document, and explicit document-list scopes, and the frontend uses it to show semantic index readiness, latest run progress, and block semantic/hybrid focused analysis until the active source scope is indexed with the configured embedding model,
 - hybrid retrieval foundation through keyword, semantic, and hybrid strategies; `search_findings` can receive `retrieval_strategy`, and analysis run chunk inputs record `retrieval_match_type`,
 - configured embedding model defaults to `text-embedding-bge-m3`; embedding calls auto-ensure this model is loaded through LM Studio before `/v1/embeddings`; older raw-module smokes remain historical notes only,
 - contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion,
@@ -146,6 +159,12 @@ Completed design documents:
 - `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`
 - `Design_documents/12_source_bound_findings_model_plan.md`
 - `Design_documents/13_legacy_analysis_module_retirement_plan.md`
+- `Design_documents/14_work_surface_ui_architecture_plan.md`
+- `Design_documents/15_full_document_processing_plan.md`
+- `Design_documents/16_large_case_document_storage_and_retrieval_plan.md`
+- `Design_documents/17_storage_migration_impact_review.md`
+- `Design_documents/18_keyword_search_text_store_migration_plan.md`
+- `Design_documents/19_document_taxonomy_retirement_plan.md`
 
 ## Project Summary
 
@@ -264,36 +283,43 @@ Previously unverified items now checked:
 - Historical user-side semantic/hybrid retrieval smoke with the former Qwen embedding profile found no obvious quality regression, but that embedding path is now retired. The active embedding profile is `text-embedding-bge-m3`, and semantic/hybrid comparison requires reindexing into the new model-specific Qdrant collection.
 - Document/case source modes now use retrieval-aware source selection from explicit focus text. Empty focus is rejected for raw-chunk modules so large cases are not processed blindly; document-mode retrieval is constrained to the selected document.
 - Raw-chunk source-selection query variants keep Hungarian accents and accept non-stopword terms from two characters; the original focus text remains the first retrieval query.
-- Raw-chunk analysis source selection supports `page_start` / `page_end` filters only inside selected-document source scope. Page filtering uses overlap logic and is wired through keyword, semantic, and hybrid retrieval; it is not a separate source mode.
-- Whole-case raw-chunk analysis has no page-range fields or backend page-range requirement. Selected-document analysis defaults to document page bounds in the frontend; if API callers omit page fields for document scope, the backend uses the full document and rejects only out-of-document ranges.
-- User-side retrieval/analysis smoke after selected-document page-range filtering produced especially precise results, making this workflow the current preferred path for large documents when the user knows the approximate page interval.
+- Backend raw-chunk analysis source selection still supports optional `page_start` / `page_end` filters inside selected-document source scope for API compatibility. The frontend no longer exposes selected-document page-range controls; selected-document UI searches use the full selected document.
+- Whole-case raw-chunk analysis has no page-range fields or backend page-range requirement. If API callers omit page fields for document scope, the backend uses the full document and rejects only out-of-document ranges.
+- Historical user-side retrieval/analysis smoke after selected-document page-range filtering produced precise results, but the current UI direction favors full selected-document search because typical documents are expected to be about 30-50 pages.
 - Recent local-LLM quality testing showed that module-first raw chunk extraction is too rigid for the long-term workflow: `extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, and `detect_missing_items` force object categories too early and can create noisy or artificial outputs. The active research workflow is source-bound `research_finding` records first, with human-controlled conversion into structured objects later.
 - The planned `research_finding` schema should be graph-view compatible from the start: keep source-reference -> finding -> structured-object relationships explicit and queryable, but do not introduce a graph database or graph UI prematurely.
 - A promising full-document prompt experiment extracted person-focused search seeds from a whole coherent document instead of selected chunks. This should become a separate, well-defined work surface later, not a replacement for the current source-bound research workflow.
+- Large-case storage/retrieval has been promoted to a design gate before full-document backend implementation. The current DB-centric page/chunk text storage is not the desired long-term shape for 5000+ document cases; `Design_documents/16_large_case_document_storage_and_retrieval_plan.md` defines the proposed split between PostgreSQL metadata/workflow/audit, data-root text store, and Qdrant retrieval index.
+- The first code-level impact review for that redesign is captured in `Design_documents/17_storage_migration_impact_review.md`. It maps current dependencies on `document_pages.extracted_text` and `document_chunks.chunk_text` across import, source references, keyword search, vector indexing, analysis prompts, review report excerpts, research-finding excerpts, and analysis-run previews.
+- Storage-refactor code slices are implemented through the strict DB-text removal point: `app/services/text_store.py` defines JSONL-backed text-store helpers, and source-text reads in source-reference validation, `search_findings` prompt/quote validation, embedding input creation, analysis run previews, review report excerpts, research-finding excerpts, source-cited smoke, explicit chunk creation, and page/chunk detail API responses go through this abstraction. Migration `0035_text_layer_manifests` adds `document_text_layers` and `document_chunk_manifests`, imports/chunking write physical `pages.jsonl` / `chunks.jsonl` plus manifest rows, and migration `0040_drop_db_text_cols` removes `document_pages.extracted_text`, `document_chunks.chunk_text`, and the old DB FTS indexes.
+- The first full-document processing backend run-start slice is implemented. `POST /cases/{case_id}/documents/{document_id}/full-document-processing/runs` creates a `full_document_processing` analysis run, reads current page text from the data-root text store, sends the selected page range to the local chat model in one request, validates returned `source_evidence.quote_text` against its source page, and persists only valid `document_processing_items`. Matching is OCR-spacing tolerant but stored evidence uses the exact original source substring/span. The request has no artificial item cap and omits `max_output_tokens`; long local LLM calls use the configured 900 second timeout. These items remain preparatory worklist records tied to a document and analysis run.
+- The `Teljes iratfeldolgozás` frontend surface is now connected to backend profiles, selected page-range run-start execution, active/set-aside item listing, source-evidence display, set-aside/restore status changes, deletion marking plus bulk soft-delete, and focus handoff back to the `Ügy munkapad` search workflow.
+- Keyword search migration is implemented past the old-column dependency: `DocumentSearchEntryModel`, migration `0036_search_entries`, and `app/services/lexical_index.py` writer helpers maintain `document_search_entries`. Active keyword search queries `document_search_entries.search_vector`; quotes/full excerpts are read from the physical text-store path.
+- Document taxonomy is now retired from active workflow rather than the future large-case source-narrowing strategy. `Design_documents/19_document_taxonomy_retirement_plan.md` captures the staged cleanup. The frontend taxonomy workflow has been removed from import, document detail, and analysis source filters; import now accepts multiple TXT/PDF files and uploads them sequentially through the existing backend endpoint. Backend taxonomy API/filter/reclassification workflow has also been retired, and migration `0037_remove_doc_taxonomy` removes the remaining taxonomy DB/model/search-entry columns and related indexes/constraints.
+- Full-case deletion is implemented and smoke-checked: `DELETE /api/v1/cases/{case_id}` removes case-owned DB rows, case files, and Qdrant points by `case_id`, while migration `0041_detach_audit_lifecycle` lets `audit_events` preserve historical `case_id` / `analysis_run_id` metadata after the case and run rows are gone. A user-side two-PDF import/OCR/chunk/index/search/convert smoke completed successfully before deletion, and post-delete checks found no remaining business rows, case files, or Qdrant points outside intentionally preserved audit/user records.
 
 ## Suggested Next Steps
 
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Implement the first backend slice from `Design_documents/15_full_document_processing_plan.md`: schema/migration for `document_processing_items`, `full_document_processing` run type support, and a backend profile registry.
-3. Add the full-document processing service/API for page-block prompt input, source quote validation, item persistence, and item list/status operations.
-4. Connect the `Teljes iratfeldolgozás` frontend surface to the backend run and item list.
-5. Expand `Audit napló` from placeholder into the dedicated full `Audit naplo` workflow/API/panel backed by `audit_events` after the full-document processing path is established.
+2. Continue full-document prompt/profile tuning from live output: reduce noisy duplicates, keep source quotes validation-friendly, and keep recommended search focuses usable.
+3. Design the explicit handoff step from `document_processing_items` into focused `search_findings` runs or reusable focus seed workflows.
+4. Decide whether item conversion should first create research findings, structured manual objects, or only prefilled search runs.
+5. Expand `Audit napló` from placeholder into the dedicated full `Audit naplo` workflow/API/panel backed by `audit_events` after the full-document foundation is usable.
 
 Strategic rationale:
 
 - The frontend is currently usable enough for the MVP workflow and now has Hungarian visible labels.
-- The work-surface UI architecture is planned in `Design_documents/14_work_surface_ui_architecture_plan.md`; the first shell slice is implemented with `Ügy munkapad`, `Teljes iratfeldolgozás`, and `Audit napló` surfaces. The `Teljes iratfeldolgozás` surface now has a frontend-only first UI slice for document/profile selection and output structure.
-- Full-document processing backend contract is planned in `Design_documents/15_full_document_processing_plan.md`; it keeps full-document extraction outputs as separate preparatory `document_processing_item` records before any human-driven conversion or research workflow handoff.
+- The work-surface UI architecture is planned in `Design_documents/14_work_surface_ui_architecture_plan.md`; the first shell slice is implemented with `Ügy munkapad`, `Teljes iratfeldolgozás`, and `Audit napló` surfaces. The `Teljes iratfeldolgozás` surface is now a working backend-connected surface, not only a scaffold.
+- Full-document processing backend contract is planned in `Design_documents/15_full_document_processing_plan.md`; it keeps full-document extraction outputs as separate preparatory `document_processing_item` records before any human-driven conversion or research workflow handoff. The current slice includes run-start, source-evidence validation, active/set-aside worklist views, restore, deletion marking with bulk delete, and focus handoff. The next slice is prompt/profile tuning and explicit handoff/conversion design.
+- Large-case storage/retrieval planning is captured in `Design_documents/16_large_case_document_storage_and_retrieval_plan.md`. The critical text-store-first slices needed by the full-document backend are implemented; the intended long-term direction remains PostgreSQL for metadata/workflow/audit/source references, data-root text store for extracted pages/chunks, and Qdrant for retrieval indexes.
 - The document ingestion foundation now handles native PDF parsing, explicit OCR, review-required states, confidence metadata, and medium scanned PDF uploads well enough to move forward.
 - The raw-chunk analysis modules are batch-capable and live-smoke passed on document/case source modes, but they are now retirement candidates rather than the future main workflow.
-- Large-case usability now uses structured document metadata for import/list display and analysis source filtering. The old free-text `documents.document_type` column/API field has been removed through `0019_drop_legacy_document_type`; do not reintroduce uncontrolled free-text document classification.
-- Document reclassification is available as an audit-tracked metadata-only operation: `PATCH /api/v1/cases/{case_id}/documents/{document_id}/taxonomy` validates the taxonomy pair, records `document_reclassified`, and intentionally leaves pages, chunks, source references, analysis runs, and review objects untouched.
+- Large-case usability should no longer depend on import-time structured document taxonomy. Frontend import/detail/analysis taxonomy controls, backend taxonomy API/filter/reclassification code, and the remaining taxonomy DB/model/search-entry columns have been retired. Do not reintroduce uncontrolled free-text document classification either.
+- Historical `document_reclassified` audit events may remain useful for the future audit log, but no active reclassification endpoint/workflow remains.
 - Document lifecycle is now an active-source gate. Inactive documents remain historically visible where already cited, but must not become new source material unless restored to `active`.
 - The current `Elemzesi elozmenyek` panel lists `analysis_runs` only. Import/OCR/chunking appear there because they create provenance runs; pure audit events such as `document_reclassified` belong in a future separate `Audit naplo` panel backed by `audit_events`.
-- The structured metadata foundation is visible in the frontend import/list workflow, and the analysis panel now exposes whole-case source filters for document group, dependent document type, and concrete document checkbox selection.
-- Backend analysis source selection uses the structured metadata for case-scope filtering and applies the resolved document set consistently to keyword, semantic, hybrid retrieval, semantic/hybrid readiness checks, and background chunk indexing.
 - Contradiction detection is downstream of source-cited claims, so it should remain claim-pair based and preserve `no source -> no claim` through claim/source-reference provenance.
 
 Environment verification notes:
@@ -334,14 +360,14 @@ Implementation status:
 - Frontend now exposes backend OCR recommendations and a separate `Szovegreszek letrehozasa` action for `text_review_required` documents; after OCR it refreshes document status/pages, and after chunk creation it refreshes chunks and analysis run history.
 - `Design_documents/10_analysis_batch_processing_plan.md` remains useful for batching/source-selection background, but the active raw-source workflow is now `search_findings`, not module-specific raw extraction.
 - Historical raw-module live smokes remain useful as implementation history only. Current live smokes should use `search_findings`, research-finding conversion, manual source-bound object creation, and downstream `detect_contradiction_candidates`.
-- Frontend now exposes source scope controls for `search_findings`: selected document, whole case, selected-document page range, required focus text, `Szovegresz plafon` defaulting to 30 and capped at 50, retrieval strategy, and `Batch meret` defaulting to 1 with backend validation between 1 and 15. Retired raw module options are no longer available; `detect_contradiction_candidates` keeps its claim-pair workflow with required focus. User-side smoke testing showed short concrete focus terms can be missed in larger batches even when retrieval selected the right chunk, so the frontend focus helper recommends trying `1-3` for short concrete focus values.
+- Frontend now exposes source scope controls for `search_findings`: selected document, whole case, required focus text, `Szovegresz plafon` defaulting to 30 and capped at 50, retrieval strategy, and `Batch meret` defaulting to 1 with backend validation between 1 and 15. Selected-document mode no longer exposes page-range controls and searches the full selected document from the UI. Retired raw module options are no longer available; `detect_contradiction_candidates` keeps its claim-pair workflow with required focus. User-side smoke testing showed short concrete focus terms can be missed in larger batches even when retrieval selected the right chunk, so the frontend focus helper recommends trying `1-3` for short concrete focus values.
 - Frontend analysis run details render selected chunk inputs as Hungarian source summaries with document/page/chunk, retrieval match type/score, batch position, and preview text. Output rows also show short object summaries. `input_kind=claim_selection` payloads remain rendered as Hungarian claim-selection summaries with selected pair rows; claim inputs show which selected pairs include the claim.
 - Frontend analysis panel marks contradiction focus as required, shows a claim-pair module note, and exposes `Allitaskor` (`reviewable`, `verified`, `needs_review`, `all_source_valid`) plus `Ellentmondasjelolt plafon` for `detect_contradiction_candidates`; analysis summaries show `claim-par alapu` instead of implying raw chunk selection.
 - Frontend focus placeholders are informational only; raw-chunk module runs are disabled until the user types focus text, and the backend enforces the same rule.
 - Frontend contradiction report items and detail view show a conservative note that the object is an ellenorizendo jelolt, not a proven contradiction.
 - TXT import stores the original bytes under UUID-based immutable storage paths.
-- TXT import creates the first `document_pages` record.
-- TXT import still creates deterministic page-local `document_chunks` directly. Native PDF import and OCR create current pages first, then explicit chunk creation produces page-local `document_chunks` with `char_window_v2`; chunking stays within a single processed page for source-location fidelity, prefers paragraph breaks, then sentence-end breaks, then line breaks/spaces before a hard character limit.
+- TXT import creates the first `document_pages` record and now also writes a current `document_text_layers` row plus `pages.jsonl`.
+- TXT import still creates deterministic page-local `document_chunks` directly and now writes a current `document_chunk_manifests` row plus `chunks.jsonl`. Native PDF import and OCR create current pages first, then explicit chunk creation produces page-local `document_chunks` with `char_window_v2`; chunking stays within a single processed page for source-location fidelity, prefers paragraph breaks, then sentence-end breaks, then line breaks/spaces before a hard character limit.
 - Document chunks are available through `GET /api/v1/cases/{case_id}/documents/{document_id}/chunks`.
 - TXT import writes DB + JSONL audit with chunk count metadata.
 - Keyword search works through `POST /api/v1/cases/{case_id}/search/keyword`.
@@ -364,9 +390,9 @@ Implementation status:
 - LM Studio native API notes captured in `Design_documents/04_runtime_and_deployment_v1.md`: use `max_output_tokens`, not `maxTokens`; prefer `store: false`; prefer `system_prompt`; send `reasoning: "off"` only for reasoning-capable models such as Qwen.
 - Backend now supports explicit LM Studio native chat-model loading through `POST /api/v1/system/llm/load-chat-model`.
 - LM Studio native chat calls now auto-ensure the configured chat model is loaded before sending `/api/v1/chat`; loaded instance ids are reused when present, and the configured load profile is applied only when no matching instance is loaded.
-- Current preferred chat-model LM Studio load profile is configured as `context_length=61440`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
+- Current preferred chat-model LM Studio load profile is configured as `context_length=112640`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
 - Embedding model load uses the active `text-embedding-bge-m3` profile with `context_length=4096`; LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load.
-- The previous Qwen embedding profile is intentionally retired and should not be restored as the default. The current balanced two-model profile uses chat `context_length=61440`, chat `eval_batch_size=4096`, and BGE-M3 embedding `context_length=4096`.
+- The previous Qwen embedding profile is intentionally retired and should not be restored as the default. The current balanced two-model profile uses chat `context_length=112640`, chat `eval_batch_size=4096`, BGE-M3 embedding `context_length=4096`, and LLM request timeout `900` seconds for long full-document runs.
 - Live model-load smoke accepted the profile and returned `qwen/qwen3.5-9b:2`, `status=loaded`, `load_time_seconds=10.784`, with echoed `parallel=4`.
 - Future native provider refinement: switch benchmark/runtime payload from locally tested `input.type="text"` to documented `input.type="message"` if local testing confirms compatibility.
 - First source-cited analysis smoke works through `POST /api/v1/cases/{case_id}/analysis/source-cited-smoke`.
@@ -464,7 +490,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `225 passed`.
+- Latest test run: `249 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

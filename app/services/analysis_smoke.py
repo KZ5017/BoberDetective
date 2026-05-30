@@ -20,6 +20,7 @@ from app.services.claims import create_claim_with_source
 from app.services.llm import LLMChatMessage, LMStudioNativeProvider
 from app.services.search import keyword_search
 from app.services.source_references import create_source_reference_for_run
+from app.services.text_store import read_chunk_text_from_store
 
 
 SMOKE_PROMPT_TEMPLATE_NAME = "source_cited_smoke"
@@ -109,17 +110,18 @@ def run_source_cited_analysis_smoke(
             payload_json={"retrieval_score": chunk_hit.score},
         )
 
+        chunk_text = read_chunk_text_from_store(db, chunk)
         completion = LMStudioNativeProvider(settings).chat_completion(
             settings.llm_chat_model,
             [
                 LLMChatMessage(role="system", content=SMOKE_SYSTEM_PROMPT),
-                LLMChatMessage(role="user", content=_build_user_prompt(payload.query, chunk.chunk_text)),
+                LLMChatMessage(role="user", content=_build_user_prompt(payload.query, chunk_text)),
             ],
             temperature=0.1,
             max_tokens=1200,
         )
         parsed = _parse_smoke_json(completion.content)
-        valid_claims, unsupported_claims = _validate_claims(parsed, chunk.chunk_text)
+        valid_claims, unsupported_claims = _validate_claims(parsed, chunk_text)
 
         response_claims: list[SmokeClaim] = []
         for index, claim in enumerate(valid_claims):

@@ -69,6 +69,14 @@ class JsonlAuditWriter:
 
     def write(self, event: AuditEvent) -> Path:
         audit_dir = self._storage.audit_dir(event.case_id)
+        return self._write_to_dir(audit_dir, event)
+
+    def write_global(self, event: AuditEvent) -> Path:
+        audit_dir = self._storage.audit_dir(None)
+        return self._write_to_dir(audit_dir, event)
+
+    @staticmethod
+    def _write_to_dir(audit_dir: Path, event: AuditEvent) -> Path:
         audit_dir.mkdir(parents=True, exist_ok=True)
         audit_file = audit_dir / "audit.jsonl"
         with audit_file.open("a", encoding="utf-8") as handle:

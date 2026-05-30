@@ -10,8 +10,18 @@ from uuid import uuid4
 import pytest
 from fastapi import UploadFile
 
-from app.models.document import DocumentChunkModel, DocumentModel, DocumentPageModel
-from app.schemas.document import DocumentPageRead
+import app.api.v1.documents as documents_api
+from app.models.document import (
+    DocumentChunkManifestModel,
+    DocumentChunkModel,
+    DocumentModel,
+    DocumentPageModel,
+    DocumentSearchEntryModel,
+    DocumentTextLayerModel,
+)
+from pydantic import ValidationError
+
+from app.schemas.document import DocumentPartialOcrAcceptRequest
 from app.services.ocr import ocr_pdf_document, render_pdf_pages_to_images
 from app.services.pdf_parsers import NoExtractedTextError, PdfParsingError, parse_pdf
 from app.services.documents import (
@@ -29,8 +39,15 @@ from app.services.documents import (
     _validate_txt_upload,
     _validate_current_document_processing,
     _pdf_parse_quality_issues,
+    _ocr_quality_decision,
     _ocr_quality_issues,
+    _create_chunks_from_pages,
+    _persist_text_store_manifests,
+    _write_ocr_candidate_pages,
 )
+import app.services.documents as documents_service
+from app.services.storage import StoragePaths
+from app.services.text_store import read_chunk_text, read_chunks_jsonl, read_page_text, read_pages_jsonl, sha256_file
 from app.services.ocr import OcrDocumentResult, OcrPageResult
 
 
@@ -155,13 +172,115 @@ def test_ocr_quality_flags_low_confidence_pages() -> None:
     ]
 
 
-def test_document_page_schema_accepts_decimal_ocr_confidence() -> None:
+def test_ocr_quality_decision_fails_when_no_text_was_extracted() -> None:
+    result = OcrDocumentResult(
+        pages=[
+            OcrPageResult(page_number=1, text="", confidence=None, image_path=Path("/tmp/page-1.png")),
+            OcrPageResult(page_number=2, text="   ", confidence=None, image_path=Path("/tmp/page-2.png")),
+        ],
+        tool_name="tesseract",
+        tool_version="5.3.4",
+        language="hun+eng",
+    )
+
+    decision = _ocr_quality_decision(result, _ocr_quality_issues(result))
+
+    assert decision == {
+        "decision": "failed",
+        "usable_page_numbers": [],
+        "failed_page_numbers": [1, 2],
+        "next_action": "discard_or_replace_document",
+    }
+
+
+def test_ocr_quality_decision_marks_partial_text_for_review() -> None:
+    result = OcrDocumentResult(
+        pages=[
+            OcrPageResult(page_number=1, text="Hasznalhato OCR szoveg.", confidence=0.91, image_path=Path("/tmp/page-1.png")),
+            OcrPageResult(page_number=2, text="", confidence=None, image_path=Path("/tmp/page-2.png")),
+        ],
+        tool_name="tesseract",
+        tool_version="5.3.4",
+        language="hun+eng",
+    )
+
+    decision = _ocr_quality_decision(result, _ocr_quality_issues(result))
+
+    assert decision == {
+        "decision": "partial",
+        "usable_page_numbers": [1],
+        "failed_page_numbers": [2],
+        "next_action": "review_partial_ocr_before_text_layer",
+    }
+
+
+def test_ocr_quality_decision_passes_clean_text() -> None:
+    result = OcrDocumentResult(
+        pages=[
+            OcrPageResult(page_number=1, text="Hasznalhato OCR szoveg.", confidence=0.91, image_path=Path("/tmp/page-1.png")),
+        ],
+        tool_name="tesseract",
+        tool_version="5.3.4",
+        language="hun+eng",
+    )
+
+    decision = _ocr_quality_decision(result, _ocr_quality_issues(result))
+
+    assert decision["decision"] == "passed"
+    assert decision["next_action"] == "review_text_layer_then_create_chunks"
+
+
+def test_ocr_candidate_pages_are_staged_without_creating_text_layer(tmp_path) -> None:
+    case_id = uuid4()
+    document = DocumentModel(
+        id=uuid4(),
+        case_id=case_id,
+        original_filename="scan.pdf",
+        stored_path=str(tmp_path / "scan.pdf"),
+        mime_type="application/pdf",
+        file_extension="pdf",
+        file_size_bytes=12,
+        sha256_hash="a" * 64,
+        imported_by_user_id=uuid4(),
+        processing_status="review_required",
+    )
+    ocr_run_id = uuid4()
+    result = OcrDocumentResult(
+        pages=[
+            OcrPageResult(page_number=1, text="Hasznalhato OCR szoveg.", confidence=0.91, image_path=Path("/tmp/page-1.png")),
+            OcrPageResult(page_number=2, text="", confidence=None, image_path=Path("/tmp/page-2.png")),
+        ],
+        tool_name="tesseract",
+        tool_version="5.3.4",
+        language="hun+eng",
+    )
+
+    storage_uri = _write_ocr_candidate_pages(StoragePaths(tmp_path), case_id, document, ocr_run_id, result)
+
+    staged_pages = read_pages_jsonl(tmp_path / storage_uri)
+    assert [page.page_number for page in staged_pages] == [1, 2]
+    assert staged_pages[0].text == "Hasznalhato OCR szoveg."
+    assert staged_pages[0].ocr_confidence == 0.91
+    assert staged_pages[1].text == ""
+
+
+def test_partial_ocr_accept_request_normalizes_page_numbers() -> None:
+    payload = DocumentPartialOcrAcceptRequest(ocr_run_id=uuid4(), page_numbers=[3, 1])
+
+    assert payload.page_numbers == [1, 3]
+
+
+def test_partial_ocr_accept_request_rejects_duplicate_page_numbers() -> None:
+    with pytest.raises(ValidationError):
+        DocumentPartialOcrAcceptRequest(ocr_run_id=uuid4(), page_numbers=[1, 1])
+
+
+def test_document_page_api_read_accepts_decimal_ocr_confidence(monkeypatch) -> None:
     page = DocumentPageModel(
         id=uuid4(),
         case_id=uuid4(),
         document_id=uuid4(),
         page_number=1,
-        extracted_text="OCR szoveg.",
         text_source="ocr",
         ocr_used=True,
         ocr_confidence=Decimal("0.9432"),
@@ -173,7 +292,9 @@ def test_document_page_schema_accepts_decimal_ocr_confidence() -> None:
         created_at=datetime.now(UTC),
     )
 
-    response = DocumentPageRead.model_validate(page)
+    monkeypatch.setattr(documents_api, "read_page_text_from_store", lambda db_arg, page_arg: "OCR szoveg.")
+
+    response = documents_api._page_read(object(), page)
 
     assert response.ocr_confidence == 0.9432
 
@@ -300,7 +421,6 @@ def test_ocr_recommendation_is_recommended_when_no_text_exists() -> None:
         case_id=uuid4(),
         document_id=uuid4(),
         page_number=1,
-        extracted_text="",
         text_source="native",
         ocr_used=False,
         version_no=1,
@@ -319,7 +439,6 @@ def test_ocr_recommendation_hides_when_text_layer_awaits_chunking() -> None:
         case_id=uuid4(),
         document_id=uuid4(),
         page_number=1,
-        extracted_text="Van elegendo nativ szoveg.",
         text_source="native",
         ocr_used=False,
         version_no=1,
@@ -337,22 +456,20 @@ def test_ocr_recommendation_is_optional_for_empty_pages_with_native_text() -> No
     document_id = uuid4()
     pages = [
         DocumentPageModel(
-            case_id=uuid4(),
-            document_id=document_id,
-            page_number=1,
-            extracted_text="Van elegendo nativ szoveg.",
-            text_source="native",
+                case_id=uuid4(),
+                document_id=document_id,
+                page_number=1,
+                text_source="native",
             ocr_used=False,
             version_no=1,
             is_current=True,
             text_char_count=500,
         ),
         DocumentPageModel(
-            case_id=uuid4(),
-            document_id=document_id,
-            page_number=2,
-            extracted_text="",
-            text_source="native",
+                case_id=uuid4(),
+                document_id=document_id,
+                page_number=2,
+                text_source="native",
             ocr_used=False,
             version_no=1,
             is_current=True,
@@ -366,7 +483,6 @@ def test_ocr_recommendation_is_optional_for_empty_pages_with_native_text() -> No
             page_start=1,
             page_end=1,
             chunk_index=0,
-            chunk_text="Van elegendo nativ szoveg.",
             chunking_strategy="char_window_v2",
             chunker_version="2",
             version_no=1,
@@ -401,7 +517,6 @@ def test_document_processing_validation_passes_for_current_page_and_chunk() -> N
         case_id=case_id,
         document_id=document_id,
         page_number=1,
-        extracted_text="Forras szoveg.",
         text_source="native",
         ocr_used=False,
         version_no=1,
@@ -415,7 +530,6 @@ def test_document_processing_validation_passes_for_current_page_and_chunk() -> N
         page_start=1,
         page_end=1,
         chunk_index=0,
-        chunk_text="Forras szoveg.",
         char_start=0,
         char_end=13,
         chunking_strategy="char_window_v1",
@@ -430,6 +544,208 @@ def test_document_processing_validation_passes_for_current_page_and_chunk() -> N
     assert result["validation_status"] == "passed"
     assert result["document_status"] == "processed"
     assert result["issues"] == []
+
+
+def test_text_store_manifest_persistence_writes_jsonl_and_models(tmp_path) -> None:
+    case_id = uuid4()
+    document_id = uuid4()
+    document = DocumentModel(
+        id=document_id,
+        case_id=case_id,
+        original_filename="irat.txt",
+        stored_path=str(tmp_path / "cases" / str(case_id) / "originals" / str(document_id) / "original.txt"),
+        mime_type="text/plain",
+        file_extension="txt",
+        file_size_bytes=12,
+        sha256_hash="a" * 64,
+        imported_by_user_id=uuid4(),
+        processing_status="processed",
+        page_count=1,
+    )
+    page = DocumentPageModel(
+        id=uuid4(),
+        case_id=case_id,
+        document_id=document_id,
+        page_number=1,
+        text_source="native",
+        ocr_used=False,
+        version_no=1,
+        is_current=True,
+        text_char_count=len("Forras szoveg."),
+    )
+    chunk = DocumentChunkModel(
+        id=uuid4(),
+        case_id=case_id,
+        document_id=document_id,
+        page_start=1,
+        page_end=1,
+        chunk_index=0,
+        char_start=0,
+        char_end=13,
+        chunking_strategy="char_window_v2",
+        chunker_version="2",
+        version_no=1,
+        is_current=True,
+    )
+    db = _FakeManifestDb()
+    storage = StoragePaths(tmp_path)
+
+    text_layer, chunk_manifest = _persist_text_store_manifests(
+        db,
+        storage,
+        case_id,
+        document,
+        [page],
+        [chunk],
+        {page.id: "Forras szoveg."},
+        {chunk.id: "Forras szoveg."},
+        source_kind="native_text",
+        parser_name="txt_import",
+        parser_version="1",
+        language_code="hu",
+        created_by_run_id=None,
+    )
+
+    assert text_layer in db.added
+    assert chunk_manifest in db.added
+    search_entries = [item for item in db.added if isinstance(item, DocumentSearchEntryModel)]
+    assert [entry.source_type for entry in search_entries] == ["page", "chunk"]
+    assert text_layer.page_count == 1
+    assert text_layer.char_count == len("Forras szoveg.")
+    assert chunk_manifest.chunk_count == 1
+    assert chunk_manifest.text_layer_id == text_layer.id
+    pages_path = tmp_path / text_layer.storage_uri
+    chunks_path = tmp_path / chunk_manifest.storage_uri
+    assert text_layer.manifest_hash == sha256_file(pages_path)
+    assert chunk_manifest.manifest_hash == sha256_file(chunks_path)
+    assert read_pages_jsonl(pages_path)[0].page_id == str(page.id)
+    assert read_chunks_jsonl(chunks_path)[0].chunk_id == str(chunk.id)
+
+
+def test_create_chunks_from_pages_reads_page_text_through_text_store(monkeypatch) -> None:
+    case_id = uuid4()
+    document = DocumentModel(
+        id=uuid4(),
+        case_id=case_id,
+        original_filename="irat.pdf",
+        stored_path="/tmp/irat.pdf",
+        mime_type="application/pdf",
+        file_extension="pdf",
+        file_size_bytes=12,
+        sha256_hash="a" * 64,
+        imported_by_user_id=uuid4(),
+        processing_status="text_review_required",
+        page_count=1,
+    )
+    page = DocumentPageModel(
+        id=uuid4(),
+        case_id=case_id,
+        document_id=document.id,
+        page_number=1,
+        text_source="native",
+        ocr_used=False,
+        version_no=1,
+        is_current=True,
+        text_char_count=36,
+    )
+    db = _FakeChunkCreationDb()
+
+    monkeypatch.setattr(documents_service, "_list_current_chunks", lambda *args, **kwargs: [])
+    monkeypatch.setattr(documents_service, "_next_chunk_version", lambda *args, **kwargs: 1)
+    monkeypatch.setattr(documents_service, "add_analysis_run_output", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        documents_service,
+        "read_page_text_from_store",
+        lambda db_arg, page_arg: "Text-store page text is the chunk source.",
+    )
+
+    chunk_count, chunk_texts = _create_chunks_from_pages(db, case_id, document, [page], uuid4())
+
+    chunks = [item for item in db.added if isinstance(item, DocumentChunkModel)]
+    assert chunk_count == 1
+    assert chunk_texts[chunks[0].id] == "Text-store page text is the chunk source."
+
+
+def test_document_page_api_read_uses_text_store(monkeypatch) -> None:
+    page = DocumentPageModel(
+        id=uuid4(),
+        case_id=uuid4(),
+        document_id=uuid4(),
+        page_number=1,
+        text_source="native",
+        ocr_used=False,
+        version_no=1,
+        is_current=True,
+        text_char_count=22,
+        created_at=datetime.now(UTC),
+    )
+
+    monkeypatch.setattr(
+        documents_api,
+        "read_page_text_from_store",
+        lambda db_arg, page_arg: "Text-store page text.",
+    )
+
+    response = documents_api._page_read(object(), page)
+
+    assert response.extracted_text == "Text-store page text."
+
+
+def test_document_chunk_api_read_uses_text_store(monkeypatch) -> None:
+    chunk = DocumentChunkModel(
+        id=uuid4(),
+        case_id=uuid4(),
+        document_id=uuid4(),
+        page_start=1,
+        page_end=1,
+        chunk_index=0,
+        chunking_strategy="char_window_v2",
+        chunker_version="2",
+        version_no=1,
+        is_current=True,
+        created_at=datetime.now(UTC),
+    )
+
+    monkeypatch.setattr(
+        documents_api,
+        "read_chunk_text_from_store",
+        lambda db_arg, chunk_arg: "Text-store chunk text.",
+    )
+
+    response = documents_api._chunk_read(object(), chunk)
+
+    assert response.chunk_text == "Text-store chunk text."
+
+
+def test_text_store_fallback_returns_empty_string_without_db_text_columns() -> None:
+    page = DocumentPageModel(
+        id=uuid4(),
+        case_id=uuid4(),
+        document_id=uuid4(),
+        page_number=1,
+        text_source="native",
+        ocr_used=False,
+        version_no=1,
+        is_current=True,
+        text_char_count=0,
+        created_at=datetime.now(UTC),
+    )
+    chunk = DocumentChunkModel(
+        id=uuid4(),
+        case_id=uuid4(),
+        document_id=uuid4(),
+        page_start=1,
+        page_end=1,
+        chunk_index=0,
+        chunking_strategy="char_window_v2",
+        chunker_version="2",
+        version_no=1,
+        is_current=True,
+        created_at=datetime.now(UTC),
+    )
+
+    assert read_page_text(page) == ""
+    assert read_chunk_text(chunk) == ""
 
 
 def test_document_processing_validation_requires_current_pages() -> None:
@@ -452,6 +768,31 @@ def test_document_processing_validation_requires_current_pages() -> None:
     assert result["validation_status"] == "failed"
     assert result["document_status"] == "failed"
     assert result["issues"][0]["code"] == "no_current_pages"
+
+
+class _FakeManifestDb:
+    def __init__(self) -> None:
+        self.added = []
+        self.flush_count = 0
+
+    def add(self, item) -> None:
+        if isinstance(item, (DocumentTextLayerModel, DocumentChunkManifestModel, DocumentSearchEntryModel)):
+            self.added.append(item)
+
+    def flush(self) -> None:
+        self.flush_count += 1
+
+
+class _FakeChunkCreationDb:
+    def __init__(self) -> None:
+        self.added = []
+        self.flush_count = 0
+
+    def add(self, item) -> None:
+        self.added.append(item)
+
+    def flush(self) -> None:
+        self.flush_count += 1
 
 
 def _simple_text_pdf(text: str) -> bytes:

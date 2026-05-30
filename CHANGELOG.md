@@ -1,5 +1,17 @@
 # CHANGELOG.md
 
+## 2026-05-30
+
+### Changed
+
+- Updated the current verification baseline to `249 passed` and Alembic head `0041_detach_audit_lifecycle`.
+- Hardened the full-document processing runtime profile for long local model calls: selected page ranges are sent in one LLM request, artificial item caps were removed, `max_output_tokens` is omitted for this workflow, and the long-call timeout remains 900 seconds.
+- Improved full-document source-evidence validation with OCR-spacing tolerant quote matching while storing exact original source substrings and character spans after validation.
+- Added normalized identity deduplication for full-document preparatory items so repeated "second/third mention" style LLM loops are filtered before persistence.
+- Added active/félretett worklist views for the `Teljes iratfeldolgozás` surface, with restore from félretett, deletion marking on cards, and bulk soft-delete from the worklist toolbar.
+- Added `POST /api/v1/cases/{case_id}/full-document-processing/items/bulk-delete` for grouped deletion of preparatory full-document worklist items.
+- Refreshed handoff and planning documents so the next direction is full-document prompt/profile tuning, explicit item handoff/conversion design, and then the dedicated `Audit napló` API/panel.
+
 ## 2026-05-26
 
 ### Changed
@@ -9,6 +21,29 @@
 - Implemented the first work-surface navigation slice: the existing page is now `Ügy munkapad`, with placeholder surfaces for `Teljes iratfeldolgozás` and `Audit napló`.
 - Expanded `Teljes iratfeldolgozás` from placeholder into a frontend-only first UI slice with active-document selection, profile selection, selected-document summary, and output scaffold.
 - Added `Design_documents/15_full_document_processing_plan.md`, defining the backend contract for full-document processing runs and preparatory `document_processing_item` records.
+- Added `Design_documents/16_large_case_document_storage_and_retrieval_plan.md`, making large-case storage/retrieval redesign the gate before full-document backend implementation.
+- Added `Design_documents/17_storage_migration_impact_review.md`, mapping the current code dependencies on DB-stored page/chunk text and identifying `TextStore` / `SourceTextResolver` as the safest first refactor slice.
+- Added `Design_documents/18_keyword_search_text_store_migration_plan.md`, defining the planned replacement for direct PostgreSQL FTS over full DB text fields with a metadata + `tsvector` search-entry layer backed by text-store quotes.
+- Added `Design_documents/19_document_taxonomy_retirement_plan.md`, defining the staged retirement of import-time document taxonomy from frontend workflow, API/filter layers, and eventually database/search-entry columns.
+- Added migration `0036_search_entries`, `DocumentSearchEntryModel`, and `app/services/lexical_index.py` writer helpers as the first keyword-search migration foundation.
+- Added the first DB-backed `TextStore` / `SourceTextResolver` implementation and routed source-reference validation, finding extraction source text, embedding input, analysis previews, and source excerpts through it without changing runtime behavior.
+- Added migration `0035_text_layer_manifests` with `document_text_layers` and `document_chunk_manifests` as the metadata contract for later file-backed extracted text and chunk manifests.
+- Added JSONL page/chunk text-store helpers with per-record text hashes and file-level SHA256 manifest hashes.
+- Wired TXT import to write physical `pages.jsonl` / `chunks.jsonl` files plus `document_text_layers` / `document_chunk_manifests` rows while preserving current DB-backed API behavior.
+- Added a native PDF parser quality gate before page persistence: partial/low-quality parser results now keep the original PDF for OCR but do not create pages, text layers, chunks, or indexing material.
+- Added an OCR quality decision gate before page persistence: clean OCR creates a reviewable text layer, partial OCR reports usable/failed pages without automatically creating a text layer, and fully unusable OCR points to discard/replace.
+- Added a partial OCR acceptance backend slice: partial OCR writes staged OCR candidate pages, and selected usable pages can be explicitly promoted into a current OCR text-review layer.
+- Wired clean native PDF parse, clean OCR, accepted partial OCR, and explicit chunk creation to write text-store manifests (`document_text_layers` / `document_chunk_manifests`) and JSONL files while keeping current DB-backed API behavior.
+- Wired `lexical_index` search-entry population into text-layer and chunk-manifest persistence, so TXT import, clean native PDF text layers, clean/accepted OCR text layers, and explicit chunk creation now maintain `document_search_entries`.
+- Switched active keyword search to query `document_search_entries.search_vector`; quote generation now reads source text through physical text-store helpers with DB fallback while preserving the existing `KeywordSearchHit` contract for keyword and hybrid search.
+- Switched the first runtime source-text reads to prefer physical text-store with DB fallback for analysis run previews, review report source excerpts, and research-finding source excerpts.
+- Extended text-store-first runtime reads to LLM SOURCE block construction, `search_findings` quote validation, source-reference quote/span validation, source-cited smoke analysis, and embedding input.
+- Updated the verification baseline to `246 passed` and Alembic head `0036_search_entries`.
+- Reframed the next backend direction around 5000+ document cases: PostgreSQL should keep metadata/workflow/audit/source references, extracted page/chunk text should move toward a data-root text store, and Qdrant should remain the retrieval index.
+- Reframed document taxonomy as a transitional legacy workflow for large-case use: current code still contains group/type controls and filters, but the next cleanup target is removing that UX first, then retiring backend/API/filter/database remnants in controlled stages.
+- Removed the frontend document taxonomy workflow from active UX: import no longer asks for document group/type, document details no longer expose reclassification, analysis source filtering no longer shows group/type filters, and the frontend no longer calls the document-taxonomy API.
+- Added multi-file selection to the frontend TXT/PDF import control; selected files are uploaded sequentially through the existing single-document backend import endpoint.
+- Removed selected-document page-range controls from the frontend analysis panel; selected-document `search_findings` now searches the whole selected document from the UI.
 - Switched the default embedding profile to LM Studio model id `text-embedding-bge-m3` with `context_length=4096`, keeping embedding load payloads limited to fields LM Studio accepts for embedding models.
 - Marked the previous Qwen embedding profile as retired from the active default path; BGE-M3 is now the intended embedding baseline.
 - Changed the default analysis `Batch meret` to `1` while keeping backend/frontend validation limits unchanged.
@@ -18,6 +53,20 @@
 - Earlier `Batch meret` default tuning to `5` has been superseded by the current default `1`; backend/frontend validation remains `1..15`.
 - Added a static frontend focus helper explaining that short concrete focus terms may work better with `Batch meret` between `1` and `3`.
 - Reordered the next larger project direction: first use the dedicated work-surface UI architecture, then build a full-document processing surface for already uploaded documents, and move the full `Audit naplo` API/panel after that.
+- Fixed hybrid source selection so it collects candidates across all query variants before applying the final chunk cap; later keyword/normalized query hits are no longer starved by the first semantic result set.
+- Retired the backend document taxonomy API/filter slice from active workflow: removed the routed `document-taxonomy` endpoint, removed document reclassification routing/service/schema, removed import-time group/type form fields, and removed taxonomy filters from search/index/analysis request paths.
+- Removed the remaining document taxonomy DB/model/search-entry layer through migration `0037_remove_doc_taxonomy`: `documents.document_group_code`, `documents.document_type_code`, denormalized `document_search_entries` taxonomy columns, related indexes/constraints, the taxonomy core registry, response labels, and test fixtures are no longer active.
+- Tightened the storage migration path: explicit chunk creation now reads reviewed page text through the text-store helper, and active service fallbacks route through `read_page_text` / `read_chunk_text` instead of scattered direct DB text field access.
+- Switched page/chunk detail API response construction to text-store-first text population while preserving the existing `extracted_text` / `chunk_text` response fields for frontend compatibility.
+- Added migration `0038_nullable_text_fields`, making `document_pages.extracted_text` and `document_chunks.chunk_text` nullable compatibility fallback fields while service/API reads stay text-store-first.
+- Added the first full-document processing backend foundation through migration `0039_doc_proc_items`: `document_processing_items`, `full_document_processing` run type, `document_processing_item` analysis output type, SQLAlchemy model, schemas, profile registry, and read/list/status API skeleton.
+- Removed legacy PostgreSQL full-text storage for page/chunk bodies through migration `0040_drop_db_text_cols`: `document_pages.extracted_text`, `document_chunks.chunk_text`, and the old direct FTS indexes are gone. API response fields with those names remain compatibility fields populated from the data-root text store.
+- Added migration `0041_detach_audit_lifecycle`, which keeps `audit_events.case_id` and `audit_events.analysis_run_id` as historical UUID metadata without hard foreign keys to case/run rows.
+- Added permanent full-case deletion through `DELETE /api/v1/cases/{case_id}` and a frontend `Ügy végleges törlése` action with typed-name confirmation. The deletion removes case-owned DB rows, case storage files, and Qdrant points for the case while preserving audit rows and writing a global `case_deleted` audit event.
+- Added the first full-document processing run-start API/service slice: selected document + profile creates a `full_document_processing` analysis run, reads the selected page range from the data-root text store, sends that range to the local chat model in one request, validates source quotes before persistence, and stores valid preparatory `document_processing_items`.
+- Analysis run output summaries now include `document_processing_item` outputs.
+- Wired the `Teljes iratfeldolgozás` frontend surface to backend profiles, run-start execution, active item listing, source-evidence display, set-aside/delete status changes, and focus handoff into the `Ügy munkapad`.
+- Updated the verification baseline to `246 passed` and Alembic head `0041_detach_audit_lifecycle`.
 
 ## 2026-05-25
 

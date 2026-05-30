@@ -12,6 +12,7 @@ from app.models.document import DocumentChunkModel, DocumentModel
 from app.schemas.analysis_modules import AnalysisModuleRunRequest
 from app.schemas.search import KeywordSearchRequest, SearchFilters
 from app.services.search import keyword_search
+from app.services.text_store import read_chunk_text, read_chunk_text_from_store
 from app.services.vector_index import hybrid_chunk_search, semantic_chunk_search
 
 
@@ -200,8 +201,6 @@ def retrieve_source_scope_chunks(
         document_ids=document_ids,
         page_start=page_start,
         page_end=page_end,
-        document_group_code=payload.document_group_code,
-        document_type_code=payload.document_type_code,
     )
 
 
@@ -216,27 +215,20 @@ def _retrieve_chunks_by_query(
     document_ids: list[UUID] | None = None,
     page_start: int | None = None,
     page_end: int | None = None,
-    document_group_code: str | None = None,
-    document_type_code: str | None = None,
 ) -> list[RetrievedChunk]:
-    retrieved_chunks: list[RetrievedChunk] = []
-    seen_chunk_ids: set[UUID] = set()
     effective_document_ids = _effective_document_ids(
         db,
         case_id,
         document_id=document_id,
         document_ids=document_ids,
-        document_group_code=document_group_code,
-        document_type_code=document_type_code,
     )
     if effective_document_ids == []:
         return []
 
-    for query in analysis_retrieval_queries(query_text):
+    candidate_hits: dict[UUID, tuple[tuple[int, int, float, str, int, int], KeywordSearchHit]] = {}
+    for query_index, query in enumerate(analysis_retrieval_queries(query_text)):
         filters = SearchFilters(
             document_ids=effective_document_ids,
-            document_group_code=document_group_code,
-            document_type_code=document_type_code,
             page_start=page_start,
             page_end=page_end,
         )
@@ -277,26 +269,47 @@ def _retrieve_chunks_by_query(
         else:
             hits = keyword_hits
         for hit in hits:
-            if hit.chunk_id is None or hit.chunk_id in seen_chunk_ids:
+            if hit.chunk_id is None:
                 continue
-            chunk = db.get(DocumentChunkModel, hit.chunk_id)
-            if chunk is None:
-                continue
-            seen_chunk_ids.add(chunk.id)
-            retrieved_chunks.append(
-                RetrievedChunk(
-                    label=f"chunk_{len(retrieved_chunks) + 1}",
-                    document_name=hit.document_name,
-                    chunk=chunk,
-                    retrieval_score=hit.score,
-                    match_type=hit.match_type,
-                )
+            priority = _retrieval_hit_priority(hit.match_type)
+            rank_key = (
+                priority,
+                query_index,
+                -float(hit.score),
+                hit.document_name,
+                hit.page_start,
+                hit.chunk_index or 0,
             )
-            if len(retrieved_chunks) >= limit:
-                return retrieved_chunks
-    if retrieved_chunks:
-        return retrieved_chunks
-    return []
+            existing = candidate_hits.get(hit.chunk_id)
+            if existing is None or rank_key < existing[0]:
+                candidate_hits[hit.chunk_id] = (rank_key, hit)
+
+    retrieved_chunks: list[RetrievedChunk] = []
+    sorted_hits = [hit for _, hit in sorted(candidate_hits.values(), key=lambda item: item[0])]
+    for hit in sorted_hits:
+        if len(retrieved_chunks) >= limit:
+            break
+        chunk = db.get(DocumentChunkModel, hit.chunk_id)
+        if chunk is None:
+            continue
+        retrieved_chunks.append(
+            RetrievedChunk(
+                label=f"chunk_{len(retrieved_chunks) + 1}",
+                document_name=hit.document_name,
+                chunk=chunk,
+                retrieval_score=hit.score,
+                match_type=hit.match_type,
+            )
+        )
+    return retrieved_chunks
+
+
+def _retrieval_hit_priority(match_type: str) -> int:
+    if match_type == "hybrid":
+        return 0
+    if match_type == "keyword":
+        return 1
+    return 2
 
 
 def select_source_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunRequest) -> list[RetrievedChunk]:
@@ -365,8 +378,6 @@ def _effective_document_ids(
     *,
     document_id: UUID | None = None,
     document_ids: list[UUID] | None = None,
-    document_group_code: str | None = None,
-    document_type_code: str | None = None,
 ) -> list[UUID]:
     base_stmt = select(DocumentModel.id).where(
         DocumentModel.case_id == case_id,
@@ -379,10 +390,6 @@ def _effective_document_ids(
     stmt = base_stmt
     if requested_ids:
         stmt = stmt.where(DocumentModel.id.in_(requested_ids))
-    if document_group_code is not None:
-        stmt = stmt.where(DocumentModel.document_group_code == document_group_code)
-    if document_type_code is not None:
-        stmt = stmt.where(DocumentModel.document_type_code == document_type_code)
     return list(db.execute(stmt).scalars().all())
 
 
@@ -543,16 +550,17 @@ def add_retrieved_chunk_inputs(
         )
 
 
-def build_source_blocks(retrieved_chunks: list[RetrievedChunk]) -> str:
+def build_source_blocks(db: Session | None, retrieved_chunks: list[RetrievedChunk]) -> str:
     source_blocks = []
     for retrieved in retrieved_chunks:
+        chunk_text = read_chunk_text_from_store(db, retrieved.chunk) if db is not None else read_chunk_text(retrieved.chunk)
         source_blocks.append(
             f"{retrieved.label}:\n"
             f"document_id: {retrieved.chunk.document_id}\n"
             f"document_name: {retrieved.document_name}\n"
             f"page_start: {retrieved.chunk.page_start}\n"
             f"page_end: {retrieved.chunk.page_end}\n"
-            f"text:\n{retrieved.chunk.chunk_text}"
+            f"text:\n{chunk_text}"
         )
     return "\n".join(source_blocks)
 

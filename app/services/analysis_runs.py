@@ -10,6 +10,7 @@ from app.models.case import CaseModel
 from app.models.claim import ClaimModel, ClaimSourceModel
 from app.models.contradiction import ContradictionCandidateModel, ContradictionCandidateSourceModel
 from app.models.document import DocumentChunkModel, DocumentModel
+from app.models.document_processing import DocumentProcessingItemModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.missing_item import MissingItemCandidateModel, MissingItemCandidateSourceModel
@@ -18,6 +19,7 @@ from app.models.source_reference import SourceReferenceModel
 from app.schemas.analysis import AnalysisRunOutputSummary, AnalysisRunSourceSummary
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.storage import StoragePaths
+from app.services.text_store import read_chunk_text_from_store
 from app.services.users import get_or_create_dev_user
 
 
@@ -84,7 +86,7 @@ def analysis_input_source_summary(db: Session, item: AnalysisRunInputModel) -> A
         chunk_index=chunk.chunk_index if chunk is not None else None,
         char_start=chunk.char_start if chunk is not None else None,
         char_end=chunk.char_end if chunk is not None else None,
-        text_preview=_bounded_preview(chunk.chunk_text) if chunk is not None else None,
+        text_preview=_bounded_preview(read_chunk_text_from_store(db, chunk)) if chunk is not None else None,
     )
 
 
@@ -153,6 +155,15 @@ def analysis_output_summary(db: Session, item: AnalysisRunOutputModel) -> Analys
             source_validation_status=finding.source_validation_status,
             source_count=1,
         )
+    if item.output_type == "document_processing_item":
+        processing_item = db.get(DocumentProcessingItemModel, item.output_object_id)
+        if processing_item is None:
+            return None
+        return AnalysisRunOutputSummary(
+            title=processing_item.display_label,
+            body_text=processing_item.short_description,
+            source_count=len(processing_item.source_evidence_json or []),
+        )
     if item.output_type == "source_reference":
         source = db.get(SourceReferenceModel, item.output_object_id)
         if source is None:
@@ -169,7 +180,7 @@ def analysis_output_summary(db: Session, item: AnalysisRunOutputModel) -> Analys
         document = db.get(DocumentModel, chunk.document_id)
         return AnalysisRunOutputSummary(
             title=document.original_filename if document is not None else "Szovegresz",
-            body_text=_bounded_preview(chunk.chunk_text),
+            body_text=_bounded_preview(read_chunk_text_from_store(db, chunk)),
         )
     return None
 

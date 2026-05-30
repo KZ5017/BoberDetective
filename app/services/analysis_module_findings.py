@@ -20,6 +20,7 @@ from app.services.analysis_runs import add_analysis_run_input, add_analysis_run_
 from app.services.llm import LLMChatMessage, LMStudioNativeProvider
 from app.services.research_findings import create_research_finding
 from app.services.source_references import create_source_reference_for_run
+from app.services.text_store import read_chunk_text, read_chunk_text_from_store
 
 
 SUPPORTED_FINDING_TYPES = {"claim", "event", "entity", "document_reference", "other"}
@@ -46,8 +47,6 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
         "source_mode": payload.source_mode,
         "document_id": str(payload.document_id) if payload.document_id is not None else None,
         "document_ids": [str(document_id) for document_id in payload.document_ids],
-        "document_group_code": payload.document_group_code,
-        "document_type_code": payload.document_type_code,
         "page_start": payload.page_start,
         "page_end": payload.page_end,
         "max_chunks": payload.max_chunks,
@@ -91,14 +90,14 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                         LLMChatMessage(role="system", content=SEARCH_FINDINGS_SYSTEM_PROMPT),
                         LLMChatMessage(
                             role="user",
-                            content=build_search_findings_user_prompt(payload.query, batch, batch_index, len(batches)),
+                            content=build_search_findings_user_prompt(payload.query, batch, batch_index, len(batches), db=db),
                         ),
                     ],
                     temperature=0.1,
                     max_tokens=SEARCH_FINDINGS_MAX_OUTPUT_TOKENS,
                 )
                 parsed = parse_llm_json_object(completion.content)
-                valid_findings, batch_unsupported = validate_extracted_findings(parsed, batch)
+                valid_findings, batch_unsupported = validate_extracted_findings(parsed, batch, db=db)
                 unsupported_items.extend(batch_unsupported)
                 processed_batch_count += 1
             except Exception as exc:
@@ -208,12 +207,14 @@ def build_search_findings_user_prompt(
     retrieved_chunks: list[RetrievedChunk],
     batch_index: int = 1,
     batch_count: int = 1,
+    *,
+    db: Session | None = None,
 ) -> str:
     focus_text = query.strip() if isinstance(query, str) and query.strip() else "Nincs külön fókusz."
     return (
         f"QUERY:\n{focus_text}\n\n"
         f"BATCH:\n{batch_index}/{batch_count}\n\n"
-        f"SOURCE:\n{build_source_blocks(retrieved_chunks)}\n\n"
+        f"SOURCE:\n{build_source_blocks(db, retrieved_chunks)}\n\n"
         "TASK:\n"
         "Goal:\n"
         "- Your primary task is to find research findings about the QUERY focus, not general facts from the SOURCE.\n"
@@ -261,6 +262,8 @@ def build_search_findings_user_prompt(
 def validate_extracted_findings(
     payload: dict[str, Any],
     retrieved_chunks: list[RetrievedChunk],
+    *,
+    db: Session | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     findings_value = payload.get("findings", [])
     unsupported_value = payload.get("unsupported_findings", [])
@@ -271,7 +274,7 @@ def validate_extracted_findings(
     valid_findings: list[dict[str, Any]] = []
     unsupported_items: list[str] = []
     for item in findings_value:
-        finding = _validated_finding_item(item, chunks_by_label, llm_support_status="confirmed")
+        finding = _validated_finding_item(item, chunks_by_label, llm_support_status="confirmed", db=db)
         if finding is None:
             source_label = item.get("source_label") if isinstance(item, dict) else None
             unsupported_items.append(f"Skipped finding with invalid source_label or quote_text from {source_label}")
@@ -282,7 +285,7 @@ def validate_extracted_findings(
         if isinstance(item, str):
             unsupported_items.append(item)
             continue
-        finding = _validated_finding_item(item, chunks_by_label, llm_support_status="unconfirmed")
+        finding = _validated_finding_item(item, chunks_by_label, llm_support_status="unconfirmed", db=db)
         if finding is None:
             source_label = item.get("source_label") if isinstance(item, dict) else None
             unsupported_items.append(f"Skipped unsupported finding with invalid source_label or quote_text from {source_label}")
@@ -296,6 +299,7 @@ def _validated_finding_item(
     chunks_by_label: dict[str, RetrievedChunk],
     *,
     llm_support_status: str,
+    db: Session | None = None,
 ) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
@@ -315,7 +319,8 @@ def _validated_finding_item(
     retrieved = chunks_by_label.get(source_label)
     if retrieved is None:
         return None
-    resolved_quote = _resolve_quote_text(retrieved.chunk.chunk_text, quote_text)
+    source_text = read_chunk_text_from_store(db, retrieved.chunk) if db is not None else read_chunk_text(retrieved.chunk)
+    resolved_quote = _resolve_quote_text(source_text, quote_text)
     if resolved_quote is None:
         return None
     return {

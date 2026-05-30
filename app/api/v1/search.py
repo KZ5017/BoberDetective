@@ -88,10 +88,6 @@ def _semantic_filter_document_ids(db: Session, case_id: UUID, payload: HybridSea
     )
     if filters.document_ids:
         stmt = stmt.where(DocumentModel.id.in_(filters.document_ids))
-    if filters.document_group_code is not None:
-        stmt = stmt.where(DocumentModel.document_group_code == filters.document_group_code)
-    if filters.document_type_code is not None:
-        stmt = stmt.where(DocumentModel.document_type_code == filters.document_type_code)
     return list(db.execute(stmt).scalars().all())
 
 
@@ -139,16 +135,12 @@ def get_chunk_index_status_endpoint(
     case_id: UUID,
     document_id: UUID | None = None,
     document_ids: list[UUID] = Query(default_factory=list),
-    document_group_code: str | None = None,
-    document_type_code: str | None = None,
     db: Session = Depends(get_db),
 ) -> ChunkIndexStatusResponse:
     try:
         request = ChunkIndexRequest(
             document_id=document_id,
             document_ids=document_ids,
-            document_group_code=document_group_code,
-            document_type_code=document_type_code,
         )
         result = get_chunk_index_status(db, case_id, request)
     except ValueError as exc:

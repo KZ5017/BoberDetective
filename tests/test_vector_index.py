@@ -24,7 +24,7 @@ def _settings() -> Settings:
         llm_chat_model="chat-model",
         llm_embedding_model="embedding-model",
         llm_timeout_seconds=1,
-        llm_chat_context_length=61440,
+        llm_chat_context_length=112640,
         llm_embedding_context_length=4096,
         llm_eval_batch_size=4096,
         llm_flash_attention=True,
@@ -59,7 +59,6 @@ def test_qdrant_chunk_index_creates_collection_and_upserts_points() -> None:
         page_start=1,
         page_end=1,
         chunk_index=0,
-        chunk_text="A forras szovege.",
         chunking_strategy="char_window_v1",
         chunker_version="1",
         version_no=1,
@@ -128,6 +127,26 @@ def test_qdrant_chunk_index_search_filters_by_multiple_documents() -> None:
     )
 
     assert captured_payload["filter"]["must"][2]["match"]["any"] == [str(item) for item in document_ids]
+
+
+def test_qdrant_chunk_index_deletes_case_points_by_payload_filter() -> None:
+    case_id = uuid4()
+    captured_payload = {}
+    captured_path = ""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_path
+        captured_path = request.url.path
+        captured_payload.update(json.loads(request.content))
+        return httpx.Response(200, json={"result": True})
+
+    client = httpx.Client(base_url="http://qdrant.local", transport=httpx.MockTransport(handler))
+
+    QdrantChunkIndex(_settings(), client).delete_case_points(case_id)
+
+    assert captured_path == "/collections/chunks_embedding_model/points/delete"
+    assert captured_payload["filter"]["must"][0]["key"] == "case_id"
+    assert captured_payload["filter"]["must"][0]["match"]["value"] == str(case_id)
 
 
 def test_hybrid_chunk_search_merges_keyword_and_semantic_hits(monkeypatch) -> None:
@@ -227,7 +246,6 @@ def test_semantic_chunk_search_skips_inactive_documents(monkeypatch) -> None:
         page_start=1,
         page_end=1,
         chunk_index=0,
-        chunk_text="aktiv szoveg",
         chunking_strategy="char_window_v1",
         chunker_version="1",
         version_no=1,
@@ -240,7 +258,6 @@ def test_semantic_chunk_search_skips_inactive_documents(monkeypatch) -> None:
         page_start=2,
         page_end=2,
         chunk_index=1,
-        chunk_text="kizart szoveg",
         chunking_strategy="char_window_v1",
         chunker_version="1",
         version_no=1,
@@ -314,22 +331,22 @@ def test_embed_chunks_in_batches_splits_embedding_requests(monkeypatch) -> None:
             calls.append(texts)
             return LLMEmbeddingResult(model=model, embeddings=[[float(len(calls)), 0.0] for _ in texts])
 
-    chunks = [
-        DocumentChunkModel(
+    chunks = []
+    for index in range(5):
+        chunk = DocumentChunkModel(
             id=uuid4(),
             case_id=uuid4(),
             document_id=uuid4(),
             page_start=1,
             page_end=1,
             chunk_index=index,
-            chunk_text=f"chunk {index}",
             chunking_strategy="char_window_v1",
             chunker_version="1",
             version_no=1,
             is_current=True,
         )
-        for index in range(5)
-    ]
+        chunk._text_store_text = f"chunk {index}"
+        chunks.append(chunk)
     monkeypatch.setattr("app.services.vector_index.get_llm_provider", lambda settings: FakeProvider())
 
     batches = list(embed_chunks_in_batches(_settings(), chunks))

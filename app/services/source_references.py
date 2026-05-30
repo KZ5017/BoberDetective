@@ -10,6 +10,7 @@ from app.models.source_reference import SourceReferenceModel
 from app.schemas.source_reference import SourceReferenceCreate
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.storage import StoragePaths
+from app.services.text_store import read_chunk_text_from_store, read_page_text_from_store
 from app.services.users import get_or_create_dev_user
 
 
@@ -72,10 +73,10 @@ def create_source_reference_for_run(
 
     source_text = None
     if payload.source_kind == "chunk_quote":
-        source_text = chunk.chunk_text if chunk is not None else None
+        source_text = read_chunk_text_from_store(db, chunk) if chunk is not None else None
         page_number = chunk.page_start if chunk is not None else page_number
     elif payload.source_kind == "page_quote":
-        source_text = page.extracted_text if page is not None else None
+        source_text = read_page_text_from_store(db, page) if page is not None else None
 
     if source_text is not None:
         quote_char_start, quote_char_end = _resolve_quote_span(
@@ -241,13 +242,13 @@ def _validate_existing_source_reference(
         if page is None:
             errors.append("page_not_found")
         else:
-            errors.extend(_quote_errors(page.extracted_text, source_reference))
+            errors.extend(_quote_errors(read_page_text_from_store(db, page), source_reference))
     if source_reference.source_kind == "chunk_quote":
         chunk = db.get(DocumentChunkModel, source_reference.chunk_id) if source_reference.chunk_id else None
         if chunk is None:
             errors.append("chunk_not_found")
         else:
-            errors.extend(_quote_errors(chunk.chunk_text, source_reference))
+            errors.extend(_quote_errors(read_chunk_text_from_store(db, chunk), source_reference))
     if source_reference.source_kind != "document_metadata" and source_reference.page_id is None and source_reference.chunk_id is None:
         errors.append("source_location_missing")
     return SourceReferenceValidation(source_reference.id, len(errors) == 0, errors)
