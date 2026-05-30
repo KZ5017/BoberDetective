@@ -4,12 +4,15 @@
 
 ### Changed
 
-- Updated the current verification baseline to `249 passed` and Alembic head `0041_detach_audit_lifecycle`.
-- Hardened the full-document processing runtime profile for long local model calls: selected page ranges are sent in one LLM request, artificial item caps were removed, `max_output_tokens` is omitted for this workflow, and the long-call timeout remains 900 seconds.
-- Improved full-document source-evidence validation with OCR-spacing tolerant quote matching while storing exact original source substrings and character spans after validation.
-- Added normalized identity deduplication for full-document preparatory items so repeated "second/third mention" style LLM loops are filtered before persistence.
-- Added active/félretett worklist views for the `Teljes iratfeldolgozás` surface, with restore from félretett, deletion marking on cards, and bulk soft-delete from the worklist toolbar.
+- Updated the current verification baseline to `252 passed` and Alembic head `0041_detach_audit_lifecycle`.
+- Reverted the configured LM Studio chat-model load profile to `context_length=61440`, with `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; embedding remains `text-embedding-bge-m3` with `context_length=4096`.
+- Hardened the full-document processing runtime for long local model calls: selected page ranges are sent in one LLM request, artificial item caps were removed, the long-call timeout remains 900 seconds, and a 9000-token output safety ceiling is used to stop runaway repeated JSON.
+- Simplified the full-document processing prompt: the system prompt keeps only the source-faithfulness and valid-JSON constraints, while the user prompt asks for named characters/items, a short role/description, and the source page label. The model is no longer asked to generate character-exact source quotes for this workflow.
+- Moved full-document source-evidence construction back to the backend: returned `display_label` values are matched against the selected source page, including OCR-spacing tolerant variants such as `Pistabá` / `Pista bá`, and the stored evidence uses the exact original source substring and character span.
+- Repeated full-document worklist labels are now preserved instead of discarded; list responses expose `occurrence_status` so the frontend can show `Egyedi` or `Többször előforduló`.
+- Added active/félretett worklist views for the `Teljes iratfeldolgozás` surface, with restore from félretett, deletion marking on cards, "összes látható törlésre jelölése", bulk soft-delete from the worklist toolbar, and display-label search within the prepared worklist.
 - Added `POST /api/v1/cases/{case_id}/full-document-processing/items/bulk-delete` for grouped deletion of preparatory full-document worklist items.
+- Moved LLM model status into a thin global top bar with grouped chat/embedding load and unload controls, and replaced the old per-workbench operation panel with a compact AI operation strip below the surface selector.
 - Refreshed handoff and planning documents so the next direction is full-document prompt/profile tuning, explicit item handoff/conversion design, and then the dedicated `Audit napló` API/panel.
 
 ## 2026-05-26

@@ -59,15 +59,13 @@ PROFILES: tuple[FullDocumentProcessingProfile, ...] = (
 PROFILE_KEYS = {profile.key for profile in PROFILES}
 WORK_STATUSES = {"active", "set_aside", "converted", "deleted"}
 USER_SETTABLE_WORK_STATUSES = {"active", "set_aside", "deleted"}
+FULL_DOCUMENT_PROCESSING_MAX_OUTPUT_TOKENS = 9000
 FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT = """You are a source-faithful investigative document processing component.
 You work with Hungarian source documents.
 The source document is the only source of truth.
 Do not use outside knowledge.
 Do not infer guilt, responsibility, legal qualification, risk, or personal blame.
 Return only a valid JSON object.
-Every item must be supported by at least one source_evidence entry.
-Each source_evidence.quote_text must be copied character-exactly from the matching SOURCE page.
-Write display_label, short_description, recommended_search_focus, alternative_search_focuses, source_supported_details, relationships, and unsupported_items in Hungarian.
 """
 
 
@@ -156,7 +154,7 @@ def run_full_document_processing(
                     LLMChatMessage(role="user", content=prompt),
                 ],
                 temperature=0.1,
-                max_tokens=None,
+                max_tokens=FULL_DOCUMENT_PROCESSING_MAX_OUTPUT_TOKENS,
             )
             parsed = parse_llm_json_object(completion.content)
             valid_items, unsupported_items = validate_full_document_processing_payload(parsed, profile, page_sources)
@@ -205,7 +203,7 @@ def run_full_document_processing(
             created_item_count=len(created_items),
             unsupported_count=len(unsupported_items),
             validation_status=validation_status,
-            items=[DocumentProcessingItemRead.model_validate(item) for item in created_items],
+            items=document_processing_item_reads(created_items),
             unsupported_items=unsupported_items,
         )
     except Exception as exc:
@@ -251,6 +249,16 @@ def list_document_processing_items(
         )
     statement = statement.order_by(DocumentProcessingItemModel.created_at.desc(), DocumentProcessingItemModel.display_label.asc())
     return list(db.execute(statement).scalars())
+
+
+def document_processing_item_reads(items: list[DocumentProcessingItemModel]) -> list[DocumentProcessingItemRead]:
+    repeated_keys = _repeated_item_keys(items)
+    reads: list[DocumentProcessingItemRead] = []
+    for item in items:
+        read = DocumentProcessingItemRead.model_validate(item)
+        read.occurrence_status = "repeated" if _dedupe_key_for_item(item.item_kind, item.display_label, {}) in repeated_keys else "unique"
+        reads.append(read)
+    return reads
 
 
 def get_document_processing_item(db: Session, *, case_id: UUID, item_id: UUID) -> DocumentProcessingItemModel:
@@ -321,7 +329,7 @@ def build_full_document_processing_user_prompt(
         f"text:\n{page_source['text']}"
         for page_source in page_sources
     )
-    allowed_kinds = ", ".join(profile.item_kinds)
+    item_kind = profile.item_kinds[0]
     return f"""DOCUMENT:
 {document.original_filename}
 
@@ -332,53 +340,23 @@ SOURCE:
 {source_pages}
 
 TASK:
-Goal:
-- Extract source-backed full-document processing items for the selected profile.
-- The SOURCE contains the selected Hungarian pages from one document.
-- Allowed item_kind values for this profile: {allowed_kinds}.
-- If this profile is for persons, extract concrete persons and useful person-focused search seeds.
-- If this profile is for entities, extract concrete organizations, locations, document references, case references, attachments, or other useful search seeds.
+Add vissza JSON formában a szereplőket és röviden a szerepüket.
+Minden szereplőt a hozzá tartozó display_label értéke határoz meg.
+A display_label értéke kizárólag és pontosan a forrásban szereplő névalak legyen.
+Minden szereplő kizárólag egyszer szerepelhet az items listában, még akkor is ha több oldalon is szerepel.
+Minden szereplőhöz add meg annak az oldalnak a source_label értékét, ahol a display_label névalak szerepel.
 
-Selection rules:
-- Return an item only when the SOURCE directly names or clearly identifies the item.
-- Each item must help a later human start a focused keyword, semantic, or hybrid search.
-- Do not repeat the same display_label or the same person/entity as multiple JSON items.
-- Do not create numbered mention items such as "(second mention)" or "(third mention)".
-- Do not create a general document summary.
-- Do not merge unrelated people or entities.
-- Do not invent missing names, roles, relationships, or details.
-
-Field rules:
-- display_label must be a short Hungarian label for the item.
-- short_description must contain only source-supported information.
-- recommended_search_focus should combine the label with a useful source-supported role, attribute, relation, location, or reference when available.
-- alternative_search_focuses may include short Hungarian variants useful for later search.
-- source_supported_details must be an array of objects with source-supported details.
-- relationships must be an array of objects only when the source directly supports the relationship.
-- source_evidence must contain at least one object with source_label and quote_text.
-- Use only 1-2 source_evidence entries per item unless more are essential.
-- quote_text must be copied character-exactly from the matching SOURCE page.
-- Do not use ellipses, shortened quotes, repaired OCR text, or normalized spacing in quote_text.
-
-Unsupported items:
-- If something looks interesting but lacks direct source evidence, put a short Hungarian reason into unsupported_items.
-
-Expected JSON shape:
+JSON forma:
 {{
   "items": [
     {{
-      "item_kind": "{profile.item_kinds[0]}",
+      "item_kind": "{item_kind}",
       "display_label": "...",
       "short_description": "...",
-      "mentioned_forms": ["..."],
-      "source_supported_details": [{{"detail": "...", "source_label": "page_1"}}],
-      "relationships": [{{"relation": "...", "target": "...", "source_label": "page_1"}}],
-      "recommended_search_focus": "...",
-      "alternative_search_focuses": ["..."],
-      "source_evidence": [{{"source_label": "page_1", "quote_text": "..."}}]
+      "source_label": "page_1"
     }}
   ],
-  "unsupported_items": ["..."]
+  "unsupported_items": []
 }}"""
 
 
@@ -394,7 +372,6 @@ def validate_full_document_processing_payload(
 
     page_by_label = {page_source["source_label"]: page_source for page_source in page_sources}
     valid_items: list[dict[str, Any]] = []
-    seen_item_keys: set[tuple[str, str]] = set()
     for index, raw_item in enumerate(raw_items, start=1):
         if not isinstance(raw_item, dict):
             unsupported_items.append(f"item_{index}: az elem nem objektum")
@@ -407,50 +384,11 @@ def validate_full_document_processing_payload(
         if display_label is None:
             unsupported_items.append(f"item_{index}: hiányzó címke")
             continue
-        item_key = _dedupe_key_for_item(item_kind, display_label, raw_item)
 
-        raw_evidence = raw_item.get("source_evidence", [])
-        if not isinstance(raw_evidence, list) or not raw_evidence:
-            unsupported_items.append(f"{display_label}: hiányzó forrásbizonyíték")
+        valid_evidence = _build_source_evidence_from_item(raw_item, display_label, page_by_label)
+        if valid_evidence is None:
+            unsupported_items.append(f"{display_label}: a név nem található a megadott forrásoldalon")
             continue
-        valid_evidence: list[dict[str, Any]] = []
-        invalid_evidence = False
-        for evidence_index, evidence in enumerate(raw_evidence, start=1):
-            if not isinstance(evidence, dict):
-                invalid_evidence = True
-                unsupported_items.append(f"{display_label}: hibás forrásbizonyíték #{evidence_index}")
-                break
-            source_label = _clean_string(evidence.get("source_label"))
-            quote_text = _clean_string(evidence.get("quote_text"))
-            page_source = page_by_label.get(source_label or "")
-            if page_source is None or quote_text is None:
-                invalid_evidence = True
-                unsupported_items.append(f"{display_label}: hiányzó vagy ismeretlen forráscímke")
-                break
-            quote_span = _find_quote_span(page_source["text"], quote_text)
-            if quote_span is None:
-                invalid_evidence = True
-                unsupported_items.append(f"{display_label}: az idézet nem található karakterpontosan a forrásoldalon")
-                break
-            quote_start, quote_end = quote_span
-            exact_quote_text = page_source["text"][quote_start:quote_end]
-            valid_evidence.append(
-                {
-                    "source_label": source_label,
-                    "quote_text": exact_quote_text,
-                    "document_id": str(page_source["document_id"]),
-                    "page_id": str(page_source["page_id"]),
-                    "page_number": page_source["page_number"],
-                    "quote_char_start": quote_start,
-                    "quote_char_end": quote_end,
-                }
-            )
-        if invalid_evidence or not valid_evidence:
-            continue
-        if item_key in seen_item_keys:
-            unsupported_items.append(f"{display_label}: ismétlődő elem")
-            continue
-        seen_item_keys.add(item_key)
 
         valid_items.append(
             {
@@ -585,6 +523,95 @@ def _find_quote_span(source_text: str, quote_text: str) -> tuple[int, int] | Non
     return source_index_map[normalized_start], source_index_map[normalized_end] + 1
 
 
+def _build_source_evidence_from_item(
+    raw_item: dict[str, Any],
+    display_label: str,
+    page_by_label: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]] | None:
+    source_label = _source_label_from_item(raw_item)
+    page_source = page_by_label.get(source_label or "")
+    if page_source is None:
+        return None
+
+    label_candidates = _label_lookup_candidates(display_label, _string_list(raw_item.get("mentioned_forms", [])))
+    quote_span = _find_first_label_span(page_source["text"], label_candidates)
+    if quote_span is None:
+        return None
+
+    quote_start, quote_end = quote_span
+    exact_quote_text = page_source["text"][quote_start:quote_end]
+    return [
+        {
+            "source_label": source_label,
+            "quote_text": exact_quote_text,
+            "document_id": str(page_source["document_id"]),
+            "page_id": str(page_source["page_id"]),
+            "page_number": page_source["page_number"],
+            "quote_char_start": quote_start,
+            "quote_char_end": quote_end,
+        }
+    ]
+
+
+def _source_label_from_item(raw_item: dict[str, Any]) -> str | None:
+    source_label = _clean_string(raw_item.get("source_label"))
+    if source_label is not None:
+        return source_label
+    raw_evidence = raw_item.get("source_evidence", [])
+    if isinstance(raw_evidence, list) and raw_evidence and isinstance(raw_evidence[0], dict):
+        return _clean_string(raw_evidence[0].get("source_label"))
+    return None
+
+
+def _find_first_label_span(source_text: str, label_candidates: list[str]) -> tuple[int, int] | None:
+    for candidate in label_candidates:
+        cleaned = _clean_string(candidate)
+        if cleaned is None:
+            continue
+        span = _find_label_span(source_text, cleaned)
+        if span is not None:
+            return span
+    return None
+
+
+def _label_lookup_candidates(display_label: str, mentioned_forms: list[str]) -> list[str]:
+    candidates: list[str] = []
+    for value in [display_label, *mentioned_forms]:
+        cleaned = _clean_string(value)
+        if cleaned is None:
+            continue
+        candidates.append(cleaned)
+
+    parts = display_label.split()
+    if len(parts) == 2 and parts[0][:1].isupper() and parts[1][:1].isupper():
+        candidates.append(parts[1])
+
+    seen: set[str] = set()
+    unique_candidates: list[str] = []
+    for candidate in candidates:
+        key = _normalize_identity_key(candidate)
+        if key and key not in seen:
+            seen.add(key)
+            unique_candidates.append(candidate)
+    return unique_candidates
+
+
+def _find_label_span(source_text: str, label_text: str) -> tuple[int, int] | None:
+    label_start = source_text.find(label_text)
+    if label_start >= 0:
+        return label_start, label_start + len(label_text)
+
+    normalized_source, source_index_map = _normalize_for_quote_lookup(source_text)
+    normalized_label, _label_index_map = _normalize_for_quote_lookup(label_text)
+    if len(normalized_label) < 3:
+        return None
+    normalized_start = normalized_source.casefold().find(normalized_label.casefold())
+    if normalized_start < 0:
+        return None
+    normalized_end = normalized_start + len(normalized_label) - 1
+    return source_index_map[normalized_start], source_index_map[normalized_end] + 1
+
+
 def _normalize_for_quote_lookup(value: str) -> tuple[str, list[int]]:
     chars: list[str] = []
     index_map: list[int] = []
@@ -602,6 +629,14 @@ def _dedupe_key_for_item(item_kind: str, display_label: str, raw_item: dict[str,
     normalized_candidates = [_normalize_identity_key(candidate) for candidate in candidates]
     useful_candidates = [candidate for candidate in normalized_candidates if candidate]
     return item_kind, min(useful_candidates) if useful_candidates else _normalize_identity_key(display_label)
+
+
+def _repeated_item_keys(items: list[DocumentProcessingItemModel]) -> set[tuple[str, str]]:
+    counts: dict[tuple[str, str], int] = {}
+    for item in items:
+        key = _dedupe_key_for_item(item.item_kind, item.display_label, {})
+        counts[key] = counts.get(key, 0) + 1
+    return {key for key, count in counts.items() if count > 1}
 
 
 def _normalize_identity_key(value: str) -> str:

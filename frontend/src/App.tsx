@@ -143,6 +143,12 @@ type SearchableSelectOption = {
   disabled?: boolean;
 };
 
+type AiOperationStatus = {
+  label: string;
+  status: "succeeded" | "failed";
+  durationSeconds: number;
+};
+
 const busyLabels: Record<string, string> = {
   cases: "Ugylista frissitese",
   "case-create": "Ugy letrehozasa",
@@ -189,6 +195,14 @@ const busyLabels: Record<string, string> = {
   "embedding-load": "Embedding modell betoltese",
   "embedding-unload": "Embedding modell leválasztása"
 };
+
+const aiOperationLabels = new Set([
+  "analysis",
+  "full-document-run",
+  "chunk-index",
+  "chat-load",
+  "embedding-load",
+]);
 
 const moduleLabels: Record<string, string> = {
   search_findings: "Kutatási találatok keresése",
@@ -331,6 +345,7 @@ export function App() {
   const [fullDocumentProfiles, setFullDocumentProfiles] = useState<FullDocumentProcessingProfileRead[]>([]);
   const [documentProcessingItems, setDocumentProcessingItems] = useState<DocumentProcessingItemRead[]>([]);
   const [fullDocumentWorkStatus, setFullDocumentWorkStatus] = useState<"active" | "set_aside">("active");
+  const [documentProcessingItemSearch, setDocumentProcessingItemSearch] = useState("");
   const [documentProcessingItemsMarkedForDeletion, setDocumentProcessingItemsMarkedForDeletion] = useState<string[]>([]);
   const [lastFullDocumentRun, setLastFullDocumentRun] = useState<{
     validation_status: string;
@@ -406,7 +421,8 @@ export function App() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [lastActionSummary, setLastActionSummary] = useState("");
+  const [, setLastActionSummary] = useState("");
+  const [lastAiOperation, setLastAiOperation] = useState<AiOperationStatus | null>(null);
 
   const selectedCase = useMemo(() => cases.find((item) => item.id === selectedCaseId), [cases, selectedCaseId]);
   const activeDocuments = useMemo(
@@ -522,11 +538,23 @@ export function App() {
     [researchFindings, showSetAsideResearchFindings]
   );
   const markedResearchFindingCount = researchFindingsMarkedForDeletion.length;
+  const visibleDocumentProcessingItems = useMemo(
+    () => filterDocumentProcessingItemsByName(documentProcessingItems, documentProcessingItemSearch),
+    [documentProcessingItems, documentProcessingItemSearch]
+  );
   const markedDocumentProcessingItemCount = documentProcessingItemsMarkedForDeletion.length;
+  const markableDocumentProcessingItemIds = useMemo(
+    () => visibleDocumentProcessingItems.filter((item) => item.work_status !== "converted").map((item) => item.id),
+    [visibleDocumentProcessingItems]
+  );
+  const allVisibleDocumentProcessingItemsMarked =
+    markableDocumentProcessingItemIds.length > 0 &&
+    markableDocumentProcessingItemIds.every((itemId) => documentProcessingItemsMarkedForDeletion.includes(itemId));
 
   useEffect(() => {
     void refreshCases();
     void refreshFullDocumentProfiles();
+    void refreshLlmSmoke(false);
   }, []);
 
   useEffect(() => {
@@ -678,14 +706,30 @@ export function App() {
   }, [busyStartedAt]);
 
   async function perform(label: string, action: () => Promise<void>) {
+    const startedAt = Date.now();
+    const tracksAiOperation = aiOperationLabels.has(label);
     setBusy(label);
-    setBusyStartedAt(Date.now());
+    setBusyStartedAt(startedAt);
     setError("");
     setNotice("");
     try {
       await action();
+      if (tracksAiOperation) {
+        setLastAiOperation({
+          label: busyLabels[label] ?? label,
+          status: "succeeded",
+          durationSeconds: Math.max(0, Math.round((Date.now() - startedAt) / 1000))
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ismeretlen hiba");
+      if (tracksAiOperation) {
+        setLastAiOperation({
+          label: busyLabels[label] ?? label,
+          status: "failed",
+          durationSeconds: Math.max(0, Math.round((Date.now() - startedAt) / 1000))
+        });
+      }
     } finally {
       setBusy("");
       setBusyStartedAt(null);
@@ -810,7 +854,7 @@ export function App() {
       setAnalysisRuns(runsResponse.data);
       setNotice("Teljes iratfeldolgozás lefutott.");
       setLastActionSummary(
-        `Teljes iratfeldolgozás: ${labelValidationStatus(response.validation_status)}, ${response.created_item_count} elem, ${response.unsupported_count} nem mentett jelölt.`
+        `Teljes iratfeldolgozás: ${labelValidationStatus(response.validation_status)}, ${response.created_item_count} elem, ${response.unsupported_count} nem megerősített jelölt.`
       );
     });
   }
@@ -818,10 +862,13 @@ export function App() {
   async function handleDocumentProcessingItemStatus(itemId: string, workStatus: "active" | "set_aside" | "deleted") {
     if (!selectedCaseId) return;
     await perform("full-document-status", async () => {
-      await updateDocumentProcessingItemStatus(selectedCaseId, itemId, workStatus);
-      setDocumentProcessingItems((current) =>
-        current.filter((item) => (workStatus === "active" ? true : item.id !== itemId))
-      );
+      const response = await updateDocumentProcessingItemStatus(selectedCaseId, itemId, workStatus);
+      setDocumentProcessingItems((current) => {
+        if (workStatus !== fullDocumentWorkStatus) {
+          return current.filter((item) => item.id !== itemId);
+        }
+        return current.map((item) => (item.id === itemId ? response.item : item));
+      });
       setDocumentProcessingItemsMarkedForDeletion((current) => current.filter((markedId) => markedId !== itemId));
       setNotice(workStatus === "deleted" ? "Munkalista-elem törölve." : "Munkalista-elem állapota módosítva.");
       setLastActionSummary(labelDocumentProcessingWorkStatus(workStatus));
@@ -834,6 +881,12 @@ export function App() {
       current.includes(item.id)
         ? current.filter((itemId) => itemId !== item.id)
         : [...current, item.id]
+    );
+  }
+
+  function markAllVisibleDocumentProcessingItemsForDeletion() {
+    setDocumentProcessingItemsMarkedForDeletion((current) =>
+      Array.from(new Set([...current, ...markableDocumentProcessingItemIds]))
     );
   }
 
@@ -1192,13 +1245,30 @@ export function App() {
     });
   }
 
-  async function handleLlmSmoke() {
-    await perform("llm-smoke", async () => {
+  async function refreshLlmSmoke(showNotice = true) {
+    const action = async () => {
       const response = await getLlmSmoke();
       setLlmSmoke(response);
-      setNotice("LLM modell allapot frissitve.");
-      setLastActionSummary(`Chat: ${labelModelLoadState(response.configured_chat_model_loaded)}, embedding: ${labelModelLoadState(response.configured_embedding_model_loaded)}`);
-    });
+      if (showNotice) {
+        setNotice("LLM modell allapot frissitve.");
+        setLastActionSummary(
+          `Chat: ${labelModelLoadState(response.configured_chat_model_loaded)}, embedding: ${labelModelLoadState(response.configured_embedding_model_loaded)}`
+        );
+      }
+    };
+    if (showNotice) {
+      await perform("llm-smoke", action);
+      return;
+    }
+    try {
+      await action();
+    } catch (err) {
+      setLlmSmoke(null);
+    }
+  }
+
+  async function handleLlmSmoke() {
+    await refreshLlmSmoke(true);
   }
 
   async function handleLoadChatModel() {
@@ -2638,6 +2708,120 @@ export function App() {
     }, 0);
   }
 
+  function renderModelStatusBar() {
+    const chatLoaded = llmSmoke?.configured_chat_model_loaded === true;
+    const embeddingLoaded = llmSmoke?.configured_embedding_model_loaded === true;
+    const reachable = llmSmoke?.reachable === true;
+    const statusLabel = !llmSmoke
+      ? "Modellek állapota ismeretlen"
+      : !reachable
+        ? "LM Studio nem elérhető"
+        : chatLoaded && embeddingLoaded
+          ? "Modellek készen állnak"
+          : "Modellek betöltése szükséges";
+    return (
+      <section className={`model-status-bar ${llmSmoke && !reachable ? "has-error" : ""}`}>
+        <div className="model-status-summary">
+          <strong>{statusLabel}</strong>
+          <span>{llmSmoke ? `${llmSmoke.provider} | ${llmSmoke.base_url}` : "Állapot lekérése folyamatban."}</span>
+        </div>
+        <div className="model-status-models">
+          <div className="model-status-model-card">
+            <div className="model-status-model-main">
+              <span>Chat modell</span>
+              <code>{llmSmoke?.configured_chat_model ?? "ismeretlen"}</code>
+              <em>{labelModelLoadState(llmSmoke?.configured_chat_model_loaded ?? null)}</em>
+            </div>
+            <div className="model-status-model-actions">
+              <button
+                className="secondary-button"
+                onClick={handleLoadChatModel}
+                disabled={Boolean(busy) || !llmSmoke || chatLoaded}
+              >
+                Betöltés
+              </button>
+              <button
+                className="secondary-button"
+                onClick={handleUnloadChatModel}
+                disabled={Boolean(busy) || !chatLoaded}
+              >
+                Leválasztás
+              </button>
+            </div>
+          </div>
+          <div className="model-status-model-card">
+            <div className="model-status-model-main">
+              <span>Embedding modell</span>
+              <code>{llmSmoke?.configured_embedding_model ?? "ismeretlen"}</code>
+              <em>{labelModelLoadState(llmSmoke?.configured_embedding_model_loaded ?? null)}</em>
+            </div>
+            <div className="model-status-model-actions">
+              <button
+                className="secondary-button"
+                onClick={handleLoadEmbeddingModel}
+                disabled={Boolean(busy) || !llmSmoke || embeddingLoaded}
+              >
+                Betöltés
+              </button>
+              <button
+                className="secondary-button"
+                onClick={handleUnloadEmbeddingModel}
+                disabled={Boolean(busy) || !embeddingLoaded}
+              >
+                Leválasztás
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="model-status-refresh">
+          <button
+            onClick={handleLlmSmoke}
+            title="Modellállapot frissítése"
+            disabled={Boolean(busy)}
+          >
+            <RefreshCw size={18} /> Állapot frissítése
+          </button>
+        </div>
+        {llmSmoke?.error_message && <p className="model-status-error">{llmSmoke.error_message}</p>}
+      </section>
+    );
+  }
+
+  function renderAiOperationStrip() {
+    const currentAiOperation = aiOperationLabels.has(busy) ? (busyLabels[busy] ?? busy) : "Nincs futó AI művelet";
+    const lastStatus = lastAiOperation
+      ? lastAiOperation.status === "succeeded"
+        ? "Sikeres"
+        : "Hibával zárult"
+      : "Még nincs AI művelet";
+    return (
+      <section className={`ai-operation-strip ${aiOperationLabels.has(busy) ? "is-running" : ""}`}>
+        <div>
+          <span>Aktuális AI művelet</span>
+          <strong>{currentAiOperation}</strong>
+        </div>
+        <div>
+          <span>Utolsó AI művelet</span>
+          <strong>{lastAiOperation?.label ?? "Még nincs AI művelet"}</strong>
+        </div>
+        <div>
+          <span>Eredmény</span>
+          <strong>{lastStatus}</strong>
+        </div>
+        <div>
+          <span>Időtartam</span>
+          <strong>
+            {aiOperationLabels.has(busy)
+              ? formatDuration(elapsedSeconds)
+              : lastAiOperation
+                ? formatDuration(lastAiOperation.durationSeconds)
+                : "-"}
+          </strong>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -2652,6 +2836,8 @@ export function App() {
         </div>
       </header>
 
+      {renderModelStatusBar()}
+
       {error && <div className="notice error">{error}</div>}
       {notice && <div className="notice success">{notice}</div>}
 
@@ -2659,8 +2845,8 @@ export function App() {
         <section className="case-strip">
           <div className="section-heading">
             <h2>Ugyek</h2>
-            <button className="icon-button" onClick={refreshCases} title="Frissites" disabled={Boolean(busy)}>
-              <RefreshCw size={18} />
+            <button className="secondary-button" onClick={refreshCases} title="Ügylista frissítése" disabled={Boolean(busy)}>
+              <RefreshCw size={18} /> Ügylista frissítése
             </button>
           </div>
           <div className="case-strip-controls">
@@ -2688,7 +2874,7 @@ export function App() {
               <FolderPlus size={18} /> Ugy letrehozasa
             </button>
             <button onClick={() => refreshCaseData()} disabled={!selectedCaseId || Boolean(busy)}>
-              <RefreshCw size={18} /> Ugyadatok
+              <RefreshCw size={18} /> Ugyadatok frissítése
             </button>
             <button className="danger-button" onClick={handleDeleteSelectedCase} disabled={!selectedCaseId || Boolean(busy)}>
               <Trash2 size={18} /> Ügy végleges törlése
@@ -2713,6 +2899,8 @@ export function App() {
           ))}
         </nav>
 
+        {renderAiOperationStrip()}
+
         {activeSurface === "case_workbench" && (
         <section className="main-grid">
           <section className="panel hero-panel">
@@ -2723,21 +2911,6 @@ export function App() {
             <div className="run-stack">
               <span className="run-state">{busy ? <Loader2 className="spin" size={18} /> : <CheckCircle2 size={18} />} {busyLabel}</span>
               {busy && <span className="elapsed">{formatDuration(elapsedSeconds)}</span>}
-            </div>
-          </section>
-
-          <section className={`panel operation-panel ${busy ? "is-running" : ""}`}>
-            <div className="section-heading">
-              <h2>Muvelet allapot</h2>
-              {busy ? <Loader2 className="spin" size={20} /> : <CheckCircle2 size={20} />}
-            </div>
-            <div className="operation-grid">
-              <span>Aktualis</span>
-              <strong>{busyLabel}</strong>
-              <span>Eltelt ido</span>
-              <strong>{busy ? formatDuration(elapsedSeconds) : "-"}</strong>
-              <span>Utolso muvelet</span>
-              <strong>{lastActionSummary || "Meg nincs muvelet."}</strong>
             </div>
           </section>
 
@@ -3047,73 +3220,6 @@ export function App() {
               <h2>Elemzes</h2>
               <Search size={20} />
             </div>
-            <div className="source-action-row">
-              <button className="secondary-button" onClick={handleLlmSmoke} disabled={Boolean(busy)}>
-                Modell allapot frissitese
-              </button>
-            </div>
-            {llmSmoke && (
-              <div className="model-status-panel">
-                <div>
-                  <strong>Lokalis modell allapot</strong>
-                  <p>Provider: {llmSmoke.provider} | API: {llmSmoke.reachable ? "elerheto" : "nem erheto el"}</p>
-                </div>
-                <div className="model-status-grid">
-                  <div className="model-status-card">
-                    <strong>Chat modell</strong>
-                    <code>{llmSmoke.configured_chat_model}</code>
-                    <div className="metrics">
-                      <span>{labelModelAvailability(llmSmoke.configured_chat_model_available)}</span>
-                      <span>{labelModelLoadState(llmSmoke.configured_chat_model_loaded)}</span>
-                    </div>
-                    <div className="button-row">
-                      <button
-                        className="secondary-button"
-                        onClick={handleLoadChatModel}
-                        disabled={Boolean(busy) || llmSmoke.configured_chat_model_loaded === true}
-                      >
-                        Chat modell betöltése
-                      </button>
-                      <button
-                        className="secondary-button"
-                        onClick={handleUnloadChatModel}
-                        disabled={Boolean(busy) || llmSmoke.configured_chat_model_loaded !== true}
-                      >
-                        Chat modell leválasztása
-                      </button>
-                    </div>
-                  </div>
-                  <div className="model-status-card">
-                    <strong>Embedding modell</strong>
-                    <code>{llmSmoke.configured_embedding_model}</code>
-                    <div className="metrics">
-                      <span>{labelModelAvailability(llmSmoke.configured_embedding_model_available)}</span>
-                      <span>{labelModelLoadState(llmSmoke.configured_embedding_model_loaded)}</span>
-                    </div>
-                    <div className="button-row">
-                      <button
-                        className="secondary-button"
-                        onClick={handleLoadEmbeddingModel}
-                        disabled={Boolean(busy) || llmSmoke.configured_embedding_model_loaded === true}
-                      >
-                        Embedding modell betöltése
-                      </button>
-                      <button
-                        className="secondary-button"
-                        onClick={handleUnloadEmbeddingModel}
-                        disabled={Boolean(busy) || llmSmoke.configured_embedding_model_loaded !== true}
-                      >
-                        Embedding modell leválasztása
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                {llmSmoke.loaded_model_ids.length > 0 && (
-                  <p className="field-hint">Betoltott instance-ek: {llmSmoke.loaded_model_ids.join(", ")}</p>
-                )}
-                {llmSmoke.error_message && <p className="error-text">{llmSmoke.error_message}</p>}
-              </div>
-            )}
             {canUseBatchScope && chunkIndexStatus && (
               <div className="model-status-panel">
                 <div>
@@ -4152,14 +4258,14 @@ export function App() {
                   <div className="metrics">
                     <span>{labelValidationStatus(lastFullDocumentRun.validation_status)}</span>
                     <span>{lastFullDocumentRun.created_item_count} mentett elem</span>
-                    <span>{lastFullDocumentRun.unsupported_count} nem mentett jelölt</span>
+                    <span>{lastFullDocumentRun.unsupported_count} nem megerősített jelölt</span>
                   </div>
                   {lastFullDocumentRun.created_item_count === 0 && (
                     <p className="error-text">Nem jött létre mentett munkalista-elem. Az okok az alábbi validációs üzenetekben láthatók.</p>
                   )}
                   {lastFullDocumentRun.unsupported_items.length > 0 && (
                     <div className="module-note module-note-warning">
-                      <strong>Nem mentett jelöltek / feldolgozási okok</strong>
+                      <strong>Nem megerősített jelöltek / feldolgozási okok</strong>
                       <ul>
                         {lastFullDocumentRun.unsupported_items.slice(0, 5).map((item, index) => (
                           <li key={`${index}-${item}`}>{item}</li>
@@ -4177,34 +4283,47 @@ export function App() {
                 >
                   <RefreshCw size={18} /> Munkalista frissítése
                 </button>
-                <div className="finding-toolbar">
-                  <div className="full-document-status-toggle" aria-label="Teljes iratfeldolgozási munkalista nézet">
-                    <button
-                      type="button"
-                      className={fullDocumentWorkStatus === "active" ? "" : "secondary-button"}
-                      onClick={() => setFullDocumentWorkStatus("active")}
-                      disabled={Boolean(busy)}
-                    >
-                      Aktív
-                    </button>
-                    <button
-                      type="button"
-                      className={fullDocumentWorkStatus === "set_aside" ? "" : "secondary-button"}
-                      onClick={() => setFullDocumentWorkStatus("set_aside")}
-                      disabled={Boolean(busy)}
-                    >
-                      Félretett
-                    </button>
-                  </div>
+                <input
+                  className="full-document-worklist-search-input"
+                  value={documentProcessingItemSearch}
+                  onChange={(event) => setDocumentProcessingItemSearch(event.target.value)}
+                  placeholder="Keresés a találatokban"
+                  aria-label="Keresés a találatokban"
+                />
+                <div className="full-document-status-toggle" aria-label="Teljes iratfeldolgozási munkalista nézet">
                   <button
                     type="button"
-                    className="danger-button"
-                    onClick={handleBulkDeleteDocumentProcessingItems}
-                    disabled={Boolean(busy) || markedDocumentProcessingItemCount === 0}
+                    className={fullDocumentWorkStatus === "active" ? "" : "secondary-button"}
+                    onClick={() => setFullDocumentWorkStatus("active")}
+                    disabled={Boolean(busy)}
                   >
-                    <Trash2 size={16} /> Jelöltek törlése ({markedDocumentProcessingItemCount})
+                    Aktív
+                  </button>
+                  <button
+                    type="button"
+                    className={fullDocumentWorkStatus === "set_aside" ? "" : "secondary-button"}
+                    onClick={() => setFullDocumentWorkStatus("set_aside")}
+                    disabled={Boolean(busy)}
+                  >
+                    Félretett
                   </button>
                 </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={markAllVisibleDocumentProcessingItemsForDeletion}
+                  disabled={Boolean(busy) || markableDocumentProcessingItemIds.length === 0 || allVisibleDocumentProcessingItemsMarked}
+                >
+                  Összes törlésre jelölése
+                </button>
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={handleBulkDeleteDocumentProcessingItems}
+                  disabled={Boolean(busy) || markedDocumentProcessingItemCount === 0}
+                >
+                  <Trash2 size={16} /> Jelöltek törlése ({markedDocumentProcessingItemCount})
+                </button>
               </div>
               {!selectedFullDocument && <p className="muted">Válassz iratot a munkalista betöltéséhez.</p>}
               {selectedFullDocument && documentProcessingItems.length === 0 && (
@@ -4227,8 +4346,18 @@ export function App() {
                 </div>
               )}
               {documentProcessingItems.length > 0 && (
-                <div className="full-document-items">
-                  {documentProcessingItems.map((item) => {
+                <>
+                  {documentProcessingItemSearch.trim() && (
+                    <div className="metrics">
+                      <span>{visibleDocumentProcessingItems.length} megjelenítve</span>
+                      <span>{documentProcessingItems.length} összesen</span>
+                    </div>
+                  )}
+                  {visibleDocumentProcessingItems.length === 0 && (
+                    <p className="muted">Nincs a keresésnek megfelelő munkalista-elem.</p>
+                  )}
+                  <div className="full-document-items">
+                    {visibleDocumentProcessingItems.map((item) => {
                     const isMarkedForDeletion = documentProcessingItemsMarkedForDeletion.includes(item.id);
                     return (
                       <article
@@ -4243,7 +4372,7 @@ export function App() {
                             <div className="metrics">
                               <span>{labelDocumentProcessingItemKind(item.item_kind)}</span>
                               <span>{labelDocumentProcessingWorkStatus(item.work_status)}</span>
-                              <span>{item.source_evidence_json.length} forrásidézet</span>
+                              <span>{labelDocumentProcessingOccurrence(item.occurrence_status)}</span>
                             </div>
                           </div>
                           <div className="button-row">
@@ -4295,21 +4424,21 @@ export function App() {
                             Keresési fókusz: <strong>{item.recommended_search_focus}</strong>
                           </div>
                         )}
-                        <details>
-                          <summary>Forrásbizonyítékok</summary>
-                          <div className="source-stack">
-                            {item.source_evidence_json.map((source, index) => (
-                              <div key={`${item.id}-source-${index}`} className="source-box">
-                                <strong>{source.page_number ? `${source.page_number}. oldal` : source.source_label ?? "Forrás"}</strong>
-                                {source.quote_text && <blockquote>{source.quote_text}</blockquote>}
-                              </div>
-                            ))}
+                        {item.source_evidence_json[0] && (
+                          <div className="full-document-source">
+                            <strong>
+                              {item.source_evidence_json[0].page_number
+                                ? `${item.source_evidence_json[0].page_number}. oldal`
+                                : item.source_evidence_json[0].source_label ?? "Forrás"}
+                            </strong>
+                            {item.source_evidence_json[0].quote_text && <span>{item.source_evidence_json[0].quote_text}</span>}
                           </div>
-                        </details>
+                        )}
                       </article>
                     );
-                  })}
-                </div>
+                    })}
+                  </div>
+                </>
               )}
             </section>
           </section>
@@ -4447,11 +4576,6 @@ function labelRetrievalStrategy(value: RetrievalStrategy) {
   return retrievalStrategyLabels[value] ?? value;
 }
 
-function labelModelAvailability(value: boolean | null) {
-  if (value === null) return "nem ellenorizheto";
-  return value ? "elerheto" : "nem latszik";
-}
-
 function labelModelLoadState(value: boolean | null) {
   if (value === null) return "nem ellenorizheto";
   return value ? "betoltve" : "nincs betoltve";
@@ -4474,6 +4598,12 @@ function filterDocumentsByName(documents: DocumentRead[], searchText: string) {
   const needle = searchText.trim().toLocaleLowerCase("hu-HU");
   if (!needle) return documents;
   return documents.filter((document) => document.original_filename.toLocaleLowerCase("hu-HU").includes(needle));
+}
+
+function filterDocumentProcessingItemsByName(items: DocumentProcessingItemRead[], searchText: string) {
+  const needle = searchText.trim().toLocaleLowerCase("hu-HU");
+  if (!needle) return items;
+  return items.filter((item) => item.display_label.toLocaleLowerCase("hu-HU").includes(needle));
 }
 
 function clampNumberInput(value: string, min: number, max: number, fallback: number) {
@@ -4541,6 +4671,10 @@ function labelDocumentProcessingWorkStatus(value: string) {
     deleted: "Törölve"
   };
   return labels[value] ?? value;
+}
+
+function labelDocumentProcessingOccurrence(value: string) {
+  return value === "repeated" ? "Többször előforduló" : "Egyedi";
 }
 
 function suggestedResearchFindingManualType(finding: ResearchFindingRead): ManualObjectType {

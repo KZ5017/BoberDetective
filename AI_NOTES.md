@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 249 passed`, `alembic: 0041_detach_audit_lifecycle (head)`.
+- Current verification baseline: `pytest: 252 passed`, `alembic: 0041_detach_audit_lifecycle (head)`.
 
 Initial implementation exists:
 
@@ -292,8 +292,9 @@ Previously unverified items now checked:
 - Large-case storage/retrieval has been promoted to a design gate before full-document backend implementation. The current DB-centric page/chunk text storage is not the desired long-term shape for 5000+ document cases; `Design_documents/16_large_case_document_storage_and_retrieval_plan.md` defines the proposed split between PostgreSQL metadata/workflow/audit, data-root text store, and Qdrant retrieval index.
 - The first code-level impact review for that redesign is captured in `Design_documents/17_storage_migration_impact_review.md`. It maps current dependencies on `document_pages.extracted_text` and `document_chunks.chunk_text` across import, source references, keyword search, vector indexing, analysis prompts, review report excerpts, research-finding excerpts, and analysis-run previews.
 - Storage-refactor code slices are implemented through the strict DB-text removal point: `app/services/text_store.py` defines JSONL-backed text-store helpers, and source-text reads in source-reference validation, `search_findings` prompt/quote validation, embedding input creation, analysis run previews, review report excerpts, research-finding excerpts, source-cited smoke, explicit chunk creation, and page/chunk detail API responses go through this abstraction. Migration `0035_text_layer_manifests` adds `document_text_layers` and `document_chunk_manifests`, imports/chunking write physical `pages.jsonl` / `chunks.jsonl` plus manifest rows, and migration `0040_drop_db_text_cols` removes `document_pages.extracted_text`, `document_chunks.chunk_text`, and the old DB FTS indexes.
-- The first full-document processing backend run-start slice is implemented. `POST /cases/{case_id}/documents/{document_id}/full-document-processing/runs` creates a `full_document_processing` analysis run, reads current page text from the data-root text store, sends the selected page range to the local chat model in one request, validates returned `source_evidence.quote_text` against its source page, and persists only valid `document_processing_items`. Matching is OCR-spacing tolerant but stored evidence uses the exact original source substring/span. The request has no artificial item cap and omits `max_output_tokens`; long local LLM calls use the configured 900 second timeout. These items remain preparatory worklist records tied to a document and analysis run.
-- The `Teljes iratfeldolgozás` frontend surface is now connected to backend profiles, selected page-range run-start execution, active/set-aside item listing, source-evidence display, set-aside/restore status changes, deletion marking plus bulk soft-delete, and focus handoff back to the `Ügy munkapad` search workflow.
+- The first full-document processing backend run-start slice is implemented. `POST /cases/{case_id}/documents/{document_id}/full-document-processing/runs` creates a `full_document_processing` analysis run, reads current page text from the data-root text store, and sends the selected page range to the local chat model in one request. The compact prompt asks for the named character/item, a short Hungarian role/description, and `source_label`; the backend then builds source evidence by finding the returned `display_label` on the selected source page. Matching is OCR-spacing tolerant, but stored evidence uses the exact original source substring/span. The request has no artificial item cap; it uses a 9000-token output safety ceiling to stop runaway repetition, while long local LLM calls use the configured 900 second timeout. These items remain preparatory worklist records tied to a document and analysis run.
+- Repeated exact full-document item labels are no longer discarded. They remain available as candidates, and list responses expose `occurrence_status` so the frontend can show `Egyedi` or `Többször előforduló`.
+- The `Teljes iratfeldolgozás` frontend surface is now connected to backend profiles, selected page-range run-start execution, active/set-aside item listing, inline source-evidence display, set-aside/restore status changes, deletion marking, all-visible deletion marking, bulk soft-delete, worklist name search, and focus handoff back to the `Ügy munkapad` search workflow.
 - Keyword search migration is implemented past the old-column dependency: `DocumentSearchEntryModel`, migration `0036_search_entries`, and `app/services/lexical_index.py` writer helpers maintain `document_search_entries`. Active keyword search queries `document_search_entries.search_vector`; quotes/full excerpts are read from the physical text-store path.
 - Document taxonomy is now retired from active workflow rather than the future large-case source-narrowing strategy. `Design_documents/19_document_taxonomy_retirement_plan.md` captures the staged cleanup. The frontend taxonomy workflow has been removed from import, document detail, and analysis source filters; import now accepts multiple TXT/PDF files and uploads them sequentially through the existing backend endpoint. Backend taxonomy API/filter/reclassification workflow has also been retired, and migration `0037_remove_doc_taxonomy` removes the remaining taxonomy DB/model/search-entry columns and related indexes/constraints.
 - Full-case deletion is implemented and smoke-checked: `DELETE /api/v1/cases/{case_id}` removes case-owned DB rows, case files, and Qdrant points by `case_id`, while migration `0041_detach_audit_lifecycle` lets `audit_events` preserve historical `case_id` / `analysis_run_id` metadata after the case and run rows are gone. A user-side two-PDF import/OCR/chunk/index/search/convert smoke completed successfully before deletion, and post-delete checks found no remaining business rows, case files, or Qdrant points outside intentionally preserved audit/user records.
@@ -303,7 +304,7 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Continue full-document prompt/profile tuning from live output: reduce noisy duplicates, keep source quotes validation-friendly, and keep recommended search focuses usable.
+2. Continue full-document prompt/profile tuning from live output: reduce noisy duplicates at the prompt level, keep backend label-to-source evidence construction strict, keep recommended search focuses usable, and verify that the compact prompt avoids runaway repeated JSON output.
 3. Design the explicit handoff step from `document_processing_items` into focused `search_findings` runs or reusable focus seed workflows.
 4. Decide whether item conversion should first create research findings, structured manual objects, or only prefilled search runs.
 5. Expand `Audit napló` from placeholder into the dedicated full `Audit naplo` workflow/API/panel backed by `audit_events` after the full-document foundation is usable.
@@ -390,9 +391,9 @@ Implementation status:
 - LM Studio native API notes captured in `Design_documents/04_runtime_and_deployment_v1.md`: use `max_output_tokens`, not `maxTokens`; prefer `store: false`; prefer `system_prompt`; send `reasoning: "off"` only for reasoning-capable models such as Qwen.
 - Backend now supports explicit LM Studio native chat-model loading through `POST /api/v1/system/llm/load-chat-model`.
 - LM Studio native chat calls now auto-ensure the configured chat model is loaded before sending `/api/v1/chat`; loaded instance ids are reused when present, and the configured load profile is applied only when no matching instance is loaded.
-- Current preferred chat-model LM Studio load profile is configured as `context_length=112640`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
+- Current preferred chat-model LM Studio load profile is configured as `context_length=61440`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`.
 - Embedding model load uses the active `text-embedding-bge-m3` profile with `context_length=4096`; LM Studio currently rejects `eval_batch_size`, `flash_attention`, and `offload_kv_cache_to_gpu` for embedding models, so those are intentionally not sent for embedding load.
-- The previous Qwen embedding profile is intentionally retired and should not be restored as the default. The current balanced two-model profile uses chat `context_length=112640`, chat `eval_batch_size=4096`, BGE-M3 embedding `context_length=4096`, and LLM request timeout `900` seconds for long full-document runs.
+- The previous Qwen embedding profile is intentionally retired and should not be restored as the default. The current balanced two-model profile uses chat `context_length=61440`, chat `eval_batch_size=4096`, BGE-M3 embedding `context_length=4096`, and LLM request timeout `900` seconds for long full-document runs.
 - Live model-load smoke accepted the profile and returned `qwen/qwen3.5-9b:2`, `status=loaded`, `load_time_seconds=10.784`, with echoed `parallel=4`.
 - Future native provider refinement: switch benchmark/runtime payload from locally tested `input.type="text"` to documented `input.type="message"` if local testing confirms compatibility.
 - First source-cited analysis smoke works through `POST /api/v1/cases/{case_id}/analysis/source-cited-smoke`.
@@ -452,6 +453,8 @@ Implementation status:
 - Review action calls use a frontend allowlist that maps known object types to their review endpoints; unsupported object types are rejected client-side.
 - Frontend report items now show all source references with citation labels, page/chunk hints, quote/excerpt offsets, source excerpts, document hashes, and review history.
 - Frontend now shows current operation, elapsed time, last action summary, and analysis output count to make long LM Studio calls less ambiguous.
+- Frontend now shows LM Studio model status in a thin global top bar above the case/work-surface area. It checks status on page load, groups chat and embedding model labels with their own load/unload buttons, and keeps `Állapot frissítése` as a labeled refresh action.
+- Frontend AI operation status now lives in a compact strip below the work-surface selector. It shows the current AI operation, last AI operation, result, and duration; the old `Művelet állapot` panel inside `Ügy munkapad` is no longer used for this.
 - Frontend now shows selected-case documents and recent analysis runs; import and analysis execution refresh those lists.
 - Frontend document details show imported pages and chunks with source text; analysis run details show recorded inputs/outputs with readable source and object summaries before the raw audit payload.
 - Frontend review report controls can filter by object type, review status, and source validation status. Exports use the same selected filters.
@@ -490,7 +493,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `249 passed`.
+- Latest test run: `252 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

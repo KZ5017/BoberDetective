@@ -63,7 +63,7 @@ def get_settings() -> Settings:
         llm_chat_model=_getenv("BOBERDETECTIVE_LLM_CHAT_MODEL", "qwen/qwen3.5-9b"),
         llm_embedding_model=_getenv("BOBERDETECTIVE_LLM_EMBEDDING_MODEL", "text-embedding-bge-m3"),
         llm_timeout_seconds=float(_getenv("BOBERDETECTIVE_LLM_TIMEOUT_SECONDS", "900")),
-        llm_chat_context_length=int(_getenv("BOBERDETECTIVE_LLM_CHAT_CONTEXT_LENGTH", "112640")),
+        llm_chat_context_length=int(_getenv("BOBERDETECTIVE_LLM_CHAT_CONTEXT_LENGTH", "61440")),
         llm_embedding_context_length=int(_getenv("BOBERDETECTIVE_LLM_EMBEDDING_CONTEXT_LENGTH", "4096")),
         llm_eval_batch_size=int(_getenv("BOBERDETECTIVE_LLM_EVAL_BATCH_SIZE", "4096")),
         llm_flash_attention=_getenv_bool("BOBERDETECTIVE_LLM_FLASH_ATTENTION", True),

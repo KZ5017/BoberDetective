@@ -32,8 +32,11 @@ A `Teljes iratfeldolgozás` feluleten mar van:
 - utolso futas validacios osszegzese,
 - aktiv es felretett munkalista nezet,
 - munkadarab felretetele es visszaallitasa,
-- torlesre jeloles es csoportos soft delete,
-- forrasbizonyitek megjelenitese,
+- nev alapu munkalista szures,
+- egyedi es osszes lathato torlesre jeloles,
+- csoportos soft delete,
+- egy soros forrasbizonyitek megjelenitese,
+- `Egyedi` / `Többször előforduló` jeloles,
 - ajanlott fokusz atadasa az `Ügy munkapad` `search_findings` workflow-jaba.
 
 A nagyugyes tarolasi/retrieval kapu elso kritikus szeletei mar megvalosultak: a teljes page/chunk szoveg a data-root text store-bol olvashato, es a regi DB text oszlopok ki vannak vezetve. A teljes iratfeldolgozas jelenlegi szelete erre a text-store alapra epul.
@@ -346,7 +349,7 @@ Valasz:
 }
 ```
 
-Elso implementalt szeletben a futas szinkron. A service a kivalasztott oldaltartomany aktualis oldalait egyetlen LLM-keresben kuldi ki, es csak karakterpontosan validalt `source_evidence.quote_text` mellett ment `document_processing_item` rekordot.
+Elso implementalt szeletben a futas szinkron. A service a kivalasztott oldaltartomany aktualis oldalait egyetlen LLM-keresben kuldi ki. Az aktualis prompt nem ker karakterpontos idezetet az LLM-tol: a modell `display_label`, rovid leiras es `source_label` mezot ad, a backend pedig a megadott oldalon megkeresi a `display_label` forrasbeli alakjat, es ebbol epiti a mentett `source_evidence` mezot.
 
 Kesobbi nagyobb iratokhoz jobb lehet a hatterjob-szeru modell:
 
@@ -438,18 +441,28 @@ Rendszerszintu cel:
 - angol instrukcio,
 - magyar forrasszoveg,
 - magyar kimeneti felhasznaloi mezok,
-- karakterpontos magyar idezet,
 - nincs kulso tudas,
 - nincs kovetkeztetett jogi/nyomozati minosites.
 
-Elso `person_search_seeds` task lenyege:
+Aktualis rendszerprompt:
 
 ```text
-Extract persons mentioned in the Hungarian document text.
-For each person, return a concise Hungarian, source-faithful description.
-Include only details directly supported by quoted text.
-Return recommended Hungarian search focus strings that can later be used in the research-finding workflow.
-Do not turn persons into claims, suspects, perpetrators, witnesses, or procedural roles unless the source directly says so.
+You are a source-faithful investigative document processing component.
+You work with Hungarian source documents.
+The source document is the only source of truth.
+Do not use outside knowledge.
+Do not infer guilt, responsibility, legal qualification, risk, or personal blame.
+Return only a valid JSON object.
+```
+
+Aktualis user task lenyege:
+
+```text
+Add vissza JSON formában a szereplőket és röviden a szerepüket.
+Minden szereplőt a hozzá tartozó display_label értéke határoz meg.
+A display_label értéke kizárólag és pontosan a forrásban szereplő névalak legyen.
+Minden szereplő kizárólag egyszer szerepelhet az items listában, még akkor is ha több oldalon is szerepel.
+Minden szereplőhöz add meg annak az oldalnak a source_label értékét, ahol a display_label névalak szerepel.
 ```
 
 Elvart JSON:
@@ -460,30 +473,15 @@ Elvart JSON:
     {
       "item_kind": "person",
       "display_label": "...",
-      "mentioned_forms": ["..."],
       "short_description": "...",
-      "source_supported_details": ["..."],
-      "relationships": [
-        {
-          "relation_label": "...",
-          "target_label": "...",
-          "quote_text": "..."
-        }
-      ],
-      "recommended_search_focus": "...",
-      "alternative_search_focuses": ["..."],
-      "source_evidence": [
-        {
-          "quote_text": "...",
-          "source_label": "page_7"
-        }
-      ],
-      "confidence_note": "..."
+      "source_label": "page_7"
     }
   ],
-  "unsupported_items": ["..."]
+  "unsupported_items": []
 }
 ```
+
+Az LLM altal adott minimalis forma utan a backend tolti ki a belso munkadarab-mezoket es a forrasbizonyitekot. Ez szandekosan kevesebb munka az LLM-nek, mert a korabbi reszletes schema es quote-generaltatas hajlamos volt lassu, ismetlo vagy ervenytelen JSON kimenetet okozni.
 
 ## 9. Source handling
 
@@ -501,10 +499,9 @@ PAGE page_2:
 ...
 ```
 
-- a modell `source_evidence.source_label` mezoben oldal labelt ad vissza,
-- `quote_text` karakterpontosan szerepeljen az adott oldal szovegeben,
-- backend validalja, hogy a quote megtalalhato az adott oldalon,
-- backend szamitja az offsetet.
+- az aktualis implementacio szerint a modell csak `source_label` mezot ad vissza,
+- a backend a megadott oldalon megkeresi a `display_label` forrasbeli alakjat,
+- backend szamitja az idezetet es az offsetet.
 
 Ez egyszerubb es forrashubb, mint azonnal teljes dokumentum offsetet kovetelni.
 
@@ -517,10 +514,10 @@ Backend validacio:
 - iratnak vannak aktualis oldalai,
 - profil ismert,
 - modell JSON ervenyes,
-- `source_evidence` nem ures,
-- minden `quote_text` megtalalhato a megjelolt oldalon; az aktualis implementacio OCR-spacing tolerans egyezest is elfogad, de a mentett bizonyitek az eredeti forrasszoveg pontos substringje es karakterpozicioja,
+- `source_label` ismert oldalra mutat,
+- a `display_label` megtalalhato a megjelolt oldalon; az aktualis implementacio OCR-spacing tolerans egyezest is elfogad, peldaul `Pistaba` / `Pista ba` jellegu eltereseknel, de a mentett bizonyitek az eredeti forrasszoveg pontos substringje es karakterpozicioja,
 - nincs kulso forras,
-- duplikalt munkadarabok normalizalt identitaskulccsal szurodnek,
+- azonos `display_label` tobb elofordulasa nem torlodik automatikusan; a lista olvasasi valasza `occurrence_status` mezovel jelzi, hogy `unique` vagy `repeated`,
 - nincs onkenyes `max_items` plafon: ha egy iratban sok forrassal igazolhato munkadarab van, nem dobjuk el oket csak elemszam miatt.
 
 Nem kell tul agressziv deduplikacio elso korben. A teljes iratfeldolgozo munkalista emberi elokeszito felulet lesz, nem vegleges szakmai rekord.
@@ -532,16 +529,19 @@ Aktualis `Teljes iratfeldolgozás` feluleten:
 - feldolgozas inditasa gomb aktiv,
 - mutatja az utolso futast,
 - listazza az aktiv vagy felretett munkadarabokat,
-- a panel tetejen nezetvalto van:
+- a panel tetejen egy kozos toolbar van:
+  - `Munkalista frissítése`,
+  - nev alapu `Keresés a találatokban` mezo,
   - `Aktív`,
   - `Félretett`,
-- a panel tetejen csoportos tenyleges torles van:
+  - `Összes törlésre jelölése`,
   - `Jelöltek törlése (...)`,
 - munkadarab kartyan:
   - cim,
   - rovid leiras,
   - ajanlott keresesi fokusz,
-  - forrasidezetek,
+  - egy soros forrasbizonyitek,
+  - `Egyedi` vagy `Többször előforduló` cimke,
   - gomb: `Fókusz átvitele kutatási keresésbe`,
   - gomb: `Félreteszem`,
   - felretett nezetben gomb: `Vissza az aktív listába`,
@@ -561,9 +561,9 @@ Javasolt sorrend:
 2. Run type bovites: `full_document_processing`. **Kesz.**
 3. Profil registry backend oldalon. **Elso szelet kesz.**
 4. Service: oldalak osszeallitasa `PAGE page_n` blokkokba. **Elso run-start szelet kesz.**
-5. Prompt + JSON parser + source quote validation. **Elso run-start szelet kesz: csak karakterpontosan oldalhoz kotheto idezet mentheto.**
+5. Prompt + JSON parser + backend source-evidence construction. **Aktualis szelet kesz: az LLM minimalis szereplo/source_label JSON-t ad, a backend a display_label alapjan epiti a forrasbizonyitekot.**
 6. API: run inditas, item lista, item statusz modositas, csoportos soft delete. **Elso teljes backend szelet kesz.**
-7. Frontend: futtatas gomb bekotese, lista megjelenitese. **Elso szelet kesz: profilok, oldaltartomany, futtatas, aktiv/felretett munkalista, forrasbizonyitek, felretetel/visszaallitas, torlesre jeloles, csoportos torles, fokusz atadas.**
+7. Frontend: futtatas gomb bekotese, lista megjelenitese. **Elso szelet kesz: profilok, oldaltartomany, futtatas, aktiv/felretett munkalista, forrasbizonyitek, felretetel/visszaallitas, torlesre jeloles, osszes lathato torlesre jelolese, csoportos torles, nev alapu munkalista kereses, fokusz atadas.**
 8. Frontend: ajanlott fokusz atvitele az `Ügy munkapad` elemzesi fokusz mezobe. **Elso szelet kesz.**
 
 ## 13. Nyitott dontesek

@@ -209,6 +209,110 @@ label {
   padding: 0.22rem 0.55rem;
 }
 
+.model-status-bar {
+  align-items: center;
+  background: #ffffff;
+  border-bottom: 1px solid #d7dde2;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(12rem, 0.62fr) minmax(30rem, 1.8fr) auto;
+  padding: 0.55rem 1.25rem;
+}
+
+.model-status-bar.has-error {
+  background: #fff6f4;
+  border-bottom-color: #d9aaa2;
+}
+
+.model-status-summary {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.model-status-summary strong {
+  color: #202124;
+  font-size: 0.88rem;
+}
+
+.model-status-summary span {
+  color: #65737d;
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-status-models,
+.model-status-model-actions,
+.model-status-refresh {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.model-status-models {
+  justify-content: flex-start;
+}
+
+.model-status-model-card {
+  align-items: center;
+  background: #f8fafb;
+  border: 1px solid #d7dde2;
+  border-radius: 6px;
+  display: flex;
+  gap: 0.5rem;
+  min-width: min(100%, 25rem);
+  padding: 0.38rem 0.55rem;
+}
+
+.model-status-model-main {
+  align-items: center;
+  display: grid;
+  gap: 0.18rem 0.5rem;
+  grid-template-columns: auto minmax(8rem, 1fr) auto;
+  min-width: 0;
+}
+
+.model-status-model-main span,
+.model-status-model-main em {
+  color: #52616b;
+  font-size: 0.74rem;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.model-status-model-main code {
+  color: #2c3d48;
+  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-status-model-actions {
+  flex-wrap: nowrap;
+}
+
+.model-status-refresh {
+  justify-content: flex-end;
+}
+
+.model-status-model-actions button,
+.model-status-refresh button {
+  min-height: 2rem;
+  padding: 0.34rem 0.55rem;
+}
+
+.model-status-error {
+  color: #8d312d;
+  font-size: 0.78rem;
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .workspace {
   align-content: start;
   display: grid;
@@ -324,6 +428,7 @@ label {
 .full-document-items {
   display: grid;
   gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 0.75rem;
 }
 
@@ -347,12 +452,37 @@ label {
   box-shadow: inset 0 0 0 1px rgba(182, 106, 85, 0.22);
 }
 
+.full-document-source {
+  align-items: baseline;
+  color: #4a5965;
+  display: flex;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.full-document-source strong {
+  color: #1f2933;
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+}
+
+.full-document-source span {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  min-width: 0;
+}
+
 .full-document-worklist-toolbar {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
-  justify-content: space-between;
+  justify-content: flex-start;
+}
+
+.full-document-worklist-search-input {
+  flex: 0 1 17rem;
+  width: auto;
 }
 
 .full-document-status-toggle {
@@ -484,30 +614,39 @@ label {
   font-weight: 800;
 }
 
-.operation-panel {
-  border-left: 4px solid #9bb2c1;
-  grid-column: 1 / -1;
-}
-
-.operation-panel.is-running {
-  border-left-color: #2d7a78;
-}
-
-.operation-grid {
+.ai-operation-strip {
+  background: #ffffff;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
   display: grid;
-  gap: 0.5rem 0.9rem;
-  grid-template-columns: minmax(90px, 140px) 1fr;
+  gap: 0.6rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0.65rem 0.8rem;
 }
 
-.operation-grid span {
+.ai-operation-strip.is-running {
+  border-color: #8bbdba;
+  box-shadow: inset 4px 0 0 #2d7a78;
+}
+
+.ai-operation-strip div {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.ai-operation-strip span {
   color: #65737d;
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   font-weight: 800;
 }
 
-.operation-grid strong {
+.ai-operation-strip strong {
   color: #202124;
-  overflow-wrap: anywhere;
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .section-heading {
@@ -1682,7 +1821,7 @@ pre {
     font-weight: 600;
   }
 
-  .operation-grid span,
+  .ai-operation-strip span,
   .compact-item a {
     font-weight: 650;
   }
@@ -1746,9 +1885,11 @@ pre {
   }
 
   .workspace,
+  .model-status-bar,
   .surface-nav,
   .main-grid,
   .full-document-grid,
+  .full-document-items,
   .full-document-output,
   .item-card-header,
   .workflow-column,
@@ -1757,9 +1898,32 @@ pre {
   .form-row,
   .model-status-grid,
   .manual-contradiction-select-row,
-  .operation-grid,
+  .ai-operation-strip,
   .object-facts {
     grid-template-columns: 1fr;
+  }
+
+  .model-status-bar {
+    align-items: stretch;
+    padding: 0.6rem 0.8rem;
+  }
+
+  .model-status-model-card {
+    align-items: stretch;
+    flex-direction: column;
+    min-width: 100%;
+  }
+
+  .model-status-model-main {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .model-status-model-main em {
+    grid-column: 1 / -1;
+  }
+
+  .model-status-refresh {
+    justify-content: flex-start;
   }
 
   .source-action-row {

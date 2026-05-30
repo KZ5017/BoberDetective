@@ -33,6 +33,7 @@ class DocumentProcessingItemRead(BaseModel):
     recommended_search_focus: str | None
     alternative_search_focuses_json: list[Any]
     source_evidence_json: list[Any]
+    occurrence_status: str = "unique"
     work_status: str
     target_object_type: str | None
     target_object_id: UUID | None

@@ -20,6 +20,7 @@ from app.services.full_document_processing import (
     FullDocumentProcessingNotFoundError,
     FullDocumentProcessingValidationError,
     bulk_delete_document_processing_items,
+    document_processing_item_reads,
     list_document_processing_items,
     list_profiles,
     run_full_document_processing,
@@ -72,7 +73,7 @@ def get_document_processing_items(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except FullDocumentProcessingValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return DocumentProcessingItemList(data=[DocumentProcessingItemRead.model_validate(item) for item in items])
+    return DocumentProcessingItemList(data=document_processing_item_reads(items))
 
 
 @router.post(

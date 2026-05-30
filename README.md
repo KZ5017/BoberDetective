@@ -48,6 +48,7 @@ Completed:
 - LM Studio model-list smoke endpoint
 - LM Studio configured chat-model load endpoint with GPU-oriented load profile
 - LM Studio native chat auto-load guard for the configured model
+- Current chat load profile uses `qwen/qwen3.5-9b` with `context_length=61440`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`
 - Analysis run provenance foundation
 - Synthetic LLM model benchmark script
 - LM Studio native benchmark mode with Qwen reasoning disabled
@@ -124,7 +125,7 @@ Completed:
 - End-to-end frontend/API smoke history covers case creation, TXT import, review queue filtering, claim review, JSON export, export history backing endpoint, download, and Vite proxy
 - Source-bound `Kutatási találatok` workflow: `search_findings` creates source-cited research worklist items, users can set aside/restore/delete/bulk-delete them, and selected findings can be converted into structured claim/entity/event/missing item candidate objects
 - Full-case deletion through `Ügy végleges törlése`, preserving global audit history while removing case-owned rows, files, and Qdrant points
-- Full-document processing surface: selected active document plus page range and profile can create source-evidence-validated `document_processing_items`; users can switch between active/félretett views, restore set-aside items, mark items for deletion, bulk-delete marked items, and hand a recommended focus back to the `Ügy munkapad`
+- Full-document processing surface: selected active document plus page range and profile can create backend source-evidence-validated `document_processing_items`; users can switch between active/félretett views, restore set-aside items, filter by item name, mark one or all visible items for deletion, bulk-delete marked items, see repeated-label tags, and hand a recommended focus back to the `Ügy munkapad`
 - Retired raw chunk extraction modules (`extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`) are no longer active backend/frontend workflows
 
 PDF/OCR sample checks:

@@ -176,7 +176,7 @@ def test_validate_full_document_processing_payload_rejects_non_source_quote() ->
     valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
 
     assert valid_items == []
-    assert "az idézet nem található" in unsupported[0]
+    assert "a név nem található" in unsupported[0]
 
 
 def test_validate_full_document_processing_payload_accepts_ocr_spacing_variant() -> None:
@@ -206,20 +206,102 @@ def test_validate_full_document_processing_payload_accepts_ocr_spacing_variant()
     assert valid_items[0]["source_evidence"][0]["quote_text"] == "Dr. Bloch alorvos"
 
 
-def test_validate_full_document_processing_payload_rejects_numbered_duplicate_labels() -> None:
+def test_validate_full_document_processing_payload_builds_source_quote_from_label_spacing_variant() -> None:
+    payload = {
+        "items": [
+            {
+                "item_kind": "person",
+                "display_label": "Pistabá",
+                "short_description": "Helyi szereplő.",
+                "source_label": "page_1",
+            }
+        ],
+        "unsupported_items": [],
+    }
+    page_sources = [
+        {
+            "source_label": "page_1",
+            "document_id": uuid4(),
+            "page_id": uuid4(),
+            "page_number": 1,
+            "text": "Pista bá megérkezett a helyszínre.",
+        }
+    ]
+
+    valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
+
+    assert unsupported == []
+    assert valid_items[0]["source_evidence"][0]["quote_text"] == "Pista bá"
+
+
+def test_validate_full_document_processing_payload_rejects_parenthetical_alias_label() -> None:
+    payload = {
+        "items": [
+            {
+                "item_kind": "person",
+                "display_label": "Zlinek Zsófia (Pipi nővér)",
+                "short_description": "Nővér.",
+                "source_label": "page_1",
+            }
+        ],
+        "unsupported_items": [],
+    }
+    page_sources = [
+        {
+            "source_label": "page_1",
+            "document_id": uuid4(),
+            "page_id": uuid4(),
+            "page_number": 1,
+            "text": "Zlinek Zsófia , akit itt Pipi nővérnek neveznek.",
+        }
+    ]
+
+    valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
+
+    assert valid_items == []
+    assert "a név nem található" in unsupported[0]
+
+
+def test_validate_full_document_processing_payload_builds_source_quote_from_reversed_descriptor_name() -> None:
+    payload = {
+        "items": [
+            {
+                "item_kind": "person",
+                "display_label": "Vén Márton",
+                "short_description": "Szanitéc.",
+                "source_label": "page_7",
+            }
+        ],
+        "unsupported_items": [],
+    }
+    page_sources = [
+        {
+            "source_label": "page_7",
+            "document_id": uuid4(),
+            "page_id": uuid4(),
+            "page_number": 7,
+            "text": "Márton, a vén szanitéc, jól elrendezte az óndobozát.",
+        }
+    ]
+
+    valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
+
+    assert unsupported == []
+    assert valid_items[0]["source_evidence"][0]["quote_text"] == "Márton"
+
+
+def test_validate_full_document_processing_payload_keeps_repeated_exact_labels() -> None:
     payload = {
         "items": [
             {
                 "item_kind": "person",
                 "display_label": "Kovács Ágnes",
-                "mentioned_forms": ["Kovács Ágnes"],
-                "source_evidence": [{"source_label": "page_1", "quote_text": "Kovács Ágnes eladólány."}],
+                "source_label": "page_1",
             },
             {
                 "item_kind": "person",
-                "display_label": "Kovács Ágnes (második említés)",
-                "mentioned_forms": ["Kovács Ágnes"],
-                "source_evidence": [{"source_label": "page_1", "quote_text": "Kovács Ágnes rosszul lett."}],
+                "display_label": "Kovács Ágnes",
+                "source_label": "page_2",
             },
         ],
         "unsupported_items": [],
@@ -230,11 +312,18 @@ def test_validate_full_document_processing_payload_rejects_numbered_duplicate_la
             "document_id": uuid4(),
             "page_id": uuid4(),
             "page_number": 1,
-            "text": "Kovács Ágnes eladólány. Kovács Ágnes rosszul lett.",
+            "text": "Kovács Ágnes eladólány.",
+        },
+        {
+            "source_label": "page_2",
+            "document_id": uuid4(),
+            "page_id": uuid4(),
+            "page_number": 2,
+            "text": "Kovács Ágnes rosszul lett.",
         }
     ]
 
     valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
 
-    assert len(valid_items) == 1
-    assert unsupported == ["Kovács Ágnes (második említés): ismétlődő elem"]
+    assert len(valid_items) == 2
+    assert unsupported == []

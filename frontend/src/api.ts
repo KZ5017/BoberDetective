@@ -523,6 +523,7 @@ export type DocumentProcessingItemRead = {
     quote_char_end?: number;
     [key: string]: unknown;
   }>;
+  occurrence_status: "unique" | "repeated";
   work_status: string;
   target_object_type: string | null;
   target_object_id: string | null;
