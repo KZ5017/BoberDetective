@@ -20,7 +20,7 @@ Fresh-session baseline:
 
 - `CURRENT_STATE.md` now contains the compact Session Handoff Baseline v1.
 - A new session should read `AGENTS.md`, `README.md`, `AI_NOTES.md`, `CHANGELOG.md`, and `CURRENT_STATE.md`.
-- Current verification baseline: `pytest: 252 passed`, `alembic: 0042_doc_proc_person_only (head)`.
+- Current verification baseline: `pytest: 278 passed`, `alembic: 0043_document_collections (head)`.
 
 Initial implementation exists:
 
@@ -205,7 +205,7 @@ The most important design constraints:
 - every AI-generated object traceable to an analysis run,
 - human review required for meaningful use,
 - exports must be auditable,
-- legal RAG is later, not MVP-1.
+- legal RAG remains a later specialized corpus profile, but the next larger planning slice is now the general local RAG question-answering layer described in `Design_documents/20_general_rag_question_answering_plan.md`.
 
 Mandatory rule:
 
@@ -315,10 +315,11 @@ Previously unverified items now checked:
 Likely next steps, in order:
 
 1. Read the handoff docs and design documents.
-2. Continue full-document prompt/profile tuning from live output: reduce noisy duplicates at the prompt level, keep backend label-to-source evidence construction strict, keep the explicit `recommended_search_focus` useful, and verify that the compact prompt avoids runaway repeated JSON output.
-3. Design the explicit handoff step from `document_processing_items` into focused `search_findings` runs or reusable focus seed workflows.
-4. Decide whether item conversion should first create research findings, structured manual objects, or only prefilled search runs.
-5. Expand `Audit napló` from placeholder into the dedicated full `Audit naplo` workflow/API/panel backed by `audit_events` after the full-document foundation is usable.
+2. Close the current full-document person-profile tuning loop from live output: reduce noisy duplicates at the prompt level, keep backend label-to-source evidence construction strict, keep the explicit `recommended_search_focus` useful, and verify that the compact prompt avoids runaway repeated JSON output.
+3. Treat the implemented `iratgyujtemeny` backend/frontend slice as the first usable source-scope layer: it supports CRUD, membership add/remove, collection-content management, source-scope preview, `search_findings` collection scope, and collection-scoped semantic/hybrid index readiness/background indexing.
+4. Add multi-collection source-scope controls only where analysis/RAG workflows need them, not as extra document metadata. The current first analysis/indexing integration intentionally uses one selected collection at a time.
+5. Keep the current strict workbench workflows stable beside the freer RAG question layer: `search_findings`, full-document person seeds, research-finding conversion, source validation, and contradiction detection should remain auditable and source-bound.
+6. Next product/design slice: define the `Általános iratkérdező` answer contract and UX over the now-usable collection/document/case source-scope foundation.
 
 Strategic rationale:
 
@@ -333,6 +334,7 @@ Strategic rationale:
 - Document lifecycle is now an active-source gate. Inactive documents remain historically visible where already cited, but must not become new source material unless restored to `active`.
 - The current `Elemzesi elozmenyek` panel lists `analysis_runs` only. Import/OCR/chunking appear there because they create provenance runs; pure audit events such as `document_reclassified` belong in a future separate `Audit naplo` panel backed by `audit_events`.
 - Contradiction detection is downstream of source-cited claims, so it should remain claim-pair based and preserve `no source -> no claim` through claim/source-reference provenance.
+- The next major product direction is not another narrow extraction workflow, but an `Általános iratkérdező`: a local RAG question-answering layer that answers free-form questions only from the selected local corpus. It should reuse the existing text-store, retrieval, embeddings, source scopes, LM Studio provider, and analysis-run provenance, but should not replace `search_findings` or other strict worklist workflows.
 
 Environment verification notes:
 
@@ -505,7 +507,7 @@ Implementation status:
 - Live export review smoke result: `review 200`, one review entry, `new_review_status=verified`.
 - Storage path traversal protection is covered by tests.
 - Live filtered report/export smoke result: `report 200`, entity-only `needs_review` and `source_valid` filter returned 2 items; JSON export `201`, 2 entity export items.
-- Latest test run: `252 passed`.
+- Latest test run: `278 passed`.
 
 ## Suggested Prompt For A New Codex Session
 

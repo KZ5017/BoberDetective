@@ -8,8 +8,9 @@ class AnalysisModuleRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str | None = Field(default=None, max_length=500)
-    source_mode: Literal["case", "document"] = "case"
+    source_mode: Literal["case", "document", "collection"] = "case"
     document_id: UUID | None = None
+    collection_id: UUID | None = None
     document_ids: list[UUID] = Field(default_factory=list)
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
@@ -25,7 +26,17 @@ class AnalysisModuleRunRequest(BaseModel):
             raise ValueError("page_start must be less than or equal to page_end")
         if self.source_mode == "document" and self.document_ids:
             raise ValueError("document_ids are only supported in case source mode")
+        if self.source_mode == "document" and self.collection_id is not None:
+            raise ValueError("collection_id is only supported in collection source mode")
+        if self.source_mode == "collection" and self.collection_id is None:
+            raise ValueError("collection_id is required for collection source mode")
+        if self.source_mode == "collection" and (self.document_id is not None or self.document_ids):
+            raise ValueError("document_id and document_ids are not supported in collection source mode")
         if self.source_mode == "case" and (self.page_start is not None or self.page_end is not None):
+            raise ValueError("page_start and page_end are only supported in document source mode")
+        if self.source_mode == "case" and self.collection_id is not None:
+            raise ValueError("collection_id is only supported in collection source mode")
+        if self.source_mode == "collection" and (self.page_start is not None or self.page_end is not None):
             raise ValueError("page_start and page_end are only supported in document source mode")
         return self
 

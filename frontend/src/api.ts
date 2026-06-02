@@ -34,6 +34,45 @@ export type DocumentRead = {
   } | null;
 };
 
+export type DocumentCollectionRead = {
+  id: string;
+  case_id: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  sort_order: number;
+  document_count: number;
+  active_document_count: number;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DocumentCollectionMembershipChangeResponse = {
+  collection_id: string;
+  requested_count: number;
+  added_count: number;
+  removed_count: number;
+  already_present_count: number;
+  not_present_count: number;
+  skipped_count: number;
+  skipped_reasons: string[];
+  active_document_count: number;
+  total_document_count: number;
+};
+
+export type DocumentCollectionScopeResolveResponse = {
+  source_mode: "case" | "documents" | "collections";
+  requested_document_ids: string[];
+  requested_collection_ids: string[];
+  resolved_document_count: number;
+  active_document_count: number;
+  inactive_document_count: number;
+  duplicate_membership_count: number;
+  document_ids_preview: string[];
+  warnings: string[];
+};
+
 export type DocumentPageRead = {
   id: string;
   page_number: number;
@@ -441,7 +480,7 @@ export type ManualContradictionCandidatePayload = {
   description: string;
 };
 
-export type AnalysisSourceMode = "case" | "document";
+export type AnalysisSourceMode = "case" | "document" | "collection";
 export type ClaimReviewScope = "reviewable" | "verified" | "needs_review" | "all_source_valid";
 export type RetrievalStrategy = "keyword" | "semantic" | "hybrid";
 
@@ -449,6 +488,7 @@ export type AnalysisRunPayload = {
   query?: string | null;
   source_mode?: AnalysisSourceMode;
   document_id?: string | null;
+  collection_id?: string | null;
   document_ids?: string[];
   page_start?: number | null;
   page_end?: number | null;
@@ -477,6 +517,7 @@ export type ChunkIndexJobResponse = {
 export type ChunkIndexStatusResponse = {
   case_id: string;
   document_id: string | null;
+  collection_id: string | null;
   document_ids: string[];
   collection_name: string;
   embedding_model: string;
@@ -815,6 +856,78 @@ export function listDocuments(caseId: string): Promise<{ data: DocumentRead[] }>
   return request(`/cases/${caseId}/documents`);
 }
 
+export function listDocumentCollections(caseId: string): Promise<{ data: DocumentCollectionRead[] }> {
+  return request(`/cases/${caseId}/document-collections`);
+}
+
+export function createDocumentCollection(
+  caseId: string,
+  payload: { name: string; description?: string | null; color?: string | null; sort_order?: number }
+): Promise<DocumentCollectionRead> {
+  return request(`/cases/${caseId}/document-collections`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateDocumentCollection(
+  caseId: string,
+  collectionId: string,
+  payload: { name?: string; description?: string | null; color?: string | null; sort_order?: number }
+): Promise<DocumentCollectionRead> {
+  return request(`/cases/${caseId}/document-collections/${collectionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteDocumentCollection(caseId: string, collectionId: string): Promise<void> {
+  return request(`/cases/${caseId}/document-collections/${collectionId}`, {
+    method: "DELETE"
+  });
+}
+
+export function listDocumentCollectionDocuments(caseId: string, collectionId: string): Promise<{ data: DocumentRead[] }> {
+  return request(`/cases/${caseId}/document-collections/${collectionId}/documents`);
+}
+
+export function addDocumentsToCollection(
+  caseId: string,
+  collectionId: string,
+  documentIds: string[]
+): Promise<DocumentCollectionMembershipChangeResponse> {
+  return request(`/cases/${caseId}/document-collections/${collectionId}/documents`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ document_ids: documentIds })
+  });
+}
+
+export function removeDocumentsFromCollection(
+  caseId: string,
+  collectionId: string,
+  documentIds: string[]
+): Promise<DocumentCollectionMembershipChangeResponse> {
+  return request(`/cases/${caseId}/document-collections/${collectionId}/documents`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ document_ids: documentIds })
+  });
+}
+
+export function resolveDocumentCollectionScope(
+  caseId: string,
+  collectionIds: string[]
+): Promise<DocumentCollectionScopeResolveResponse> {
+  return request(`/cases/${caseId}/document-collections/resolve-scope`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source_mode: "collections", collection_ids: collectionIds })
+  });
+}
+
 export function listEntities(caseId: string): Promise<{ data: EntityRead[] }> {
   return request(`/cases/${caseId}/entities`);
 }
@@ -1005,7 +1118,7 @@ export function runAnalysis(caseId: string, moduleKey: string, payload: Analysis
 
 export function indexChunks(
   caseId: string,
-  payload: { document_id?: string | null; limit?: number; force_reindex?: boolean }
+  payload: { document_id?: string | null; collection_id?: string | null; limit?: number; force_reindex?: boolean }
 ): Promise<ChunkIndexResponse> {
   return request(`/cases/${caseId}/indexes/chunks`, {
     method: "POST",
@@ -1018,6 +1131,7 @@ export function startChunkIndexJob(
   caseId: string,
   payload: {
     document_id?: string | null;
+    collection_id?: string | null;
     document_ids?: string[];
     limit?: number;
     force_reindex?: boolean;
@@ -1034,12 +1148,16 @@ export function getChunkIndexStatus(
   caseId: string,
   filters?: {
     document_id?: string | null;
+    collection_id?: string | null;
     document_ids?: string[];
   } | null
 ): Promise<ChunkIndexStatusResponse> {
   const params = new URLSearchParams();
   if (filters?.document_id) {
     params.set("document_id", filters.document_id);
+  }
+  if (filters?.collection_id) {
+    params.set("collection_id", filters.collection_id);
   }
   for (const documentId of filters?.document_ids ?? []) {
     params.append("document_ids", documentId);

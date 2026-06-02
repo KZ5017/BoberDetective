@@ -39,14 +39,22 @@ class KeywordSearchResponse(BaseModel):
 
 class ChunkIndexRequest(BaseModel):
     document_id: UUID | None = None
+    collection_id: UUID | None = None
     document_ids: list[UUID] = Field(default_factory=list)
     limit: int = Field(default=200, ge=1, le=1000)
     force_reindex: bool = False
 
     @model_validator(mode="after")
     def validate_scope(self) -> "ChunkIndexRequest":
-        if self.document_id is not None and self.document_ids:
-            raise ValueError("document_id cannot be combined with document_ids")
+        selected_scope_count = sum(
+            [
+                self.document_id is not None,
+                self.collection_id is not None,
+                bool(self.document_ids),
+            ]
+        )
+        if selected_scope_count > 1:
+            raise ValueError("document_id, collection_id and document_ids cannot be combined")
         return self
 
 
@@ -68,6 +76,7 @@ class ChunkIndexJobResponse(BaseModel):
 class ChunkIndexStatusResponse(BaseModel):
     case_id: UUID
     document_id: UUID | None = None
+    collection_id: UUID | None = None
     document_ids: list[UUID] = Field(default_factory=list)
     collection_name: str
     embedding_model: str

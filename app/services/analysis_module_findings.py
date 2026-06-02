@@ -73,6 +73,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
         "query": payload.query,
         "source_mode": payload.source_mode,
         "document_id": str(payload.document_id) if payload.document_id is not None else None,
+        "collection_id": str(payload.collection_id) if payload.collection_id is not None else None,
         "document_ids": [str(document_id) for document_id in payload.document_ids],
         "page_start": payload.page_start,
         "page_end": payload.page_end,

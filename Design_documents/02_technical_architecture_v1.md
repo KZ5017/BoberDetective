@@ -1364,6 +1364,8 @@ Az első architektúrában előkészítjük, de nem építjük meg teljesen:
 
 ## 33. Későbbi jogszabályi RAG előkészítése
 
+> **Aktuális megjegyzés, 2026-06-02:** a jogszabályi RAG továbbra sem azonnali implementációs feladat, de a következő nagyobb tervezési irány már egy általános lokális RAG kérdező réteg. Ebben a jogszabályi corpus később specializált adat- és retrieval-profillal jelenhet meg. Részletek: `Design_documents/20_general_rag_question_answering_plan.md`.
+
 Bár a jogszabályi RAG nem MVP-1 funkció, az architektúrát úgy kell kialakítani, hogy később hozzáadható legyen.
 
 Ehhez már MVP-ben szükséges:

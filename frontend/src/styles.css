@@ -543,26 +543,30 @@ label {
   order: 1;
 }
 
-.documents-panel {
+.document-collections-panel {
   order: 2;
+}
+
+.documents-panel {
+  order: 3;
 }
 
 .document-detail-panel {
   max-height: min(78vh, 62rem);
-  order: 3;
+  order: 4;
   overflow: auto;
 }
 
 .analysis-panel {
-  order: 4;
-}
-
-.analysis-history-panel {
   order: 5;
 }
 
-.analysis-detail-panel {
+.analysis-history-panel {
   order: 6;
+}
+
+.analysis-detail-panel {
+  order: 7;
 }
 
 .panel {
@@ -688,6 +692,81 @@ label {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+}
+
+.collection-create-row {
+  align-items: center;
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.collection-summary {
+  background: #f8fafb;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.7rem;
+}
+
+.collection-summary > div:first-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.collection-summary span,
+.collection-scope-preview span {
+  color: #65737d;
+  font-size: 0.86rem;
+}
+
+.collection-scope-preview {
+  background: #fff7e6;
+  border: 1px solid #e3c783;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  padding: 0.65rem;
+}
+
+.collection-scope-preview strong {
+  flex-basis: 100%;
+}
+
+.collection-content-panel {
+  background: #ffffff;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+}
+
+.collection-content-list {
+  max-height: 24rem;
+  overflow: auto;
+  padding-right: 0.15rem;
+}
+
+.compact-heading h3 {
+  color: #202124;
+  font-size: 1rem;
+  margin: 0;
+}
+
+.document-collection-bulk-bar {
+  background: #f8fafb;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+}
+
+.document-collection-target-select {
+  min-width: 0;
 }
 
 .source-filter-panel {
@@ -1076,6 +1155,11 @@ label {
 .document-list-item {
   align-items: start;
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.document-list-item.is-collection-marked {
+  background: #fff7e6;
+  border-color: #e3c783;
 }
 
 .document-list-main,

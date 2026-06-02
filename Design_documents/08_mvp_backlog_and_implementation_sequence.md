@@ -19,6 +19,8 @@ Alapelv:
 
 ## 2. Első működő célállapot
 
+> **Aktualis megjegyzes, 2026-06-02:** az MVP alapok es a szigoru forraskotott munkapad workflow-k mar eleg erosek ahhoz, hogy a kovetkezo nagyobb szeletet eloszor tervezesi szinten az altalanos lokalis RAG kerdezo iranyaba vigyuk. Ez nem valtja ki a `search_findings` es review/worklist folyamatokat, hanem egy szabadabb, kijelolt korpuszra korlatozott kerdes-valasz reteg lesz mellettuk. Uj terv: `Design_documents/20_general_rag_question_answering_plan.md`.
+
 > **Aktualis megjegyzes, 2026-05-17:** az elso MVP celallapot nagy resze mar megvalosult es tovabb finomodott: React/Vite frontend, explicit PDF text-review/chunkolas, OCR, batch-kepes raw-chunk analysis modulok, semantic/hybrid retrieval es background indexing is van. A kovetkezo nagy alapozas a strukturalt irattaxonomia es forrasszures. Friss allapot: `CURRENT_STATE.md`; uj terv: `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`.
 
 Az első valóban hasznos MVP célállapot:
@@ -582,6 +584,8 @@ Ne implementáljuk az első körökben:
 - enterprise permission rendszer,
 - multi-case összehasonlítás,
 - e-mail/chat/cellaadat speciális pipeline,
+
+Megjegyzes: a jogszabalyi RAG tovabbra is specializalt, kesobbi corpus-profil. Az altalanos lokalis RAG kerdezo megtervezese viszont most mar kovetkezo nagyobb irany, mert ugyanarra a stabil import/text-store/retrieval/LLM/audit alapra epul.
 - PDF/DOCX export,
 - biometria, hang, videó.
 

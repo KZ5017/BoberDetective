@@ -78,7 +78,9 @@ The first MVP should focus on the investigative document processing core:
 16. Human review workflow.
 17. Exportable reports.
 
-Legal RAG is a later module and should not be implemented before the document processing and source-citation foundation is stable.
+Legal RAG is a later specialized corpus profile and should not be implemented before the document processing and source-citation foundation is stable.
+
+> **Current note, 2026-06-02:** the next larger planning direction is broader than legal RAG: design a general local RAG question-answering layer over selected imported/corpus material. Legal RAG should later fit under that layer as a specialized legal corpus profile. See `Design_documents/20_general_rag_question_answering_plan.md`.
 
 ## Proposed technical stack
 

@@ -349,6 +349,8 @@ Az audit log célja nem csak technikai hibakeresés, hanem eljárási és szakma
 
 ## 12. Jogszabályi RAG modul helye
 
+> **Aktuális megjegyzés, 2026-06-02:** a jogszabályi RAG irányt mostantól az általános lokális RAG kérdező egyik kiemelt, specializált use case-eként kell kezelni. A következő nagyobb tervezési szelet nem rögtön a jogszabályi modul, hanem az általános `Általános iratkérdező` / corpus-bound kérdés-válasz réteg átfogó megtervezése. Részletek: `Design_documents/20_general_rag_question_answering_plan.md`.
+
 A magyar jogszabályi tudásbázis nem az MVP-1 legelső eleme, hanem az MVP-2 vagy MVP-3 egyik kiemelt modulja.
 
 Indoklás:

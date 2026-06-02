@@ -126,6 +126,7 @@ Completed:
 - Source-bound `Kutatási találatok` workflow: `search_findings` creates source-cited research worklist items, users can set aside/restore/delete/bulk-delete them, and selected findings can be converted into structured claim/entity/event/missing item candidate objects
 - Full-case deletion through `Ügy végleges törlése`, preserving global audit history while removing case-owned rows, files, and Qdrant points
 - Full-document processing surface: selected active document plus page range can create backend source-evidence-validated person-search `document_processing_items`; users can switch between active/félretett views, restore set-aside items, filter by item name, mark one or all visible items for deletion, bulk-delete marked items, see repeated-label tags, and hand a recommended focus back to the `Ügy munkapad`
+- Iratgyűjtemények: users can create source-scope collections, preview active-document scope resolution, select a target collection in the `Iratok` panel, mark individual or all visible documents, bulk-add marked batches, inspect collection contents, search within collection members, and bulk-remove marked documents without duplicating source documents
 - Retired raw chunk extraction modules (`extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`) are no longer active backend/frontend workflows
 
 PDF/OCR sample checks:
@@ -135,11 +136,12 @@ PDF/OCR sample checks:
 
 Next:
 
-- Continue full-document prompt/profile tuning from live output quality
-- Continue tuning person `recommended_search_focus` values used as whole-case follow-up search focuses
-- Design the explicit handoff from full-document preparatory items into focused `search_findings` runs or reusable search-focus workflows
-- Decide whether item conversion should first create research findings, structured manual objects, or only prefilled search runs
-- After the full-document processing surface and integration, design and implement the full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
+- Close the current full-document person-profile tuning loop from live output quality
+- Continue with broad UX/product/backend design for the `Általános iratkérdező` / local RAG question-answering layer now that `iratgyujtemeny` is usable as a management, `search_findings`, and indexing source-scope layer
+- Add multi-collection source scopes only where analysis/RAG workflows need them; the current first analysis/indexing integration uses one selected collection at a time
+- Then continue with detailed API/retrieval/prompt planning and incremental implementation for the general RAG question-answering workflow
+- Keep `search_findings`, full-document person seeds, source validation, and contradiction detection as strict auditable workbench workflows beside the freer RAG question-answering layer
+- After the general RAG direction is settled, revisit the full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
 - Keep documentation cleanup around retired raw modules opportunistic; active capability lists should continue to point to `search_findings`
 - Consider durable job supervision if indexing grows beyond FastAPI background tasks
 
@@ -177,6 +179,7 @@ See:
 - `Design_documents/17_storage_migration_impact_review.md`
 - `Design_documents/18_keyword_search_text_store_migration_plan.md`
 - `Design_documents/19_document_taxonomy_retirement_plan.md`
+- `Design_documents/20_general_rag_question_answering_plan.md`
 
 ## Handoff notes
 

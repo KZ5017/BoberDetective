@@ -134,12 +134,14 @@ def post_chunk_index_job(
 def get_chunk_index_status_endpoint(
     case_id: UUID,
     document_id: UUID | None = None,
+    collection_id: UUID | None = None,
     document_ids: list[UUID] = Query(default_factory=list),
     db: Session = Depends(get_db),
 ) -> ChunkIndexStatusResponse:
     try:
         request = ChunkIndexRequest(
             document_id=document_id,
+            collection_id=collection_id,
             document_ids=document_ids,
         )
         result = get_chunk_index_status(db, case_id, request)

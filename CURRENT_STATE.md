@@ -21,6 +21,7 @@ Read these first:
 - `Design_documents/17_storage_migration_impact_review.md`
 - `Design_documents/18_keyword_search_text_store_migration_plan.md`
 - `Design_documents/19_document_taxonomy_retirement_plan.md`
+- `Design_documents/20_general_rag_question_answering_plan.md`
 
 Then run:
 
@@ -32,8 +33,8 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 252 passed
-alembic: 0042_doc_proc_person_only (head)
+pytest: 278 passed
+alembic: 0043_document_collections (head)
 ```
 
 ## What Works Now
@@ -42,7 +43,7 @@ alembic: 0042_doc_proc_person_only (head)
 - Minimal React/Vite frontend workbench scaffold under `frontend/`.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0042_doc_proc_person_only`.
+- Alembic migrations through `0043_document_collections`.
 - Immutable TXT import with page/chunk persistence plus first physical text-store writes.
 - Explicit imported-document processing validation run flow.
 - Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile, page persistence, and `parse_document` analysis run provenance.
@@ -68,6 +69,11 @@ alembic: 0042_doc_proc_person_only (head)
 - Migration `0040_drop_db_text_cols` removes the legacy PostgreSQL full-text storage columns `document_pages.extracted_text` and `document_chunks.chunk_text` plus their old FTS indexes. Full page/chunk text now lives in the data-root text store; PostgreSQL keeps metadata, manifests, search entries, source references, workflow, and audit/provenance data.
 - Migration `0041_detach_audit_lifecycle` removes the hard `audit_events.case_id` and `audit_events.analysis_run_id` foreign keys. Audit rows now keep those UUIDs as historical metadata so a full case delete can remove case-owned work data while preserving the audit trail.
 - Migration `0042_doc_proc_person_only` removes the unfinished non-person full-document profile path from the database contract: `document_processing_items.profile_key` is limited to `person_search_seeds`, `item_kind` is limited to `person`, and any pre-existing non-person preparatory worklist rows are deleted during upgrade.
+- Migration `0043_document_collections` adds the first general RAG/source-scope backend foundation: many-to-many `document_collections` and `document_collection_memberships`, case-insensitive per-case collection names, membership metadata, and active-document source-scope resolution support.
+- Iratgyujtemeny backend/API v1 is implemented: collection create/list/update/delete, document add/remove/list, document-to-collections lookup, and `POST /api/v1/cases/{case_id}/document-collections/resolve-scope` for deduplicated active-document source scopes. Collection membership does not duplicate documents and does not alter source validation, review, merge, or object semantics.
+- Iratgyujtemeny frontend v1 is implemented inside the `Ügy munkapad` left workflow column: users can create/delete collections, preview a selected collection as source scope, choose an independent target collection in the `Iratok` panel, mark individual or all visible documents, bulk-add marked documents, keep the marked set for adding the same document batch to multiple collections, inspect selected collection contents, search within collection members, and bulk-remove marked documents from a collection.
+- Iratgyujtemeny source-scope integration is implemented for the active research workflow: `search_findings` accepts `source_mode=collection` with `collection_id`, resolves the collection to a deduplicated active document set, records `collection_id` in analysis run input parameters, and uses the resolved document set for keyword/semantic/hybrid source selection.
+- Chunk indexing and index readiness now support selected collection scopes: `ChunkIndexRequest` and `GET /api/v1/cases/{case_id}/indexes/chunks/status` accept `collection_id`, resolve it through the backend source-scope resolver, and the frontend `Elemzés` panel exposes `Iratgyűjtemény` as a searchable source-scope selector with matching index status and background indexing behavior.
 - Full case deletion is available through `DELETE /api/v1/cases/{case_id}` and the frontend `Ügy végleges törlése` action. It deletes case-owned DB rows, requests Qdrant point deletion by `case_id`, removes the case data-root directory, and writes a surviving global `case_deleted` audit event.
 - Latest full workflow/delete smoke: user completed two-file import, OCR on both files, chunk creation, indexing, keyword search, hybrid search, and conversion of one finding from each path into structured objects without errors. Frontend full-case delete then removed the case. Post-delete checks found no case-owned DB rows, no case data-root directory, and zero Qdrant points for the deleted case; only intended `audit_events` and the dev user remained.
 - First full-document processing backend foundation exists through migration `0039_doc_proc_items`: `document_processing_items` table, `full_document_processing` analysis run type, `document_processing_item` analysis output type, SQLAlchemy model, schemas, profile registry, read/list/status API skeleton, and a first run-start API/service slice.
@@ -378,11 +384,12 @@ Latest document-processing/PDF smoke:
 
 Recommended order:
 
-1. Continue full-document prompt/profile tuning based on live output quality: reduce noisy duplicates at the prompt level, keep backend label-to-source evidence construction strict, keep item descriptions useful as search seeds, and verify that the compact prompt avoids runaway repeated JSON output.
-2. Design and implement the explicit handoff from `document_processing_items` into focused `search_findings` runs or reusable focus-seed workflows.
-3. Decide whether full-document item conversion should first create research findings, structured manual objects, or only prefilled search runs.
-4. Keep the storage/retrieval foundation stable: text-store-first reads, `document_search_entries`, keyword/hybrid retrieval, and `search_findings` smoke should remain green after each slice.
-5. Expand the new `Audit napló` work surface into the dedicated full audit-log workflow/API/panel backed by `audit_events` after the full-document foundation is usable.
+1. Continue with broad UX/product/backend design for the `Általános iratkérdező` / local RAG question-answering layer now that the first collection-based source-scope layer is usable.
+2. Decide the general RAG answer contract: ephemeral answer vs persisted object, source excerpt display, answer history/provenance, and how much source citation is required for the freer Q&A workflow.
+3. Add multi-collection source-scope selection only where the RAG/analysis workflow needs it; the current first implementation intentionally supports one selected collection in `search_findings` and indexing.
+4. Keep the current source-bound workbench stable while planning the general RAG layer: `search_findings`, research-finding conversion, full-document person seeds, source validation, and contradiction detection should remain strict and auditable.
+5. Decide later whether full-document item handoff should create research findings, structured manual objects, prefilled `search_findings` runs, or feed the new general RAG question flow.
+6. Expand the new `Audit napló` work surface into the dedicated full audit-log workflow/API/panel backed by `audit_events` after the general RAG source-scope layer is usable.
 
 Rationale:
 
@@ -392,6 +399,7 @@ Rationale:
 - Document lifecycle is now an active-source gate. Inactive documents must remain historically visible where already cited, but must not become new source material unless restored to `active`.
 - The former raw-chunk automatic extraction modules have already been retired from active code paths. Keep cleanup/documentation focused on the current source-bound `search_findings` workflow and the downstream claim-pair contradiction workflow.
 - Contradiction detection is downstream of source-cited claims, so it should remain claim-pair based and preserve `no source -> no claim` through claim/source-reference provenance.
+- The next major system direction is an `Általános iratkérdező` / local RAG question-answering layer. It should not replace the strict worklist workflows; it should reuse the existing text-store, retrieval, embedding, source-scope, LM Studio, and analysis-run foundations to answer free-form questions over a selected local corpus, while still preserving internal source provenance.
 - UI work-surface architecture is captured in `Design_documents/14_work_surface_ui_architecture_plan.md`. The first shell/navigation slice is implemented: the current workbench is available as `Ügy munkapad`, with surfaces for `Teljes iratfeldolgozás` and `Audit napló`.
 - The `Teljes iratfeldolgozás` surface is backend-connected: active-document search/selection, processing profile selection, selected-document summary, page-range run-start, last-run validation summary, active/set-aside worklist views, inline source evidence display, restore, repeated-label tags, worklist name search, deletion marking with all-visible selection plus bulk delete, and focus handoff are implemented.
 - Full-document processing backend contract is captured in `Design_documents/15_full_document_processing_plan.md`. `document_processing_item` is a separate preparatory work item, not a `research_finding` and not a structured review object. The current backend/frontend slice exposes profile listing, selected page-range run-start execution, item list/status APIs, active/set-aside worklist views, repeated-label occurrence tags, worklist name search, deletion marking with all-visible selection plus bulk delete, and focus handoff into the `Ügy munkapad`.

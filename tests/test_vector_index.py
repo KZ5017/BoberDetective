@@ -9,7 +9,15 @@ from app.models.document import DocumentChunkModel, DocumentModel
 from app.services.search import KeywordSearchHit
 from app.schemas.search import ChunkIndexRequest
 from app.services.llm import LLMEmbeddingResult
-from app.services.vector_index import QdrantChunkIndex, SemanticChunkHit, _chunks_to_index, embed_chunks_in_batches, hybrid_chunk_search, semantic_chunk_search
+from app.services.vector_index import (
+    QdrantChunkIndex,
+    SemanticChunkHit,
+    _chunks_to_index,
+    _scope_document_ids,
+    embed_chunks_in_batches,
+    hybrid_chunk_search,
+    semantic_chunk_search,
+)
 
 
 def _settings() -> Settings:
@@ -377,3 +385,19 @@ def test_chunks_to_index_reindexes_chunks_from_a_different_embedding_model(monke
     assert "document_chunks.embedding_vector_id IS NULL" in compiled
     assert "document_chunks.embedding_model IS NULL" in compiled
     assert "document_chunks.embedding_model !=" in compiled
+
+
+def test_scope_document_ids_resolves_collection_scope(monkeypatch) -> None:
+    case_id = uuid4()
+    collection_id = uuid4()
+    resolved_document_ids = [uuid4(), uuid4()]
+
+    def fake_resolve_document_scope(db, case_id_arg, source_mode, *, collection_ids=None, document_ids=None):
+        assert case_id_arg == case_id
+        assert source_mode == "collections"
+        assert collection_ids == [collection_id]
+        return type("Resolution", (), {"resolved_document_ids": resolved_document_ids})()
+
+    monkeypatch.setattr("app.services.vector_index.resolve_document_scope", fake_resolve_document_scope)
+
+    assert _scope_document_ids(object(), case_id, ChunkIndexRequest(collection_id=collection_id)) == resolved_document_ids

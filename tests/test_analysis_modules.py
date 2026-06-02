@@ -361,6 +361,47 @@ def test_select_source_chunks_case_mode_passes_document_ids(monkeypatch) -> None
     assert captured_document_ids == document_ids
 
 
+def test_analysis_module_request_requires_collection_id_for_collection_scope() -> None:
+    with pytest.raises(ValidationError):
+        AnalysisModuleRunRequest(source_mode="collection", query="fokusz")
+
+
+def test_select_source_chunks_collection_mode_resolves_document_ids(monkeypatch) -> None:
+    collection_id = uuid4()
+    resolved_document_ids = [uuid4(), uuid4()]
+    captured_document_ids = []
+
+    def fake_resolve_document_scope(db, case_id, source_mode, *, collection_ids=None, document_ids=None):
+        assert source_mode == "collections"
+        assert collection_ids == [collection_id]
+        return SimpleNamespace(resolved_document_ids=resolved_document_ids)
+
+    def fake_retrieve_source_scope_chunks(
+        db,
+        case_id_arg,
+        payload,
+        *,
+        document_id=None,
+        document_ids=None,
+        page_start=None,
+        page_end=None,
+    ):
+        captured_document_ids.extend(document_ids or [])
+        return [_retrieved_chunk("chunk_1", "Gyujtemenybol szurt forras.")]
+
+    monkeypatch.setattr(analysis_module_common, "resolve_document_scope", fake_resolve_document_scope)
+    monkeypatch.setattr(analysis_module_common, "retrieve_source_scope_chunks", fake_retrieve_source_scope_chunks)
+
+    retrieved = analysis_module_common.select_source_chunks(
+        SimpleNamespace(),
+        uuid4(),
+        AnalysisModuleRunRequest(source_mode="collection", collection_id=collection_id, query="fokusz"),
+    )
+
+    assert len(retrieved) == 1
+    assert captured_document_ids == resolved_document_ids
+
+
 def test_select_source_chunks_uses_retrieval_for_document_mode_with_focus(monkeypatch) -> None:
     case_id = uuid4()
     document_id = uuid4()

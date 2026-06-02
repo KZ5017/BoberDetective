@@ -4,7 +4,13 @@
 
 ### Changed
 
-- Updated the current verification baseline to `252 passed` and Alembic head `0042_doc_proc_person_only`.
+- Implemented the first backend/API slice of `iratgyujtemeny` / source-scope selection through migration `0043_document_collections`: many-to-many document collections, collection membership metadata, case-insensitive per-case names, and active-document scope resolution.
+- Added `app/api/v1/document_collections.py`, Pydantic schemas, service logic, and backend tests for collection CRUD, bulk add/remove semantics, document-to-collection lookup, and deduplicated source-scope previews.
+- Added the first frontend `Iratgyűjtemények` slice to the `Ügy munkapad`: create/delete collections, select a collection, add/remove documents from the document list, refresh membership contents, and preview the resolved active-document source scope.
+- Improved the document-collection UX for larger document sets: the `Iratok` panel now has its own searchable target-collection selector, per-document marking, all-visible marking, clear selection, and bulk add of marked documents while preserving the marked batch for reuse across multiple collections.
+- Added collection-content management to the `Iratgyűjtemények` panel: users can inspect a selected collection's documents, search within them, mark individual or all visible entries, and bulk-remove marked documents from the collection.
+- Wired `iratgyűjtemény` into the active research/indexing workflow: `search_findings` supports `source_mode=collection` with `collection_id`, semantic/hybrid index readiness and background indexing accept collection scopes, and the frontend `Elemzés` panel exposes `Iratgyűjtemény` through the shared searchable selector.
+- Updated the verification baseline to `278 passed` and Alembic head `0043_document_collections`.
 - Reverted the configured LM Studio chat-model load profile to `context_length=61440`, with `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`; embedding remains `text-embedding-bge-m3` with `context_length=4096`.
 - Hardened the full-document processing runtime for long local model calls: selected page ranges are sent in one LLM request, artificial item caps were removed, the long-call timeout remains 900 seconds, and a 9000-token output safety ceiling is used to stop runaway repeated JSON.
 - Simplified the full-document processing prompt: the system prompt keeps only the source-faithfulness and valid-JSON constraints, while the user prompt asks only for person worklist seeds with `display_label`, `recommended_search_focus`, and `source_label`. The model is no longer asked to generate `short_description`, `unsupported_items`, or character-exact source quotes for this workflow.
@@ -32,7 +38,9 @@
 - Added active/félretett worklist views for the `Teljes iratfeldolgozás` surface, with restore from félretett, deletion marking on cards, "összes látható törlésre jelölése", bulk soft-delete from the worklist toolbar, and display-label search within the prepared worklist.
 - Added `POST /api/v1/cases/{case_id}/full-document-processing/items/bulk-delete` for grouped deletion of preparatory full-document worklist items.
 - Moved LLM model status into a thin global top bar with grouped chat/embedding load and unload controls, and replaced the old per-workbench operation panel with a compact AI operation strip below the surface selector.
-- Refreshed handoff and planning documents so the next direction is full-document prompt/profile tuning, explicit item handoff/conversion design, and then the dedicated `Audit napló` API/panel.
+- Added `Design_documents/20_general_rag_question_answering_plan.md` and refreshed handoff/next-step documents so the next larger strategic slice is broad design for a general local RAG question-answering surface over selected imported/corpus material, while the strict worklist/source-validation workflows remain alongside it.
+- Expanded the general RAG plan with a concrete first-step design for `iratgyujtemeny` / source-scope selection: many-to-many document collections, deduplicated active-document scope resolution, backend/API/audit/frontend/index-readiness planning, and explicit non-goals.
+- Added `iratgyujtemeny` contract v1 to the general RAG plan: DB constraints, Pydantic schema shapes, service behavior, API endpoints/status codes, audit metadata, frontend minimal UX, backend/frontend test contracts, and a backend-first implementation order.
 
 ## 2026-05-26
 

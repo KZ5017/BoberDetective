@@ -14,6 +14,7 @@ from app.models.analysis import AnalysisRunInputModel, AnalysisRunModel, Analysi
 from app.models.document import DocumentChunkModel, DocumentModel
 from app.schemas.search import ChunkIndexRequest
 from app.services.analysis_runs import add_analysis_run_input, add_analysis_run_output, finish_analysis_run, start_analysis_run
+from app.services.document_collections import DocumentCollectionError, resolve_document_scope
 from app.services.llm import LLMProviderError, get_llm_provider
 from app.services.search import KeywordSearchHit
 from app.services.text_store import read_chunk_text, read_chunk_text_from_store
@@ -44,6 +45,7 @@ class ChunkIndexJobResult:
 class ChunkIndexStatus:
     case_id: UUID
     document_id: UUID | None
+    collection_id: UUID | None
     document_ids: list[UUID]
     collection_name: str
     embedding_model: str
@@ -283,6 +285,7 @@ def _start_chunk_index_run(
         model_name=settings.llm_embedding_model,
         input_parameters={
             "document_id": str(request.document_id) if request.document_id is not None else None,
+            "collection_id": str(request.collection_id) if request.collection_id is not None else None,
             "document_ids": [str(document_id) for document_id in request.document_ids],
             "limit": request.limit,
             "force_reindex": request.force_reindex,
@@ -497,6 +500,7 @@ def get_chunk_index_status(
     return ChunkIndexStatus(
         case_id=case_id,
         document_id=request.document_id,
+        collection_id=request.collection_id,
         document_ids=request.document_ids,
         collection_name=chunk_collection_name(settings),
         embedding_model=settings.llm_embedding_model,
@@ -521,9 +525,14 @@ def ensure_semantic_index_ready(
     case_id: UUID,
     *,
     document_id: UUID | None = None,
+    collection_id: UUID | None = None,
     document_ids: list[UUID] | None = None,
 ) -> None:
-    index_status = get_chunk_index_status(db, case_id, ChunkIndexRequest(document_id=document_id, document_ids=document_ids or []))
+    index_status = get_chunk_index_status(
+        db,
+        case_id,
+        ChunkIndexRequest(document_id=document_id, collection_id=collection_id, document_ids=document_ids or []),
+    )
     if index_status.current_chunk_count == 0:
         raise VectorIndexError("Nincs indexelheto aktualis szovegresz ebben a forraskorben.")
     if not index_status.is_ready:
@@ -661,6 +670,11 @@ def _scope_document_ids(db: Session, case_id: UUID, request: ChunkIndexRequest) 
     if request.document_id is not None:
         active_id = db.execute(base_stmt.where(DocumentModel.id == request.document_id)).scalar_one_or_none()
         return [active_id] if active_id is not None else []
+    if request.collection_id is not None:
+        try:
+            return resolve_document_scope(db, case_id, "collections", collection_ids=[request.collection_id]).resolved_document_ids
+        except DocumentCollectionError as exc:
+            raise VectorIndexError(str(exc)) from exc
     if not request.document_ids:
         return None
     stmt = base_stmt

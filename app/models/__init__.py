@@ -4,6 +4,7 @@ from app.models.case import CaseModel, CaseUserModel
 from app.models.claim import ClaimModel, ClaimSourceModel
 from app.models.contradiction import ContradictionCandidateModel, ContradictionCandidateSourceModel
 from app.models.detached_source import DetachedSourceItemModel
+from app.models.document_collection import DocumentCollectionMembershipModel, DocumentCollectionModel
 from app.models.document import (
     DocumentChunkManifestModel,
     DocumentChunkModel,
@@ -36,6 +37,8 @@ __all__ = [
     "DetachedSourceItemModel",
     "DocumentChunkManifestModel",
     "DocumentChunkModel",
+    "DocumentCollectionMembershipModel",
+    "DocumentCollectionModel",
     "DocumentModel",
     "DocumentPageModel",
     "DocumentProcessingItemModel",

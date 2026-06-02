@@ -27,6 +27,8 @@ import {
   ClaimReviewScope,
   ChunkIndexStatusResponse,
   DetachedSourceItemRead,
+  DocumentCollectionRead,
+  DocumentCollectionScopeResolveResponse,
   DocumentProcessingItemRead,
   DocumentChunkRead,
   DocumentPageRead,
@@ -48,6 +50,7 @@ import {
   ReviewReportItem,
   ReviewReportSource,
   RetrievalStrategy,
+  addDocumentsToCollection,
   attachDetachedSourceItem,
   attachManualSourceToExistingObject,
   bulkDeleteDocumentProcessingItems,
@@ -55,11 +58,13 @@ import {
   convertResearchFinding,
   createCase,
   createDocumentChunks,
+  createDocumentCollection,
   createExport,
   createManualObject,
   createManualContradictionCandidate,
   createManualObjectFromDetachedSource,
   deleteCase,
+  deleteDocumentCollection,
   detachObjectSource,
   discardDocument,
   deleteDetachedSourceItem,
@@ -70,6 +75,8 @@ import {
   importDocument,
   getLlmSmoke,
   listDetachedSourceItems,
+  listDocumentCollectionDocuments,
+  listDocumentCollections,
   listDocumentChunks,
   listDocumentPages,
   listAnalysisRuns,
@@ -91,7 +98,9 @@ import {
   mergeMissingItemCandidate,
   moveObjectSource,
   reviewObject,
+  removeDocumentsFromCollection,
   restoreResearchFinding,
+  resolveDocumentCollectionScope,
   runAnalysis,
   runFullDocumentProcessing,
   runDocumentOcr,
@@ -117,7 +126,7 @@ const objectTypes = [
 
 const reviewStatuses = ["", "needs_review", "verified", "rejected", "corrected", "new"];
 const sourceValidationStatuses = ["", "source_valid", "source_invalid", "pending_source_validation"];
-const analysisSourceModes: AnalysisSourceMode[] = ["case", "document"];
+const analysisSourceModes: AnalysisSourceMode[] = ["case", "document", "collection"];
 const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
 const retrievalStrategies: RetrievalStrategy[] = ["keyword", "semantic", "hybrid"];
 const workSurfaces = ["case_workbench", "full_document_processing", "audit_log"] as const;
@@ -166,6 +175,11 @@ const busyLabels: Record<string, string> = {
   "document-discard": "Irat elvetése",
   "document-chunks": "Szovegreszek letrehozasa",
   "document-ocr": "OCR futtatasa",
+  "document-collections": "Iratgyűjtemények betöltése",
+  "document-collection-create": "Iratgyűjtemény létrehozása",
+  "document-collection-delete": "Iratgyűjtemény törlése",
+  "document-collection-membership": "Iratgyűjtemény tagság módosítása",
+  "document-collection-scope": "Forráskör előnézet",
   "run-detail": "Elemzesi futas reszleteinek betoltese",
   exports: "Export elozmenyek betoltese",
   import: "Irat importalasa",
@@ -219,6 +233,7 @@ const moduleLabels: Record<string, string> = {
 
 const analysisSourceModeLabels: Record<AnalysisSourceMode, string> = {
   document: "Kivalasztott irat",
+  collection: "Iratgyűjtemény",
   case: "Teljes ugy"
 };
 
@@ -320,6 +335,17 @@ function getManualContradictionClaims(caseId: string): Promise<ReviewReport> {
 export function App() {
   const [cases, setCases] = useState<CaseRead[]>([]);
   const [documents, setDocuments] = useState<DocumentRead[]>([]);
+  const [documentCollections, setDocumentCollections] = useState<DocumentCollectionRead[]>([]);
+  const [selectedDocumentCollectionId, setSelectedDocumentCollectionId] = useState("");
+  const [selectedDocumentCollectionDocuments, setSelectedDocumentCollectionDocuments] = useState<DocumentRead[]>([]);
+  const [selectedDocumentCollectionMarkedDocumentIds, setSelectedDocumentCollectionMarkedDocumentIds] = useState<string[]>([]);
+  const [documentCollectionContentSearch, setDocumentCollectionContentSearch] = useState("");
+  const [documentCollectionTargetId, setDocumentCollectionTargetId] = useState("");
+  const [documentCollectionTargetDocuments, setDocumentCollectionTargetDocuments] = useState<DocumentRead[]>([]);
+  const [documentCollectionMarkedDocumentIds, setDocumentCollectionMarkedDocumentIds] = useState<string[]>([]);
+  const [newDocumentCollectionName, setNewDocumentCollectionName] = useState("");
+  const [newDocumentCollectionDescription, setNewDocumentCollectionDescription] = useState("");
+  const [documentCollectionScopePreview, setDocumentCollectionScopePreview] = useState<DocumentCollectionScopeResolveResponse | null>(null);
   const [analysisRuns, setAnalysisRuns] = useState<AnalysisRunRead[]>([]);
   const [exports, setExports] = useState<ExportRead[]>([]);
   const [entities, setEntities] = useState<EntityRead[]>([]);
@@ -369,6 +395,7 @@ export function App() {
   const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("case");
   const [analysisDocumentId, setAnalysisDocumentId] = useState("");
   const [analysisDocumentIds, setAnalysisDocumentIds] = useState<string[]>([]);
+  const [analysisCollectionId, setAnalysisCollectionId] = useState("");
   const [analysisDocumentSearch, setAnalysisDocumentSearch] = useState("");
   const [maxChunks, setMaxChunks] = useState(30);
   const [batchSize, setBatchSize] = useState(1);
@@ -442,6 +469,35 @@ export function App() {
     () => activeDocuments.filter((document) => document.current_chunk_count > 0),
     [activeDocuments]
   );
+  const selectedDocumentCollection = useMemo(
+    () => documentCollections.find((collection) => collection.id === selectedDocumentCollectionId) ?? null,
+    [documentCollections, selectedDocumentCollectionId]
+  );
+  const targetDocumentCollection = useMemo(
+    () => documentCollections.find((collection) => collection.id === documentCollectionTargetId) ?? null,
+    [documentCollections, documentCollectionTargetId]
+  );
+  const analysisDocumentCollection = useMemo(
+    () => documentCollections.find((collection) => collection.id === analysisCollectionId) ?? null,
+    [documentCollections, analysisCollectionId]
+  );
+  const targetCollectionDocumentIds = useMemo(
+    () => new Set(documentCollectionTargetDocuments.map((document) => document.id)),
+    [documentCollectionTargetDocuments]
+  );
+  const documentCollectionTargetOptions = useMemo(
+    () =>
+      documentCollections.map((collection) => ({
+        id: collection.id,
+        label: `${collection.name} (${collection.active_document_count}/${collection.document_count})`,
+        searchText: `${collection.name} ${collection.description ?? ""}`
+      })),
+    [documentCollections]
+  );
+  const filteredSelectedDocumentCollectionDocuments = useMemo(
+    () => filterDocumentsByName(selectedDocumentCollectionDocuments, documentCollectionContentSearch),
+    [selectedDocumentCollectionDocuments, documentCollectionContentSearch]
+  );
   const fullDocumentOptions = useMemo(
     () =>
       activeDocuments.map((document) => ({
@@ -479,6 +535,22 @@ export function App() {
     () => filterDocumentsByName(documents, documentListSearch),
     [documents, documentListSearch]
   );
+  const visibleDocumentIds = useMemo(() => filteredDocuments.map((document) => document.id), [filteredDocuments]);
+  const visibleMarkedDocumentIds = useMemo(
+    () => visibleDocumentIds.filter((documentId) => documentCollectionMarkedDocumentIds.includes(documentId)),
+    [visibleDocumentIds, documentCollectionMarkedDocumentIds]
+  );
+  const allVisibleDocumentsMarked =
+    visibleDocumentIds.length > 0 &&
+    visibleDocumentIds.every((documentId) => documentCollectionMarkedDocumentIds.includes(documentId));
+  const selectedCollectionVisibleDocumentIds = useMemo(
+    () => filteredSelectedDocumentCollectionDocuments.map((document) => document.id),
+    [filteredSelectedDocumentCollectionDocuments]
+  );
+  const selectedCollectionVisibleMarkedDocumentIds = useMemo(
+    () => selectedCollectionVisibleDocumentIds.filter((documentId) => selectedDocumentCollectionMarkedDocumentIds.includes(documentId)),
+    [selectedCollectionVisibleDocumentIds, selectedDocumentCollectionMarkedDocumentIds]
+  );
   const filteredCaseAnalysisDocuments = useMemo(
     () => filterDocumentsByName(analysisReadyDocuments, analysisDocumentSearch),
     [analysisReadyDocuments, analysisDocumentSearch]
@@ -513,7 +585,9 @@ export function App() {
   const hasAnalysisSource =
     effectiveAnalysisSourceMode === "document"
       ? Boolean(analysisDocumentId)
-      : analysisReadyDocuments.length > 0;
+      : effectiveAnalysisSourceMode === "collection"
+        ? Boolean(analysisCollectionId) && Boolean(analysisDocumentCollection?.active_document_count)
+        : analysisReadyDocuments.length > 0;
   const busyLabel = busy ? (busyLabels[busy] ?? busy) : "Keszenlet";
   const canRunAnalysis =
     Boolean(selectedCaseId) &&
@@ -578,6 +652,16 @@ export function App() {
       void refreshCaseData(false);
     } else {
       setDocuments([]);
+      setDocumentCollections([]);
+      setSelectedDocumentCollectionId("");
+      setSelectedDocumentCollectionDocuments([]);
+      setSelectedDocumentCollectionMarkedDocumentIds([]);
+      setDocumentCollectionContentSearch("");
+      setAnalysisCollectionId("");
+      setDocumentCollectionTargetId("");
+      setDocumentCollectionTargetDocuments([]);
+      setDocumentCollectionMarkedDocumentIds([]);
+      setDocumentCollectionScopePreview(null);
       setClaims([]);
       setEntities([]);
       setEvents([]);
@@ -598,6 +682,63 @@ export function App() {
       setLastFullDocumentRun(null);
     }
   }, [selectedCaseId]);
+
+  useEffect(() => {
+    if (documentCollections.length === 0) {
+      setSelectedDocumentCollectionId("");
+      setSelectedDocumentCollectionDocuments([]);
+      setSelectedDocumentCollectionMarkedDocumentIds([]);
+      setDocumentCollectionContentSearch("");
+      setAnalysisCollectionId("");
+      setDocumentCollectionTargetId("");
+      setDocumentCollectionTargetDocuments([]);
+      setDocumentCollectionMarkedDocumentIds([]);
+      setDocumentCollectionScopePreview(null);
+      return;
+    }
+    if (!selectedDocumentCollectionId || !documentCollections.some((collection) => collection.id === selectedDocumentCollectionId)) {
+      setSelectedDocumentCollectionId(documentCollections[0].id);
+      setSelectedDocumentCollectionDocuments([]);
+      setSelectedDocumentCollectionMarkedDocumentIds([]);
+      setDocumentCollectionScopePreview(null);
+    }
+  }, [documentCollections, selectedDocumentCollectionId]);
+
+  useEffect(() => {
+    if (!selectedCaseId || !selectedDocumentCollectionId) {
+      setSelectedDocumentCollectionDocuments([]);
+      setSelectedDocumentCollectionMarkedDocumentIds([]);
+      return;
+    }
+    void refreshSelectedDocumentCollectionDocuments(false);
+  }, [selectedCaseId, selectedDocumentCollectionId]);
+
+  useEffect(() => {
+    if (analysisCollectionId && !documentCollections.some((collection) => collection.id === analysisCollectionId)) {
+      setAnalysisCollectionId("");
+    }
+  }, [analysisCollectionId, documentCollections]);
+
+  useEffect(() => {
+    if (documentCollectionTargetId && !documentCollections.some((collection) => collection.id === documentCollectionTargetId)) {
+      setDocumentCollectionTargetId("");
+      setDocumentCollectionTargetDocuments([]);
+    }
+  }, [documentCollections, documentCollectionTargetId]);
+
+  useEffect(() => {
+    if (!selectedCaseId || !documentCollectionTargetId) {
+      setDocumentCollectionTargetDocuments([]);
+      return;
+    }
+    void refreshDocumentCollectionTargetDocuments(false);
+  }, [selectedCaseId, documentCollectionTargetId]);
+
+  useEffect(() => {
+    const documentIds = new Set(documents.map((document) => document.id));
+    setDocumentCollectionMarkedDocumentIds((current) => current.filter((documentId) => documentIds.has(documentId)));
+    setSelectedDocumentCollectionMarkedDocumentIds((current) => current.filter((documentId) => documentIds.has(documentId)));
+  }, [documents]);
 
   useEffect(() => {
     if (fullDocumentProfiles.length === 0) return;
@@ -674,8 +815,12 @@ export function App() {
       setChunkIndexStatus(null);
       return;
     }
+    if (effectiveAnalysisSourceMode === "collection" && !analysisCollectionId) {
+      setChunkIndexStatus(null);
+      return;
+    }
     void refreshChunkIndexStatus().catch(() => setChunkIndexStatus(null));
-  }, [selectedCaseId, canUseBatchScope, effectiveAnalysisSourceMode, analysisDocumentId, analysisDocumentIds, retrievalStrategy, query]);
+  }, [selectedCaseId, canUseBatchScope, effectiveAnalysisSourceMode, analysisDocumentId, analysisDocumentIds, analysisCollectionId, retrievalStrategy, query]);
 
   useEffect(() => {
     if (!selectedCaseId || !activeIndexJobId) {
@@ -707,7 +852,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [selectedCaseId, activeIndexJobId, effectiveAnalysisSourceMode, analysisDocumentId, analysisDocumentIds]);
+  }, [selectedCaseId, activeIndexJobId, effectiveAnalysisSourceMode, analysisDocumentId, analysisDocumentIds, analysisCollectionId]);
 
   useEffect(() => {
     if (busyStartedAt === null) {
@@ -774,6 +919,240 @@ export function App() {
     }
   }
 
+  async function refreshDocumentCollections(showNotice = false) {
+    if (!selectedCaseId) return;
+    const action = async () => {
+      const response = await listDocumentCollections(selectedCaseId);
+      setDocumentCollections(response.data);
+      if (showNotice) {
+        setNotice("Iratgyűjtemények frissítve.");
+        setLastActionSummary(`${response.data.length} iratgyűjtemény.`);
+      }
+    };
+    if (showNotice) {
+      await perform("document-collections", action);
+    } else {
+      try {
+        await action();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Iratgyűjtemények betöltése sikertelen.");
+      }
+    }
+  }
+
+  async function refreshSelectedDocumentCollectionDocuments(showNotice = false) {
+    if (!selectedCaseId || !selectedDocumentCollectionId) return;
+    const action = async () => {
+      const response = await listDocumentCollectionDocuments(selectedCaseId, selectedDocumentCollectionId);
+      setSelectedDocumentCollectionDocuments(response.data);
+      setSelectedDocumentCollectionMarkedDocumentIds((current) =>
+        current.filter((documentId) => response.data.some((document) => document.id === documentId))
+      );
+      if (showNotice) {
+        setNotice("Gyűjtemény tartalma frissítve.");
+        setLastActionSummary(`${response.data.length} irat a kiválasztott gyűjteményben.`);
+      }
+    };
+    if (showNotice) {
+      await perform("document-collections", action);
+    } else {
+      try {
+        await action();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Gyűjtemény tartalmának betöltése sikertelen.");
+      }
+    }
+  }
+
+  async function refreshDocumentCollectionTargetDocuments(showNotice = false) {
+    if (!selectedCaseId || !documentCollectionTargetId) return;
+    const action = async () => {
+      const response = await listDocumentCollectionDocuments(selectedCaseId, documentCollectionTargetId);
+      setDocumentCollectionTargetDocuments(response.data);
+      if (showNotice) {
+        setNotice("Célgyűjtemény tartalma frissítve.");
+        setLastActionSummary(`${response.data.length} irat a célgyűjteményben.`);
+      }
+    };
+    if (showNotice) {
+      await perform("document-collections", action);
+    } else {
+      try {
+        await action();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Célgyűjtemény tartalmának betöltése sikertelen.");
+      }
+    }
+  }
+
+  async function handleCreateDocumentCollection() {
+    if (!selectedCaseId) return;
+    const name = newDocumentCollectionName.trim();
+    if (!name) {
+      setError("Adj nevet az iratgyűjteménynek.");
+      return;
+    }
+    await perform("document-collection-create", async () => {
+      const collection = await createDocumentCollection(selectedCaseId, {
+        name,
+        description: newDocumentCollectionDescription.trim() || null
+      });
+      const response = await listDocumentCollections(selectedCaseId);
+      setDocumentCollections(response.data);
+      setSelectedDocumentCollectionId(collection.id);
+      setDocumentCollectionTargetId(collection.id);
+      setNewDocumentCollectionName("");
+      setNewDocumentCollectionDescription("");
+      setNotice("Iratgyűjtemény létrehozva.");
+      setLastActionSummary(collection.name);
+    });
+  }
+
+  async function handleDeleteDocumentCollection() {
+    if (!selectedCaseId || !selectedDocumentCollection) return;
+    if (!window.confirm(`Törlöd ezt az iratgyűjteményt?\n\n${selectedDocumentCollection.name}\n\nAz iratok nem törlődnek.`)) return;
+    await perform("document-collection-delete", async () => {
+      await deleteDocumentCollection(selectedCaseId, selectedDocumentCollection.id);
+      const response = await listDocumentCollections(selectedCaseId);
+      setDocumentCollections(response.data);
+      setSelectedDocumentCollectionId(response.data[0]?.id ?? "");
+      if (documentCollectionTargetId === selectedDocumentCollection.id) {
+        setDocumentCollectionTargetId("");
+        setDocumentCollectionTargetDocuments([]);
+      }
+      setDocumentCollectionScopePreview(null);
+      setNotice("Iratgyűjtemény törölve.");
+      setLastActionSummary(`${selectedDocumentCollection.name}: törölve.`);
+    });
+  }
+
+  async function handleAddDocumentToTargetCollection(document: DocumentRead) {
+    if (!selectedCaseId || !documentCollectionTargetId) return;
+    if (targetCollectionDocumentIds.has(document.id)) return;
+    await perform("document-collection-membership", async () => {
+      const result = await addDocumentsToCollection(selectedCaseId, documentCollectionTargetId, [document.id]);
+      const [collectionsResponse, documentsResponse] = await Promise.all([
+        listDocumentCollections(selectedCaseId),
+        listDocumentCollectionDocuments(selectedCaseId, documentCollectionTargetId)
+      ]);
+      setDocumentCollections(collectionsResponse.data);
+      setDocumentCollectionTargetDocuments(documentsResponse.data);
+      setDocumentCollectionScopePreview(null);
+      setNotice("Irat hozzáadva a célgyűjteményhez.");
+      setLastActionSummary(
+        `${result.total_document_count} irat, ${result.active_document_count} aktív a kiválasztott gyűjteményben.`
+      );
+    });
+  }
+
+  function toggleDocumentCollectionDocumentMark(documentId: string) {
+    setDocumentCollectionMarkedDocumentIds((current) =>
+      current.includes(documentId)
+        ? current.filter((item) => item !== documentId)
+        : [...current, documentId]
+    );
+  }
+
+  function markAllVisibleDocumentsForCollection() {
+    setDocumentCollectionMarkedDocumentIds((current) => Array.from(new Set([...current, ...visibleDocumentIds])));
+  }
+
+  function clearDocumentCollectionDocumentMarks() {
+    setDocumentCollectionMarkedDocumentIds([]);
+  }
+
+  async function handleAddMarkedDocumentsToTargetCollection() {
+    if (!selectedCaseId || !documentCollectionTargetId || documentCollectionMarkedDocumentIds.length === 0) return;
+    await perform("document-collection-membership", async () => {
+      const result = await addDocumentsToCollection(selectedCaseId, documentCollectionTargetId, documentCollectionMarkedDocumentIds);
+      const [collectionsResponse, documentsResponse] = await Promise.all([
+        listDocumentCollections(selectedCaseId),
+        listDocumentCollectionDocuments(selectedCaseId, documentCollectionTargetId)
+      ]);
+      setDocumentCollections(collectionsResponse.data);
+      setDocumentCollectionTargetDocuments(documentsResponse.data);
+      setDocumentCollectionScopePreview(null);
+      setNotice("Kijelölt iratok hozzáadva a célgyűjteményhez.");
+      setLastActionSummary(
+        `${result.added_count} új, ${result.already_present_count} már benne volt, ${result.skipped_count} kihagyva.`
+      );
+    });
+  }
+
+  async function handleRemoveDocumentFromSelectedCollection(document: DocumentRead) {
+    if (!selectedCaseId || !selectedDocumentCollectionId) return;
+    await perform("document-collection-membership", async () => {
+      const result = await removeDocumentsFromCollection(selectedCaseId, selectedDocumentCollectionId, [document.id]);
+      const [collectionsResponse, documentsResponse] = await Promise.all([
+        listDocumentCollections(selectedCaseId),
+        listDocumentCollectionDocuments(selectedCaseId, selectedDocumentCollectionId)
+      ]);
+      setDocumentCollections(collectionsResponse.data);
+      setSelectedDocumentCollectionDocuments(documentsResponse.data);
+      setSelectedDocumentCollectionMarkedDocumentIds((current) => current.filter((documentId) => documentId !== document.id));
+      if (documentCollectionTargetId === selectedDocumentCollectionId) {
+        setDocumentCollectionTargetDocuments(documentsResponse.data);
+      }
+      setDocumentCollectionScopePreview(null);
+      setNotice("Irat kivéve a gyűjteményből.");
+      setLastActionSummary(
+        `${result.removed_count} eltávolítva, ${result.not_present_count} nem volt a gyűjteményben, ${result.skipped_count} kihagyva.`
+      );
+    });
+  }
+
+  function toggleSelectedDocumentCollectionDocumentMark(documentId: string) {
+    setSelectedDocumentCollectionMarkedDocumentIds((current) =>
+      current.includes(documentId)
+        ? current.filter((item) => item !== documentId)
+        : [...current, documentId]
+    );
+  }
+
+  function markAllVisibleSelectedCollectionDocuments() {
+    setSelectedDocumentCollectionMarkedDocumentIds((current) => Array.from(new Set([...current, ...selectedCollectionVisibleDocumentIds])));
+  }
+
+  function clearSelectedDocumentCollectionDocumentMarks() {
+    setSelectedDocumentCollectionMarkedDocumentIds([]);
+  }
+
+  async function handleRemoveMarkedDocumentsFromSelectedCollection() {
+    if (!selectedCaseId || !selectedDocumentCollectionId || selectedDocumentCollectionMarkedDocumentIds.length === 0) return;
+    await perform("document-collection-membership", async () => {
+      const result = await removeDocumentsFromCollection(
+        selectedCaseId,
+        selectedDocumentCollectionId,
+        selectedDocumentCollectionMarkedDocumentIds
+      );
+      const [collectionsResponse, documentsResponse] = await Promise.all([
+        listDocumentCollections(selectedCaseId),
+        listDocumentCollectionDocuments(selectedCaseId, selectedDocumentCollectionId)
+      ]);
+      setDocumentCollections(collectionsResponse.data);
+      setSelectedDocumentCollectionDocuments(documentsResponse.data);
+      setSelectedDocumentCollectionMarkedDocumentIds([]);
+      if (documentCollectionTargetId === selectedDocumentCollectionId) {
+        setDocumentCollectionTargetDocuments(documentsResponse.data);
+      }
+      setDocumentCollectionScopePreview(null);
+      setNotice("Kijelölt iratok kivéve a gyűjteményből.");
+      setLastActionSummary(
+        `${result.removed_count} eltávolítva, ${result.not_present_count} nem volt a gyűjteményben, ${result.skipped_count} kihagyva.`
+      );
+    });
+  }
+
+  async function handleResolveDocumentCollectionScope() {
+    if (!selectedCaseId || !selectedDocumentCollectionId) return;
+    await perform("document-collection-scope", async () => {
+      const response = await resolveDocumentCollectionScope(selectedCaseId, [selectedDocumentCollectionId]);
+      setDocumentCollectionScopePreview(response);
+      setNotice("Forráskör előnézet elkészült.");
+      setLastActionSummary(`${response.active_document_count} egyedi aktív irat a forráskörben.`);
+    });
+  }
+
   async function refreshFullDocumentItems(showNotice = true) {
     if (!selectedCaseId || !fullDocumentId) return;
     const action = async () => {
@@ -808,6 +1187,7 @@ export function App() {
     await perform("case-data", async () => {
       const [
         documentsResponse,
+        documentCollectionsResponse,
         runsResponse,
         exportsResponse,
         reportResponse,
@@ -820,6 +1200,7 @@ export function App() {
         detachedSourcesResponse
       ] = await Promise.all([
         listDocuments(selectedCaseId),
+        listDocumentCollections(selectedCaseId),
         listAnalysisRuns(selectedCaseId),
         listExports(selectedCaseId),
         getReviewReport(selectedCaseId, reportFilters),
@@ -832,6 +1213,7 @@ export function App() {
         listDetachedSourceItems(selectedCaseId)
       ]);
       setDocuments(documentsResponse.data);
+      setDocumentCollections(documentCollectionsResponse.data);
       setAnalysisRuns(runsResponse.data);
       setExports(exportsResponse.data);
       setClaims(claimsResponse.data);
@@ -971,6 +1353,13 @@ export function App() {
     setSourceMoveTargets({});
     setDetachedSourceTargets({});
     setManualContradiction((current) => ({ ...current, claim_id_a: "", claim_id_b: "" }));
+    await refreshDocumentCollections(false);
+    if (selectedDocumentCollectionId) {
+      await refreshSelectedDocumentCollectionDocuments(false);
+    }
+    if (documentCollectionTargetId) {
+      await refreshDocumentCollectionTargetDocuments(false);
+    }
     await refreshReviewStateAfterSourceChange(selectedReportItem?.object_id ?? null);
   }
 
@@ -1159,6 +1548,7 @@ export function App() {
         query: query.trim() ? query.trim() : null,
         source_mode: effectiveAnalysisSourceMode,
         document_id: effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null,
+        collection_id: effectiveAnalysisSourceMode === "collection" ? analysisCollectionId : null,
         ...(showCaseDocumentFilters && analysisDocumentIds.length > 0 ? { document_ids: analysisDocumentIds } : {}),
         max_chunks: maxChunks,
         batch_size: batchSize,
@@ -1215,7 +1605,11 @@ export function App() {
       }
       setNotice("Elemzes lefutott, jelentés frissitve.");
       setLastActionSummary(
-        `${labelModule(response.module_key)}: ${analysisSourceSummaryLabel(effectiveAnalysisSourceMode, analysisDocumentIds.length)}, ${labelValidationStatus(response.validation_status)}, ${analysisSourceMetric(response)}, ${analysisOutputCount(response)} kimenet`
+        `${labelModule(response.module_key)}: ${analysisSourceSummaryLabel(
+          effectiveAnalysisSourceMode,
+          analysisDocumentIds.length,
+          analysisDocumentCollection?.name
+        )}, ${labelValidationStatus(response.validation_status)}, ${analysisSourceMetric(response)}, ${analysisOutputCount(response)} kimenet`
       );
     });
   }
@@ -1231,6 +1625,9 @@ export function App() {
   function chunkIndexScopePayload() {
     if (effectiveAnalysisSourceMode === "document") {
       return { document_id: analysisDocumentId || null };
+    }
+    if (effectiveAnalysisSourceMode === "collection") {
+      return { document_id: null, collection_id: analysisCollectionId || null };
     }
     return {
       document_id: null,
@@ -1262,7 +1659,7 @@ export function App() {
       ]);
       setAnalysisRuns(runsResponse.data);
       setDocuments(documentsResponse.data);
-      await refreshChunkIndexStatus(effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null);
+      await refreshChunkIndexStatus();
       setActiveIndexJobId(response.analysis_run_id);
       setNotice("Szovegresz-indexeles elindult, az allapot automatikusan frissul.");
       setLastActionSummary(
@@ -2955,6 +3352,174 @@ export function App() {
           </section>
 
           <div className="workflow-column">
+          <section className="panel document-collections-panel">
+            <div className="section-heading">
+              <h2>Iratgyűjtemények</h2>
+              <FolderPlus size={20} />
+            </div>
+            <div className="collection-create-row">
+              <input
+                value={newDocumentCollectionName}
+                onChange={(event) => setNewDocumentCollectionName(event.target.value)}
+                placeholder="Új gyűjtemény neve"
+                disabled={!selectedCaseId || Boolean(busy)}
+              />
+              <button onClick={handleCreateDocumentCollection} disabled={!selectedCaseId || !newDocumentCollectionName.trim() || Boolean(busy)}>
+                <FolderPlus size={18} /> Létrehozás
+              </button>
+            </div>
+            <input
+              value={newDocumentCollectionDescription}
+              onChange={(event) => setNewDocumentCollectionDescription(event.target.value)}
+              placeholder="Leírás opcionális"
+              disabled={!selectedCaseId || Boolean(busy)}
+            />
+            {documentCollections.length === 0 && <p className="muted">Még nincs iratgyűjtemény.</p>}
+            {documentCollections.length > 0 && (
+              <>
+                <select
+                  value={selectedDocumentCollectionId}
+                  onChange={(event) => {
+                    setSelectedDocumentCollectionId(event.target.value);
+                    setSelectedDocumentCollectionMarkedDocumentIds([]);
+                    setDocumentCollectionScopePreview(null);
+                  }}
+                  disabled={Boolean(busy)}
+                >
+                  {documentCollections.map((collection) => (
+                    <option key={collection.id} value={collection.id}>
+                      {collection.name} ({collection.active_document_count}/{collection.document_count})
+                    </option>
+                  ))}
+                </select>
+                {selectedDocumentCollection && (
+                  <div className="collection-summary">
+                    <div>
+                      <strong>{selectedDocumentCollection.name}</strong>
+                      {selectedDocumentCollection.description && <span>{selectedDocumentCollection.description}</span>}
+                    </div>
+                    <div className="metrics">
+                      <span>{selectedDocumentCollection.document_count} irat</span>
+                      <span>{selectedDocumentCollection.active_document_count} aktív</span>
+                    </div>
+                    <div className="button-row">
+                      <button className="secondary-button" onClick={() => void refreshDocumentCollections(true)} disabled={Boolean(busy)}>
+                        <RefreshCw size={18} /> Gyűjtemények frissítése
+                      </button>
+                      <button className="secondary-button" onClick={handleResolveDocumentCollectionScope} disabled={Boolean(busy)}>
+                        Forráskör előnézet
+                      </button>
+                      <button className="danger-button" onClick={handleDeleteDocumentCollection} disabled={Boolean(busy)}>
+                        <Trash2 size={18} /> Törlés
+                      </button>
+                    </div>
+                    {documentCollectionScopePreview && (
+                      <div className="collection-scope-preview">
+                        <strong>{documentCollectionScopePreview.active_document_count} egyedi aktív irat a forráskörben</strong>
+                        <span>{documentCollectionScopePreview.inactive_document_count} inaktív irat kimarad</span>
+                        <span>{documentCollectionScopePreview.duplicate_membership_count} duplikált tagság kiszűrve</span>
+                        {documentCollectionScopePreview.warnings.length > 0 && (
+                          <span>{documentCollectionScopePreview.warnings.length} figyelmeztetés</span>
+                        )}
+                      </div>
+                    )}
+                    <div className="collection-content-panel">
+                      <div className="section-heading compact-heading">
+                        <h3>Gyűjtemény tartalma</h3>
+                        <span>{selectedDocumentCollectionDocuments.length} irat</span>
+                      </div>
+                      <input
+                        className="panel-search-input"
+                        value={documentCollectionContentSearch}
+                        onChange={(event) => setDocumentCollectionContentSearch(event.target.value)}
+                        placeholder="Keresés a gyűjtemény iratai között"
+                        disabled={selectedDocumentCollectionDocuments.length === 0}
+                      />
+                      <div className="metrics">
+                        <span>{selectedDocumentCollectionMarkedDocumentIds.length} kijelölve</span>
+                        <span>{selectedCollectionVisibleMarkedDocumentIds.length} látható kijelölve</span>
+                      </div>
+                      <div className="button-row">
+                        <button
+                          className="secondary-button"
+                          onClick={() => void refreshSelectedDocumentCollectionDocuments(true)}
+                          disabled={Boolean(busy)}
+                        >
+                          <RefreshCw size={18} /> Tartalom frissítése
+                        </button>
+                        <button
+                          className="secondary-button"
+                          onClick={markAllVisibleSelectedCollectionDocuments}
+                          disabled={filteredSelectedDocumentCollectionDocuments.length === 0 || Boolean(busy)}
+                        >
+                          Összes látható kijelölése
+                        </button>
+                        <button
+                          className="secondary-button"
+                          onClick={clearSelectedDocumentCollectionDocumentMarks}
+                          disabled={selectedDocumentCollectionMarkedDocumentIds.length === 0 || Boolean(busy)}
+                        >
+                          Kijelölés törlése
+                        </button>
+                        <button
+                          className="danger-button"
+                          onClick={handleRemoveMarkedDocumentsFromSelectedCollection}
+                          disabled={selectedDocumentCollectionMarkedDocumentIds.length === 0 || Boolean(busy)}
+                        >
+                          Kijelöltek kivétele
+                        </button>
+                      </div>
+                      <div className="compact-list collection-content-list">
+                        {selectedDocumentCollectionDocuments.length === 0 && <p className="muted">A gyűjteményben még nincs irat.</p>}
+                        {selectedDocumentCollectionDocuments.length > 0 && filteredSelectedDocumentCollectionDocuments.length === 0 && (
+                          <p className="muted">Nincs a keresésnek megfelelő gyűjteményi irat.</p>
+                        )}
+                        {filteredSelectedDocumentCollectionDocuments.map((document) => (
+                          <article
+                            key={document.id}
+                            className={`compact-item document-list-item ${
+                              selectedDocumentCollectionMarkedDocumentIds.includes(document.id) ? "is-collection-marked" : ""
+                            }`}
+                          >
+                            <div className="document-list-main">
+                              <strong>{document.original_filename}</strong>
+                              <span>
+                                {labelProcessingStatus(document.processing_status)} | {labelDocumentLifecycleStatus(document.lifecycle_status)} |{" "}
+                                {formatBytes(document.file_size_bytes)}
+                              </span>
+                              <code>{document.sha256_hash}</code>
+                              <div className="button-row document-list-extra-actions">
+                                <button
+                                  className="secondary-button"
+                                  onClick={() => toggleSelectedDocumentCollectionDocumentMark(document.id)}
+                                  disabled={Boolean(busy)}
+                                >
+                                  {selectedDocumentCollectionMarkedDocumentIds.includes(document.id)
+                                    ? "Kijelölés levétele"
+                                    : "Gyűjteményből kivételre jelölés"}
+                                </button>
+                                <button
+                                  className="secondary-button"
+                                  onClick={() => void handleRemoveDocumentFromSelectedCollection(document)}
+                                  disabled={Boolean(busy)}
+                                >
+                                  Kivétel a gyűjteményből
+                                </button>
+                              </div>
+                            </div>
+                            <button className="document-detail-button" onClick={() => handleDocumentDetail(document)} disabled={Boolean(busy)}>
+                              Reszletek
+                            </button>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+
           <section className="panel documents-panel">
             <div className="section-heading">
               <h2>Iratok</h2>
@@ -2971,7 +3536,12 @@ export function App() {
               {documents.length === 0 && <p className="muted">Nincs importalt irat.</p>}
               {documents.length > 0 && filteredDocuments.length === 0 && <p className="muted">Nincs a keresésnek megfelelo irat.</p>}
               {filteredDocuments.map((document) => (
-                <article key={document.id} className="compact-item document-list-item">
+                <article
+                  key={document.id}
+                  className={`compact-item document-list-item ${
+                    documentCollectionMarkedDocumentIds.includes(document.id) ? "is-collection-marked" : ""
+                  }`}
+                >
                   <div className="document-list-main">
                     <strong>{document.original_filename}</strong>
                     <span>
@@ -2995,12 +3565,89 @@ export function App() {
                         )}
                       </div>
                     )}
+                    {targetDocumentCollection && (
+                      <div className="button-row document-list-extra-actions">
+                        <button
+                          onClick={() => handleAddDocumentToTargetCollection(document)}
+                          disabled={Boolean(busy) || !documentCollectionTargetId || targetCollectionDocumentIds.has(document.id)}
+                        >
+                          {targetCollectionDocumentIds.has(document.id) ? "Már benne van" : "Hozzáadás a kiválasztott gyűjteményhez"}
+                        </button>
+                        <button
+                          className="secondary-button"
+                          onClick={() => toggleDocumentCollectionDocumentMark(document.id)}
+                          disabled={Boolean(busy)}
+                        >
+                          {documentCollectionMarkedDocumentIds.includes(document.id) ? "Kijelölés levétele" : "Iratgyűjteményhez adásra jelölés"}
+                        </button>
+                        <span>
+                          {targetCollectionDocumentIds.has(document.id)
+                            ? `Benne van: ${targetDocumentCollection.name}`
+                            : `Cél: ${targetDocumentCollection.name}`}
+                        </span>
+                      </div>
+                    )}
+                    {!targetDocumentCollection && (
+                      <div className="button-row document-list-extra-actions">
+                        <button className="secondary-button" onClick={() => toggleDocumentCollectionDocumentMark(document.id)} disabled={Boolean(busy)}>
+                          {documentCollectionMarkedDocumentIds.includes(document.id) ? "Kijelölés levétele" : "Iratgyűjteményhez adásra jelölés"}
+                        </button>
+                        <span>Válassz célgyűjteményt az iratpanel alján.</span>
+                      </div>
+                    )}
                   </div>
                   <button className="document-detail-button" onClick={() => handleDocumentDetail(document)} disabled={Boolean(busy)}>
                     Reszletek
                   </button>
                 </article>
               ))}
+            </div>
+            <div className="document-collection-bulk-bar">
+              <div className="document-collection-target-select">
+                {renderSearchableSelect({
+                  queryKey: "document-collection-target",
+                  value: documentCollectionTargetId,
+                  onChange: (value) => {
+                    setDocumentCollectionTargetId(value);
+                    setDocumentCollectionScopePreview(null);
+                  },
+                  options: documentCollectionTargetOptions,
+                  placeholder: "Cél iratgyűjtemény",
+                  searchPlaceholder: "Keresés az iratgyűjtemények között",
+                  ariaLabel: "Cél iratgyűjtemény kiválasztása"
+                })}
+              </div>
+              <div className="metrics">
+                <span>{documentCollectionMarkedDocumentIds.length} kijelölve</span>
+                <span>{visibleMarkedDocumentIds.length} látható kijelölve</span>
+              </div>
+              <div className="button-row">
+                <button
+                  className="secondary-button"
+                  onClick={markAllVisibleDocumentsForCollection}
+                  disabled={filteredDocuments.length === 0 || Boolean(busy)}
+                >
+                  Összes látható kijelölése
+                </button>
+                <button
+                  className="secondary-button"
+                  onClick={clearDocumentCollectionDocumentMarks}
+                  disabled={documentCollectionMarkedDocumentIds.length === 0 || Boolean(busy)}
+                >
+                  Kijelölés törlése
+                </button>
+                <button
+                  onClick={handleAddMarkedDocumentsToTargetCollection}
+                  disabled={!documentCollectionTargetId || documentCollectionMarkedDocumentIds.length === 0 || Boolean(busy)}
+                >
+                  Jelöltek iratgyűjteményhez adása
+                </button>
+              </div>
+              {targetDocumentCollection && (
+                <p className="field-hint">
+                  Célgyűjtemény: {targetDocumentCollection.name}. Sikeres hozzáadás után a kijelölés megmarad.
+                </p>
+              )}
             </div>
           </section>
 
@@ -3411,6 +4058,30 @@ export function App() {
                     </label>
                   ))}
                 </div>
+              </div>
+            )}
+            {canUseBatchScope && effectiveAnalysisSourceMode === "collection" && (
+              <div className="source-filter-panel">
+                <label>
+                  Iratgyűjtemény
+                  {renderSearchableSelect({
+                    queryKey: "analysis-document-collection",
+                    value: analysisCollectionId,
+                    onChange: setAnalysisCollectionId,
+                    options: documentCollectionTargetOptions,
+                    placeholder: "Iratgyűjtemény",
+                    searchPlaceholder: "Keresés az iratgyűjtemények között",
+                    ariaLabel: "Elemzési iratgyűjtemény kiválasztása"
+                  })}
+                </label>
+                {documentCollections.length === 0 && <p className="muted">Még nincs iratgyűjtemény.</p>}
+                {analysisDocumentCollection && (
+                  <div className="collection-scope-preview">
+                    <strong>{analysisDocumentCollection.name}</strong>
+                    <span>{analysisDocumentCollection.document_count} irat</span>
+                    <span>{analysisDocumentCollection.active_document_count} aktív irat</span>
+                  </div>
+                )}
               </div>
             )}
             {canUseBatchScope && (
@@ -4660,9 +5331,12 @@ function labelAnalysisSourceMode(value: AnalysisSourceMode) {
   return analysisSourceModeLabels[value] ?? value;
 }
 
-function analysisSourceSummaryLabel(value: AnalysisSourceMode, selectedDocumentCount: number) {
+function analysisSourceSummaryLabel(value: AnalysisSourceMode, selectedDocumentCount: number, collectionName?: string) {
   if (value === "case" && selectedDocumentCount > 0) {
     return `Teljes ugy, ${selectedDocumentCount} kijelolt irat`;
+  }
+  if (value === "collection" && collectionName) {
+    return `Iratgyűjtemény: ${collectionName}`;
   }
   return labelAnalysisSourceMode(value);
 }
@@ -4689,6 +5363,7 @@ function labelChunkIndexStatus(value: ChunkIndexStatusResponse) {
 
 function labelChunkIndexScope(value: ChunkIndexStatusResponse) {
   if (value.document_id) return "Kivalasztott irat";
+  if (value.collection_id) return "Iratgyűjtemény";
   if (value.document_ids.length > 0) return `Teljes ugy, ${value.document_ids.length} kijelolt irat`;
   return "Teljes ugy";
 }

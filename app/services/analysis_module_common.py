@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.models.document import DocumentChunkModel, DocumentModel
 from app.schemas.analysis_modules import AnalysisModuleRunRequest
 from app.schemas.search import KeywordSearchRequest, SearchFilters
+from app.services.document_collections import DocumentCollectionError, resolve_document_scope
 from app.services.search import keyword_search
 from app.services.text_store import read_chunk_text, read_chunk_text_from_store
 from app.services.vector_index import hybrid_chunk_search, semantic_chunk_search
@@ -336,6 +337,17 @@ def select_source_chunks(db: Session, case_id: UUID, payload: AnalysisModuleRunR
         retrieval_chunks = retrieve_source_scope_chunks(db, case_id, payload, document_ids=payload.document_ids)
         if not retrieval_chunks:
             raise AnalysisModuleError("No source chunks matched the focus text in this case")
+        return retrieval_chunks
+    if payload.source_mode == "collection":
+        if payload.collection_id is None:
+            raise AnalysisModuleError("collection_id is required for collection source mode")
+        try:
+            resolution = resolve_document_scope(db, case_id, "collections", collection_ids=[payload.collection_id])
+        except DocumentCollectionError as exc:
+            raise AnalysisModuleError(str(exc)) from exc
+        retrieval_chunks = retrieve_source_scope_chunks(db, case_id, payload, document_ids=resolution.resolved_document_ids)
+        if not retrieval_chunks:
+            raise AnalysisModuleError("No source chunks matched the focus text in the selected document collection")
         return retrieval_chunks
     raise AnalysisModuleError("Unsupported source_mode")
 
