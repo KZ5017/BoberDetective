@@ -129,7 +129,7 @@ const sourceValidationStatuses = ["", "source_valid", "source_invalid", "pending
 const analysisSourceModes: AnalysisSourceMode[] = ["case", "document", "collection"];
 const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
 const retrievalStrategies: RetrievalStrategy[] = ["keyword", "semantic", "hybrid"];
-const workSurfaces = ["case_workbench", "full_document_processing", "audit_log"] as const;
+const workSurfaces = ["document_organizer", "case_workbench", "full_document_processing", "audit_log"] as const;
 
 type WorkSurface = (typeof workSurfaces)[number];
 
@@ -140,15 +140,10 @@ type DocumentProcessingUnconfirmedDetail = {
 };
 
 const workSurfaceLabels: Record<WorkSurface, string> = {
+  document_organizer: "Irat rendező",
   case_workbench: "Ügy munkapad",
   full_document_processing: "Teljes iratfeldolgozás",
   audit_log: "Audit napló"
-};
-
-const workSurfaceHints: Record<WorkSurface, string> = {
-  case_workbench: "Kutatási találatok, áttekintési jelentés és forrásmunka",
-  full_document_processing: "Teljes iratokból kinyert újrahasznosítható keresési alapanyag",
-  audit_log: "Audit események önálló, idősoros áttekintése"
 };
 
 type SearchableSelectOption = {
@@ -366,7 +361,7 @@ export function App() {
   const [importFiles, setImportFiles] = useState<File[]>([]);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const [documentListSearch, setDocumentListSearch] = useState("");
-  const [activeSurface, setActiveSurface] = useState<WorkSurface>("case_workbench");
+  const [activeSurface, setActiveSurface] = useState<WorkSurface>("document_organizer");
   const [fullDocumentId, setFullDocumentId] = useState("");
   const [fullDocumentProfile, setFullDocumentProfile] = useState("person_search_seeds");
   const [fullDocumentProfiles, setFullDocumentProfiles] = useState<FullDocumentProcessingProfileRead[]>([]);
@@ -3224,37 +3219,112 @@ export function App() {
     );
   }
 
-  function renderAiOperationStrip() {
+  function currentAiOperationLabel() {
+    return aiOperationLabels.has(busy) ? (busyLabels[busy] ?? busy) : "Készenlét";
+  }
+
+  function lastAiOperationStatusLabel() {
+    if (!lastAiOperation) return "Még nincs AI művelet";
+    return lastAiOperation.status === "succeeded" ? "Sikeres" : "Hibával zárult";
+  }
+
+  function surfaceContextLabel() {
+    if (!selectedCase) return "Nincs aktív ügy";
+    return `${selectedCase.case_name}${selectedCase.case_reference ? ` | ${selectedCase.case_reference}` : ""}`;
+  }
+
+  function renderSurfaceHeader(surface: WorkSurface) {
     const currentAiOperation = aiOperationLabels.has(busy) ? (busyLabels[busy] ?? busy) : "Nincs futó AI művelet";
-    const lastStatus = lastAiOperation
-      ? lastAiOperation.status === "succeeded"
-        ? "Sikeres"
-        : "Hibával zárult"
-      : "Még nincs AI művelet";
+    const isRunning = aiOperationLabels.has(busy);
+    const durationLabel = isRunning
+      ? formatDuration(elapsedSeconds)
+      : lastAiOperation
+        ? formatDuration(lastAiOperation.durationSeconds)
+        : "-";
     return (
-      <section className={`ai-operation-strip ${aiOperationLabels.has(busy) ? "is-running" : ""}`}>
+      <section className="panel hero-panel">
         <div>
-          <span>Aktuális AI művelet</span>
-          <strong>{currentAiOperation}</strong>
+          <h2>{workSurfaceLabels[surface]}</h2>
+          <p>{surfaceContextLabel()}</p>
         </div>
-        <div>
-          <span>Utolsó AI művelet</span>
-          <strong>{lastAiOperation?.label ?? "Még nincs AI művelet"}</strong>
+        <div className={`surface-operation-card ${isRunning ? "is-running" : ""}`}>
+          <span className="run-state">{isRunning ? <Loader2 className="spin" size={18} /> : <CheckCircle2 size={18} />} {currentAiOperationLabel()}</span>
+          <div>
+            <span>Utolsó AI művelet</span>
+            <strong>{lastAiOperation?.label ?? "Még nincs AI művelet"}</strong>
+          </div>
+          <div>
+            <span>Eredmény</span>
+            <strong>{lastAiOperationStatusLabel()}</strong>
+          </div>
+          <div>
+            <span>Időtartam</span>
+            <strong>{durationLabel}</strong>
+          </div>
         </div>
-        <div>
-          <span>Eredmény</span>
-          <strong>{lastStatus}</strong>
+      </section>
+    );
+  }
+
+  function renderAnalysisReadinessStrip() {
+    const hasIndexStatus = canUseBatchScope && Boolean(chunkIndexStatus);
+    return (
+      <section className={`analysis-readiness-strip ${hasIndexStatus ? "" : "is-empty"}`}>
+        <div className="analysis-readiness-main">
+          <div>
+            <strong>Szemantikus index állapot</strong>
+            {chunkIndexStatus ? (
+              <span>{labelChunkIndexScope(chunkIndexStatus)} | {chunkIndexStatus.embedding_model}</span>
+            ) : (
+              <span>Az aktuális elemzési forráskör indexelési készültsége itt jelenik meg.</span>
+            )}
+          </div>
+          {chunkIndexStatus ? (
+            <div className="metrics">
+              <span>{labelChunkIndexStatus(chunkIndexStatus)}</span>
+              <span>Indexelve: {chunkIndexStatus.indexed_chunk_count}/{chunkIndexStatus.current_chunk_count}</span>
+              <span>Hiányzik: {chunkIndexStatus.missing_chunk_count}</span>
+              {chunkIndexStatus.latest_run_id && (
+                <span>
+                  Utolsó: {chunkIndexStatus.latest_run_status ? labelRunStatus(chunkIndexStatus.latest_run_status) : "ismeretlen"}
+                  {chunkIndexStatus.latest_run_finished_at ? ` | ${new Date(chunkIndexStatus.latest_run_finished_at).toLocaleString()}` : ""}
+                </span>
+              )}
+              {chunkIndexStatus.latest_run_input_count > 0 && (
+                <span>
+                  Folyamat: {chunkIndexStatus.latest_run_output_count}/{chunkIndexStatus.latest_run_input_count}
+                  {chunkIndexStatus.latest_run_progress_percent !== null ? ` | ${chunkIndexStatus.latest_run_progress_percent}%` : ""}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="metrics">
+              <span>Nincs betöltött indexállapot</span>
+              <span>Forráskör váltásakor vagy frissítéskor töltődik</span>
+            </div>
+          )}
+          {chunkIndexStatus?.collection_name && <code>{chunkIndexStatus.collection_name}</code>}
+          {indexJobIsRunning && <p className="field-hint">Indexeles folyamatban, az allapot automatikusan frissul.</p>}
+          {usesSemanticIndex && chunkIndexStatus && !chunkIndexStatus.is_ready && (
+            <p className="error-text">Szemantikus vagy hybrid futtatáshoz előbb indexelni kell az aktuális forráskört.</p>
+          )}
         </div>
-        <div>
-          <span>Időtartam</span>
-          <strong>
-            {aiOperationLabels.has(busy)
-              ? formatDuration(elapsedSeconds)
-              : lastAiOperation
-                ? formatDuration(lastAiOperation.durationSeconds)
-                : "-"}
-          </strong>
-        </div>
+        {canUseBatchScope && (
+          <div className="analysis-readiness-actions">
+            <button
+              className="secondary-button"
+              onClick={handleIndexChunks}
+              disabled={!selectedCaseId || Boolean(busy) || indexJobIsRunning || !hasAnalysisSource}
+              title="Lokális embedding és Qdrant index készítése az aktuális forráskörhöz"
+            >
+              {indexJobIsRunning ? "Indexeles folyamatban" : "Szovegreszek indexelese"}
+            </button>
+            <label className="checkbox-label">
+              <input type="checkbox" checked={forceReindex} onChange={(event) => setForceReindex(event.target.checked)} />
+              Ujraindexeles
+            </label>
+          </div>
+        )}
       </section>
     );
   }
@@ -3273,85 +3343,79 @@ export function App() {
         </div>
       </header>
 
-      {renderModelStatusBar()}
-
-      {error && <div className="notice error">{error}</div>}
-      {notice && <div className="notice success">{notice}</div>}
-
       <section className="workspace">
-        <section className="case-strip">
-          <div className="section-heading">
-            <h2>Ugyek</h2>
-            <button className="secondary-button" onClick={refreshCases} title="Ügylista frissítése" disabled={Boolean(busy)}>
-              <RefreshCw size={18} /> Ügylista frissítése
-            </button>
-          </div>
-          <div className="case-strip-controls">
-            <label>
-              Aktiv ugy
-              <select value={selectedCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>
-                <option value="">Nincs kivalasztva</option>
-                {cases.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.case_reference ? `${item.case_reference} - ` : ""}
-                    {item.case_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Nev
-              <input value={caseName} onChange={(event) => setCaseName(event.target.value)} />
-            </label>
-            <label>
-              Azonosito
-              <input value={caseReference} onChange={(event) => setCaseReference(event.target.value)} />
-            </label>
-            <button onClick={handleCreateCase} disabled={!caseName || Boolean(busy)}>
-              <FolderPlus size={18} /> Ugy letrehozasa
-            </button>
-            <button onClick={() => refreshCaseData()} disabled={!selectedCaseId || Boolean(busy)}>
-              <RefreshCw size={18} /> Ugyadatok frissítése
-            </button>
-            <button className="danger-button" onClick={handleDeleteSelectedCase} disabled={!selectedCaseId || Boolean(busy)}>
-              <Trash2 size={18} /> Ügy végleges törlése
-            </button>
-          </div>
-        </section>
+        <div className="surface-layout">
+          <aside className="surface-sidebar">
+            {renderModelStatusBar()}
+            <nav className="surface-nav" aria-label="Munkafelület választása">
+              {workSurfaces.map((surface) => (
+                <button
+                  key={surface}
+                  className={`surface-tab ${activeSurface === surface ? "is-active" : ""}`}
+                  onClick={() => setActiveSurface(surface)}
+                  type="button"
+                  aria-current={activeSurface === surface ? "page" : undefined}
+                >
+                  {surface === "document_organizer" && <FolderPlus size={18} />}
+                  {surface === "case_workbench" && <Database size={18} />}
+                  {surface === "full_document_processing" && <FilePlus2 size={18} />}
+                  {surface === "audit_log" && <Archive size={18} />}
+                  <span>{workSurfaceLabels[surface]}</span>
+                </button>
+              ))}
+            </nav>
+          </aside>
 
-        <nav className="surface-nav" aria-label="Munkafelület választása">
-          {workSurfaces.map((surface) => (
-            <button
-              key={surface}
-              className={`surface-tab ${activeSurface === surface ? "is-active" : ""}`}
-              onClick={() => setActiveSurface(surface)}
-              type="button"
-              aria-current={activeSurface === surface ? "page" : undefined}
-            >
-              {surface === "case_workbench" && <Database size={18} />}
-              {surface === "full_document_processing" && <FilePlus2 size={18} />}
-              {surface === "audit_log" && <Archive size={18} />}
-              <span>{workSurfaceLabels[surface]}</span>
-            </button>
-          ))}
-        </nav>
+          <div className="surface-content">
+            {error && <div className="notice error">{error}</div>}
+            {notice && <div className="notice success">{notice}</div>}
 
-        {renderAiOperationStrip()}
-
-        {activeSurface === "case_workbench" && (
+        {(activeSurface === "document_organizer" || activeSurface === "case_workbench") && (
         <section className="main-grid">
-          <section className="panel hero-panel">
-            <div>
-              <h2>{selectedCase?.case_name ?? "Nincs aktiv ugy"}</h2>
-              <p>{selectedCase?.case_reference ?? selectedCase?.status ?? "Valassz vagy hozz letre ugyet"}</p>
+          {renderSurfaceHeader(activeSurface)}
+
+          <div className={`workflow-column ${activeSurface === "document_organizer" ? "document-organizer-column" : ""}`}>
+          {activeSurface === "document_organizer" && (
+          <>
+          <section className="case-strip document-organizer-case-panel">
+            <div className="section-heading">
+              <h2>Ugyek</h2>
+              <button className="secondary-button" onClick={refreshCases} title="Ügylista frissítése" disabled={Boolean(busy)}>
+                <RefreshCw size={18} /> Ügylista frissítése
+              </button>
             </div>
-            <div className="run-stack">
-              <span className="run-state">{busy ? <Loader2 className="spin" size={18} /> : <CheckCircle2 size={18} />} {busyLabel}</span>
-              {busy && <span className="elapsed">{formatDuration(elapsedSeconds)}</span>}
+            <div className="case-strip-controls">
+              <label>
+                Aktiv ugy
+                <select value={selectedCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>
+                  <option value="">Nincs kivalasztva</option>
+                  {cases.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.case_reference ? `${item.case_reference} - ` : ""}
+                      {item.case_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Nev
+                <input value={caseName} onChange={(event) => setCaseName(event.target.value)} />
+              </label>
+              <label>
+                Azonosito
+                <input value={caseReference} onChange={(event) => setCaseReference(event.target.value)} />
+              </label>
+              <button onClick={handleCreateCase} disabled={!caseName || Boolean(busy)}>
+                <FolderPlus size={18} /> Ugy letrehozasa
+              </button>
+              <button onClick={() => refreshCaseData()} disabled={!selectedCaseId || Boolean(busy)}>
+                <RefreshCw size={18} /> Ugyadatok frissítése
+              </button>
+              <button className="danger-button" onClick={handleDeleteSelectedCase} disabled={!selectedCaseId || Boolean(busy)}>
+                <Trash2 size={18} /> Ügy végleges törlése
+              </button>
             </div>
           </section>
-
-          <div className="workflow-column">
           <section className="panel document-collections-panel">
             <div className="section-heading">
               <h2>Iratgyűjtemények</h2>
@@ -3377,21 +3441,19 @@ export function App() {
             {documentCollections.length === 0 && <p className="muted">Még nincs iratgyűjtemény.</p>}
             {documentCollections.length > 0 && (
               <>
-                <select
-                  value={selectedDocumentCollectionId}
-                  onChange={(event) => {
-                    setSelectedDocumentCollectionId(event.target.value);
+                {renderSearchableSelect({
+                  queryKey: "selected-document-collection",
+                  value: selectedDocumentCollectionId,
+                  onChange: (value) => {
+                    setSelectedDocumentCollectionId(value);
                     setSelectedDocumentCollectionMarkedDocumentIds([]);
                     setDocumentCollectionScopePreview(null);
-                  }}
-                  disabled={Boolean(busy)}
-                >
-                  {documentCollections.map((collection) => (
-                    <option key={collection.id} value={collection.id}>
-                      {collection.name} ({collection.active_document_count}/{collection.document_count})
-                    </option>
-                  ))}
-                </select>
+                  },
+                  options: documentCollectionTargetOptions,
+                  placeholder: "Iratgyűjtemény",
+                  searchPlaceholder: "Keresés az iratgyűjtemények között",
+                  ariaLabel: "Iratgyűjtemény kiválasztása"
+                })}
                 {selectedDocumentCollection && (
                   <div className="collection-summary">
                     <div>
@@ -3902,59 +3964,17 @@ export function App() {
             </button>
           </section>
 
+          </>
+          )}
+
+          {activeSurface === "case_workbench" && (
+          <>
+          {renderAnalysisReadinessStrip()}
           <section className="panel analysis-panel">
             <div className="section-heading">
               <h2>Elemzes</h2>
               <Search size={20} />
             </div>
-            {canUseBatchScope && chunkIndexStatus && (
-              <div className="model-status-panel">
-                <div>
-                  <strong>Szemantikus index allapot</strong>
-                  <p>{labelChunkIndexScope(chunkIndexStatus)} | {chunkIndexStatus.embedding_model}</p>
-                </div>
-                <div className="metrics">
-                  <span>{labelChunkIndexStatus(chunkIndexStatus)}</span>
-                  <span>Indexelve: {chunkIndexStatus.indexed_chunk_count}/{chunkIndexStatus.current_chunk_count}</span>
-                  <span>Hianyzik: {chunkIndexStatus.missing_chunk_count}</span>
-                </div>
-                <code>{chunkIndexStatus.collection_name}</code>
-                {chunkIndexStatus.latest_run_id && (
-                  <p className="field-hint">
-                    Utolso indexeles: {chunkIndexStatus.latest_run_status ? labelRunStatus(chunkIndexStatus.latest_run_status) : "ismeretlen"}
-                    {chunkIndexStatus.latest_run_finished_at ? ` | ${new Date(chunkIndexStatus.latest_run_finished_at).toLocaleString()}` : ""}
-                  </p>
-                )}
-                {chunkIndexStatus.latest_run_input_count > 0 && (
-                  <p className="field-hint">
-                    Folyamat: {chunkIndexStatus.latest_run_output_count}/{chunkIndexStatus.latest_run_input_count} szovegresz
-                    {chunkIndexStatus.latest_run_progress_percent !== null ? ` | ${chunkIndexStatus.latest_run_progress_percent}%` : ""}
-                  </p>
-                )}
-                {indexJobIsRunning && (
-                  <p className="field-hint">Indexeles folyamatban, az allapot automatikusan frissul.</p>
-                )}
-                {usesSemanticIndex && !chunkIndexStatus.is_ready && (
-                  <p className="error-text">Szemantikus vagy hybrid futtatáshoz előbb indexelni kell az aktuális forráskört.</p>
-                )}
-              </div>
-            )}
-            {canUseBatchScope && (
-              <div className="source-action-row">
-                <button
-                  className="secondary-button"
-                  onClick={handleIndexChunks}
-                  disabled={!selectedCaseId || Boolean(busy) || indexJobIsRunning || !hasAnalysisSource}
-                  title="Lokális embedding és Qdrant index készítése az aktuális forráskörhöz"
-                >
-                  {indexJobIsRunning ? "Indexeles folyamatban" : "Szovegreszek indexelese"}
-                </button>
-                <label className="checkbox-label">
-                  <input type="checkbox" checked={forceReindex} onChange={(event) => setForceReindex(event.target.checked)} />
-                  Ujraindexeles
-                </label>
-              </div>
-            )}
             <div className="form-row">
               <label>
                 Modul
@@ -3975,7 +3995,7 @@ export function App() {
             </div>
             {showCaseDocumentFilters && (
               <div className="source-filter-panel">
-                <p className="field-hint">
+                <p className="field-hint source-filter-hint">
                   A kijelölés csak a teljes ügy forráskörben érvényes. Ha nem jelölsz ki konkrét iratot, a rendszer az összes elemzésre kész iratban keres.
                 </p>
                 <div className="source-filter-list">
@@ -4018,7 +4038,7 @@ export function App() {
             )}
             {canUseBatchScope && effectiveAnalysisSourceMode === "document" && (
               <div className="source-filter-panel">
-                <p className="field-hint">
+                <p className="field-hint source-filter-hint">
                   Valassz ki egy elemzésre kész iratot. A keresés a kijelölt irat teljes szöveganyagában dolgozik.
                 </p>
                 <div className="source-filter-list">
@@ -4085,7 +4105,7 @@ export function App() {
               </div>
             )}
             {canUseBatchScope && (
-              <div className="form-row">
+              <div className="analysis-settings-row">
                 <label>
                   Szovegresz plafon
                   <input
@@ -4106,23 +4126,19 @@ export function App() {
                     onChange={(event) => setBatchSize(clampNumberInput(event.target.value, 1, 15, 10))}
                   />
                 </label>
+                <label>
+                  Forráskeresés
+                  <select
+                    value={retrievalStrategy}
+                    onChange={(event) => setRetrievalStrategy(event.target.value as RetrievalStrategy)}
+                  >
+                    {retrievalStrategies.map((item) => <option key={item} value={item}>{labelRetrievalStrategy(item)}</option>)}
+                  </select>
+                </label>
+                <span className="field-hint analysis-settings-hint">
+                  A keresesi mod a fokusz alapjan valasztja ki a feldolgozando szovegreszeket. Szemantikus vagy hybrid modhoz elobb indexeld a szovegreszeket.
+                </span>
               </div>
-            )}
-            {canUseBatchScope && (
-              <>
-                <div className="form-row">
-                  <label>
-                    Forráskeresés
-                    <select
-                      value={retrievalStrategy}
-                      onChange={(event) => setRetrievalStrategy(event.target.value as RetrievalStrategy)}
-                    >
-                      {retrievalStrategies.map((item) => <option key={item} value={item}>{labelRetrievalStrategy(item)}</option>)}
-                    </select>
-                    <span className="field-hint">A keresesi mod a fokusz alapjan valasztja ki a feldolgozando szovegreszeket. Szemantikus vagy hybrid modhoz elobb indexeld a szovegreszeket.</span>
-                  </label>
-                </div>
-              </>
             )}
             {isContradictionModule && (
               <>
@@ -4262,8 +4278,12 @@ export function App() {
             )}
           </section>
 
+          </>
+          )}
+
           </div>
 
+          {activeSurface === "case_workbench" && (
           <div className="review-column">
           <section className="panel research-findings-panel" ref={researchFindingsPanelRef}>
             <div className="section-heading">
@@ -4890,21 +4910,14 @@ export function App() {
           </section>
 
           </div>
+          )}
 
         </section>
         )}
 
         {activeSurface === "full_document_processing" && (
           <section className="surface-placeholder">
-            <section className="panel hero-panel">
-              <div>
-                <h2>{workSurfaceLabels.full_document_processing}</h2>
-                <p>{workSurfaceHints.full_document_processing}</p>
-              </div>
-              <div className="run-stack">
-                <span className="run-state"><FilePlus2 size={18} /> előkészítés alatt</span>
-              </div>
-            </section>
+            {renderSurfaceHeader("full_document_processing")}
             <section className="full-document-grid">
               <section className="panel">
               <div className="section-heading">
@@ -5216,15 +5229,7 @@ export function App() {
 
         {activeSurface === "audit_log" && (
           <section className="surface-placeholder">
-            <section className="panel hero-panel">
-              <div>
-                <h2>{workSurfaceLabels.audit_log}</h2>
-                <p>{workSurfaceHints.audit_log}</p>
-              </div>
-              <div className="run-stack">
-                <span className="run-state"><Archive size={18} /> előkészítés alatt</span>
-              </div>
-            </section>
+            {renderSurfaceHeader("audit_log")}
             <section className="panel">
               <div className="section-heading">
                 <h2>Tervezett naplófelület</h2>
@@ -5242,6 +5247,8 @@ export function App() {
             </section>
           </section>
         )}
+          </div>
+        </div>
       </section>
     </main>
   );

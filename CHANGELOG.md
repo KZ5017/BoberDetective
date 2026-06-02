@@ -1,5 +1,17 @@
 # CHANGELOG.md
 
+## 2026-06-02
+
+### Changed
+
+- Reworked the frontend work-surface shell into a left-sidebar layout with shared surface headers that show the active case context and current/last AI operation state.
+- Added `Irat rendező` as the default work surface and moved case selection/creation, import, document list management, document collections, and document detail workflows into it.
+- Narrowed `Ügy munkapad` to analysis, research findings, review report, detached sources, and downstream case-work workflows.
+- Moved semantic index readiness/status out of the dynamic `Elemzés` panel into a compact fixed-height strip above the analysis controls, while allowing the `Kutatási találatok` column to start at the top of the workbench.
+- Standardized two-column work areas in `Ügy munkapad`, `Teljes iratfeldolgozás`, and the document organizer to equal 1:1 columns.
+- Compactified the analysis settings row and unified source-scope helper text styling.
+- Updated `Design_documents/14_work_surface_ui_architecture_plan.md` to record the current sidebar/surface direction and the role of the new document organizer surface.
+
 ## 2026-05-30
 
 ### Changed

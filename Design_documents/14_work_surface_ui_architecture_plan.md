@@ -2,7 +2,7 @@
 
 ## 0. Aktualisitas
 
-Frissitve: 2026-05-28.
+Frissitve: 2026-06-02.
 
 Ez a dokumentum a kovetkezo frontend iranyt rogziti: a jelenlegi, vizualisan stabil ketoszlopos munkapad ne tovabb zsufolodjon, hanem keruljon egy tobb munkafeluletet kezelo alkalmazasvaz ala.
 
@@ -17,16 +17,29 @@ Aktualis implementacios allapot:
 
 ```text
 elso shell/surface-navigation szelet: kesz
-Ügy munkapad: a korabbi munkapad rendezett tovabbvitele
-Teljes iratfeldolgozás: elso frontend-only irat/profil/kimenet vaz kesz
+Ügy munkapad: mukodo, de ujra zsufoltta valt
+Teljes iratfeldolgozás: backend-kapcsolt, person-profile munkafelület
 Audit napló: placeholder
+Iratgyujtemeny/source-scope layer: mukodo backend/frontend, search_findings es index scope integracioval
 ```
 
-A kovetkezo szakmai full-document iranyt a `Design_documents/15_full_document_processing_plan.md` tartalmazza, de a backend implementacio elotti nagyugyes tarolasi/retrieval kaput a `Design_documents/16_large_case_document_storage_and_retrieval_plan.md` rogziti.
+2026-06-02 dontes:
 
-A jelenlegi munkapad ertekes es mukodik. Nem cel az ujratervezese nullarol. Cel, hogy ez legyen az elso munkafelulet, es kesobb melle epulhessen:
+```text
+a felso munkafelület-valtot fokozatosan bal oldali oldalsavra csereljuk,
+az iratimport/iratmuveletek/iratgyujtemeny/iratreszletek onallo Irat rendezo munkafelületre kerulnek,
+a munkafelületek alapertelmezett elrendezese egy fo tartalmi oszlop legyen,
+ketpaneles elrendezes csak indokolt, modulon beluli reszletnezeteknel maradjon.
+```
 
+A kovetkezo nagyobb termekiranyt az altalanos lokalis RAG kerdezo adja (`Design_documents/20_general_rag_question_answering_plan.md`), de elotte a munkafelületek szetvalasztasa es az `Irat rendezo` felület letisztitasa szukseges, hogy a forraskor-kezelés ne terhelje tovabb az `Ügy munkapad` elemzesi feluletet.
+
+A jelenlegi munkapad ertekes es mukodik, de mar tul sok feladatkort hordoz egyszerre. Nem cel az ujratervezese nullarol. Cel, hogy a mukodo funkciokat szemantikailag tisztabb munkafelületekre rendezzuk:
+
+- irat rendezo munkafelület,
+- ugy munkapad / kutatasi munkafelület,
 - teljes iratfeldolgozo munkafelület,
+- altalanos iratkerdezo / lokalis RAG munkafelület,
 - teljes audit naplo munkafelület,
 - kesobbi riport / graf / forrasmunka feluletek.
 
@@ -127,39 +140,48 @@ A jelenlegi `case-strip` jo alap, de kesobb erdemes kompaktabb `CaseContextBar` 
 
 ### 4.3 Modulrail / munkafelület-valto
 
-A jelenlegi oldal melle egy keskeny, tartos navigacios sav kerulhet.
+A jelenlegi felso munkafelület-valto helyere fokozatosan bal oldali, tartos navigacios sav keruljon.
+
+Indok:
+
+- a munkafelületek szama no,
+- az aktiv felület neve ne foglaljon el egy teljes vizszintes sort,
+- az egypaneles munkafelületek mellett a bal oldali sav kevesbe zavarja a tartalmi teret,
+- a klasszikus oldalsav mentalis modellje jobban illik a tobb munkamodhoz.
 
 Desktopon:
 
-- bal oldali keskeny sav,
-- ikon + rovid cim vagy tooltip,
+- bal oldali sav,
+- ikon + rovid cim,
 - aktiv munkafelület egyertelmu jelolese,
-- 56-72 px koruli szelesseg,
-- ne vegyen el teljes oszlopnyi helyet.
+- ne vegyen el teljes oszlopnyi helyet,
+- maradjon eleg hely az egypaneles fo munkaternek.
 
 Kisebb nezetben:
 
-- felso munkafelület-valto,
+- ideiglenesen megmaradhat a felso munkafelület-valto,
 - vagy kompakt lenyilo / segmented control.
 
 Elsodleges munkafelület-jeloltek:
 
 ```text
+Irat rendező
 Ügy munkapad
 Teljes iratfeldolgozás
+Általános iratkérdező
 Audit napló
-Export / riport
 ```
 
 Az elso implementacios korben eleg lehet:
 
 ```text
+Irat rendező
 Ügy munkapad
 Teljes iratfeldolgozás
 Audit napló
 ```
 
-Az utobbi ketto eleinte lehet placeholder jellegu, de a navigacios modell mar letisztul.
+Az `Általános iratkérdező` eleinte lehet terv/placeholder jellegu, de a navigacios modell mar keszuljon ra.
 
 ### 4.4 WorkSurface
 
@@ -173,25 +195,64 @@ WorkSurface = egy nagy feladatkorhoz tartozo panelrendszer
 
 Peldak:
 
+- `DocumentOrganizerSurface`
 - `CaseWorkbenchSurface`
 - `FullDocumentProcessingSurface`
+- `GeneralRagQuestionSurface`
 - `AuditLogSurface`
-- `ExportSurface`
 
 ## 5. Elso munkafeluletek
 
-### 5.1 Ügy munkapad
+### 5.1 Irat rendező
 
-Ez a mostani felület tovabborokitese.
+Ez legyen az elso uj, tenylegesen letisztitott munkafelület.
+
+Celja:
+
+- az iratok feltoltese,
+- az iratok attekintese,
+- az iratok technikai allapotanak kezelese,
+- az iratgyujtemenyek kezelese,
+- a forraskorok elokeszitese az elemzesi munkakhoz.
+
+Ide tartozzon:
+
+- iratimport,
+- iratlista,
+- iratreszletek,
+- OCR / OCR-ellenorzes inditasa,
+- szovegreteg es szovegresz-letrehozas,
+- dokumentum eletciklus muveletek,
+- iratgyujtemeny letrehozasa es szerkesztese,
+- irat gyujtemenyhez adasa egyenkent vagy csoportosan,
+- irat gyujtemenybol kivetele egyenkent vagy csoportosan,
+- forraskor elonezet,
+- iratgyujtemeny-tagsagbol adodo duplikatumok felhasznaloi szintu jelzese.
+
+Fontos tervezesi elv:
+
+```text
+az iratgyujtemeny nem uj dokumentumtipus es nem elemzesi attribútum,
+hanem rugalmas rendezesi es forraskor-kijelolesi reteg.
+```
+
+Egy irat tobb iratgyujtemenyben is szerepelhet. A gyujtemenyek kijelolese
+forraskorkent deduplikalt dokumentumhalmazt adjon az elemzesi/indexelesi
+folyamatoknak, ne tobbszorozze meg ugyanazt az iratot.
+
+Az `Irat rendező` ne legyen elemzesi felület. Mutathat technikai
+allapotot es indexelhetosegi jelzest, de ne itt fusson a kutatasi talalat
+kinyeres, a teljes iratfeldolgozas vagy az ellentmondas-elemzes.
+
+### 5.2 Ügy munkapad
+
+Ez legyen az elemzesi es kutatasi munkafelület.
 
 Tartalma:
 
-- iratok,
-- iratreszletek,
-- iratimport,
-- modell/index statusz,
-- elemzes,
+- elemzes inditasa,
 - elemzesi elozmenyek,
+- indexallapot es forraskorhoz kotodo elemzesi keszenlet,
 - kutatasi talalatok,
 - attekintesi jelentes,
 - talalat reszletei,
@@ -199,15 +260,17 @@ Tartalma:
 - levalasztott forrasok,
 - export panelek.
 
-Elso korben nem kell belole minden panelt kivagni. A cel csak az, hogy a jelenlegi tartalom bekeruljon egy nevesitett munkafelület ala.
+Az `Ügy munkapad` ne legyen az iratok altalanos rendezo felulete. Iratokat
+es forraskorokat valaszthat elemzesi bemenetkent, de az iratok napi
+rendezese az `Irat rendező` feladata.
 
 Kesobbi finomitas:
 
 - export panelek kulon `Export / riport` surface ala mehetnek,
-- modellallapot egy resze globalis AppShell statuszba mehet,
-- levalasztott forrasok kulon forrasmunka felület jelolt lehet.
+- levalasztott forrasok kulon forrasmunka felület jelolt lehet,
+- az elemzesi panel egypaneles, letisztitott elrendezest kaphat.
 
-### 5.2 Teljes iratfeldolgozás
+### 5.3 Teljes iratfeldolgozás
 
 Kovetkezo nagy munkafelület.
 
@@ -239,7 +302,7 @@ Ha teljes iratbol keszul munkadarab, annak is visszakovethetonek kell lennie:
 - milyen prompt/profil alapjan,
 - milyen forrasreszletek alapjan.
 
-### 5.3 Audit napló
+### 5.4 Audit napló
 
 Kulon munkafelület kell, mert nem azonos az `Elemzési előzmények` panellel.
 
@@ -261,6 +324,21 @@ megmaradnak a kesobbi `Audit napló` felulet szamara.
 
 Ez ne keruljon ra a jelenlegi munkapadra egy ujabb nagy panelkent.
 
+### 5.5 Általános iratkérdező
+
+Kesobbi, onallo munkafelület.
+
+Celja:
+
+- szabadabb, kerdes-valasz jellegu helyi RAG hasznalat,
+- kizarolag kijelolt forraskor alapjan,
+- forrasokon alapulo osszefoglalo valasz,
+- nem talalatjelolt-workflow es nem strukturalt objektumgyartas.
+
+Ez a felület csak akkor induljon, ha az iratgyujtemeny/source-scope reteg
+mar stabil, mert a valaszadas minosege es biztonsaga a jol kijelolt
+forraskortol fugg.
+
 ## 6. Mi legyen globalis?
 
 Minden munkafeluleten latszodjon:
@@ -270,16 +348,19 @@ Minden munkafeluleten latszodjon:
 - globalis muveleti allapot,
 - hiba/siker uzenet,
 - munkafelület navigacio,
-- rovid modell/index statusz.
+- rovid modell/index statusz,
+- bal oldali munkafelület-navigacio desktopon.
 
 Ne legyen minden munkafeluleten nagyban lathato:
 
 - teljes iratlista,
+- iratimport,
+- iratgyujtemeny-kezelés,
+- irat reszletek,
 - teljes elemzesi elozmenylista,
 - teljes attekintesi jelentes,
 - export elozmenyek,
-- kezi ellentmondasjelolt,
-- irat reszletek.
+- kezi ellentmondasjelolt.
 
 Ezek munkafelület-specifikus elemek.
 
@@ -291,16 +372,19 @@ Elso korben elfogadhato:
 
 - az `App.tsx` megtartja a kozos state nagy reszet,
 - bevezetunk egy `activeSurface` state-et,
-- a jelenlegi markup bekerul egy `renderCaseWorkbenchSurface()` jellegu blokkba vagy kesobb komponensbe,
-- uj placeholder surface-ek keszulnek.
+- a dokumentum/iratgyujtemeny markup bekerul egy `DocumentOrganizerSurface` jellegu blokkba vagy kesobb komponensbe,
+- az elemzesi markup bekerul egy `CaseWorkbenchSurface` jellegu blokkba vagy kesobb komponensbe,
+- a mar mukodo feluletek eloszor logikailag valjanak szet, komponensbontas csak utana melyuljon.
 
 Kesobbi refaktor:
 
 - `components/AppShell.tsx`,
 - `components/CaseContextBar.tsx`,
 - `components/ModuleRail.tsx`,
+- `surfaces/DocumentOrganizerSurface.tsx`,
 - `surfaces/CaseWorkbenchSurface.tsx`,
 - `surfaces/FullDocumentProcessingSurface.tsx`,
+- `surfaces/GeneralRagQuestionSurface.tsx`,
 - `surfaces/AuditLogSurface.tsx`.
 
 Fontos: a komponensbontas ne elozze meg tul agressziven a mukodo UI megerteset. Elobb a vaz, aztan a bontas.
@@ -330,21 +414,17 @@ Kisebb kepernyo:
 
 Minimalis, alacsony kockazatu sorrend:
 
-1. `activeSurface` state bevezetese.
+1. `document_organizer` munkafelület felvetele a surface definicio listaba.
 2. Munkafelület definicio lista:
+   - `document_organizer`,
    - `case_workbench`,
    - `full_document_processing`,
    - `audit_log`.
-3. Topbar / CaseContextBar megtartasa.
-4. Modulrail vagy kompakt surface-nav letrehozasa.
-5. A jelenlegi teljes munkapad bekerul az `Ügy munkapad` surface ala.
-6. `Teljes iratfeldolgozás` placeholder:
-   - cel rovid megnevezese,
-   - aktiv ugy es iratok elerhetosegenek jelzese,
-   - kesobbi megvalositando funkciok rovid, nem marketing jellegu listaja.
-7. `Audit napló` placeholder:
-   - kulonbozzon az elemzesi elozmenyektol,
-   - jelezze, hogy `audit_events` alapu munkafelület lesz.
+3. A felso munkafelület-valto desktopon bal oldali oldalsavra cserelese.
+4. Topbar / CaseContextBar / modellstatusz / muveleti allapot megtartasa a munkafelületek folott.
+5. Iratimport, iratlista, iratreszlet, OCR/chunk muveletek es iratgyujtemeny panelek atmozgatasa az `Irat rendező` ala.
+6. Az `Ügy munkapad` megtartasa elemzesi, kutatasi talalat, attekintesi, forrasmunka es export feluletkent.
+7. `Teljes iratfeldolgozás` es `Audit napló` feluletek mostani mukodesenek megtartasa, csak a navigaciohoz igazitva.
 
 Ebben a szeletben nem kell uj backend endpoint.
 
@@ -357,15 +437,27 @@ Miutan a surface-valtas mukodik:
 - `AppShell`,
 - `Topbar`,
 - `CaseContextBar`,
-- `SurfaceNav`.
+- `SurfaceSidebar`.
 
-### 10.2 CaseWorkbenchSurface kiemelese
+### 10.2 DocumentOrganizerSurface kiemelese
+
+Az elso atmozgatas utan az iratos JSX szakasz sajat komponensbe kerulhet.
+
+Ez tartalmazza:
+
+- import,
+- dokumentum lista,
+- dokumentum reszletek,
+- iratgyujtemenyek,
+- csoportos gyujtemenyhez adas/kivetel.
+
+### 10.3 CaseWorkbenchSurface tisztitasa
 
 A jelenlegi nagy JSX szakasz fokozatosan kikerulhet sajat komponensbe.
 
 Ez nagy munka, ezert csak akkor erdemes, ha az AppShell vaz mar stabil.
 
-### 10.3 FullDocumentProcessingSurface
+### 10.4 FullDocumentProcessingSurface
 
 Elso tenyleges uj munkafelület.
 
@@ -378,7 +470,19 @@ Kezdeti UI:
 - eredmeny munkalista,
 - keresesi fokuszba kuldes / kutatasi talalat workflow-hoz atadas.
 
-### 10.4 AuditLogSurface
+### 10.5 GeneralRagQuestionSurface
+
+Az iratgyujtemeny/source-scope reteg stabilizalasa utan induljon.
+
+Kezdeti UI:
+
+- forraskor valaszto,
+- szabad kerdes mezo,
+- valasz forrasalapu osszefoglaloval,
+- felhasznalt forrasok listaja,
+- audit-tracked futasi elozmeny.
+
+### 10.6 AuditLogSurface
 
 Backend/API es UI egyutt:
 
@@ -393,35 +497,39 @@ Nem cel az elso UI-vaz szeletben:
 
 - teljes `App.tsx` szetbontasa,
 - uj audit backend,
-- teljes iratfeldolgozo backend,
+- uj iratgyujtemeny backend,
+- altalanos RAG backend,
 - graf UI,
 - uj design system bevezetese,
-- a jelenlegi munkapad vizualis ujratervezese.
+- minden munkafelület vegleges vizualis ujratervezese,
+- minden ketpaneles belso nezet azonnali megszuntetese.
 
 ## 12. Dontesi osszegzes
 
 Elfogadott irany:
 
 ```text
-AppShell + CaseContext + SurfaceNav + WorkSurface
+AppShell + CaseContext + LeftSidebar + WorkSurface
 ```
 
-Elso felület:
+Elso ujrarendezendo felület:
 
 ```text
-Ügy munkapad = jelenlegi munkapad rendezett tovabbvitele
+Irat rendező = iratimport, iratlista, iratreszletek, iratgyujtemenyek, forraskor elokeszites
 ```
 
-Kovetkezo felület:
+Elemzesi felület:
+
+```text
+Ügy munkapad = kutatasi talalatok, attekintesi jelentes, elemzes, forrasmunka
+```
+
+Mar letezo / kovetkezo feluletek:
 
 ```text
 Teljes iratfeldolgozás
-```
-
-Utana:
-
-```text
 Audit napló
+Általános iratkérdező
 ```
 
 A cel nem az, hogy a rendszer tobb kulonallo modulra essen szet, hanem hogy a felhasznalo kulon munkafolyamatokat kapjon ugyanazon kozos ugy- es forrasadatok folott.
