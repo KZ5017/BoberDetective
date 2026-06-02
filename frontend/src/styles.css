@@ -447,6 +447,11 @@ label {
   opacity: 0.88;
 }
 
+.full-document-item.is-unconfirmed {
+  background: #fff7e6;
+  border-color: #e3c783;
+}
+
 .full-document-item.is-marked-delete {
   border-color: #b66a55;
   box-shadow: inset 0 0 0 1px rgba(182, 106, 85, 0.22);
@@ -895,6 +900,10 @@ label {
   margin-top: 0.8rem;
 }
 
+.detached-source-context-details {
+  margin-top: 0.8rem;
+}
+
 .detached-source-preview {
   min-height: 7.25rem;
 }
@@ -1002,6 +1011,15 @@ label {
   background: #fff7e6;
   border-color: #e3c783;
   color: #60420c;
+}
+
+.full-document-unconfirmed-note {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.full-document-unconfirmed-note span {
+  font-weight: 500;
 }
 
 .module-note ul {
@@ -1247,6 +1265,11 @@ pre {
   opacity: 0.86;
 }
 
+.research-finding-card.is-unconfirmed {
+  background: #fff7e6;
+  border-color: #e3c783;
+}
+
 .research-finding-card.is-marked-delete {
   border-color: #b66a55;
   box-shadow: inset 0 0 0 1px rgba(182, 106, 85, 0.22);
@@ -1458,6 +1481,14 @@ pre {
   border-radius: 6px;
   margin: 0;
   padding: 0.65rem;
+}
+
+.source-quote-highlight {
+  background: #fff1a8;
+  border-radius: 3px;
+  color: #27343b;
+  font-weight: 700;
+  padding: 0.02rem 0.12rem;
 }
 
 .hash {

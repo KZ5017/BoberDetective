@@ -147,6 +147,7 @@ def create_manual_object_from_source_reference(
     source_reference_id: UUID,
     payload: ManualObjectFromSourceCreate,
     input_kind: str = "manual_existing_source_selection",
+    target_source_validation_status: str = "source_valid",
 ) -> tuple[UUID, SourceReferenceModel, str, UUID]:
     source_reference = db.get(SourceReferenceModel, source_reference_id)
     if source_reference is None or source_reference.case_id != case_id:
@@ -154,7 +155,15 @@ def create_manual_object_from_source_reference(
 
     run = _start_manual_run(db, case_id, payload)
     try:
-        return _create_manual_object_for_source(db, case_id, payload, run, source_reference, input_kind)
+        return _create_manual_object_for_source(
+            db,
+            case_id,
+            payload,
+            run,
+            source_reference,
+            input_kind,
+            target_source_validation_status=target_source_validation_status,
+        )
     except Exception as exc:
         finish_analysis_run(db, run, status="failed", validation_status="failed", error_message=str(exc))
         raise
@@ -399,7 +408,11 @@ def _create_manual_object_for_source(
     run,
     source_reference: SourceReferenceModel,
     input_kind: str,
+    *,
+    target_source_validation_status: str = "source_valid",
 ) -> tuple[UUID, SourceReferenceModel, str, UUID]:
+    if target_source_validation_status not in {"source_valid", "source_invalid"}:
+        raise ManualEntryError("Unsupported target source validation status")
     add_analysis_run_input(
         db,
         run.id,
@@ -427,17 +440,32 @@ def _create_manual_object_for_source(
         )
         object_id = created.id
     elif payload.object_type == "entity":
-        created, _mention = create_entity_with_mention(
-            db,
-            case_id=case_id,
-            entity_type=payload.entity_type or "other",
-            canonical_name=payload.canonical_name or "",
-            normalized_value=payload.normalized_value,
-            description=payload.description,
-            surface_text=source_reference.quote_text,
-            source_reference_id=source_reference.id,
-            analysis_run_id=run.id,
-        )
+        if target_source_validation_status == "source_invalid":
+            if not (payload.canonical_name or "").strip():
+                raise ManualEntryError("Entity canonical name is required")
+            created = EntityModel(
+                case_id=case_id,
+                entity_type=payload.entity_type or "other",
+                canonical_name=payload.canonical_name or "",
+                normalized_value=payload.normalized_value,
+                description=payload.description,
+                created_by_analysis_run_id=run.id,
+                review_status="needs_review",
+            )
+            db.add(created)
+            db.flush()
+        else:
+            created, _mention = create_entity_with_mention(
+                db,
+                case_id=case_id,
+                entity_type=payload.entity_type or "other",
+                canonical_name=payload.canonical_name or "",
+                normalized_value=payload.normalized_value,
+                description=payload.description,
+                surface_text=source_reference.quote_text,
+                source_reference_id=source_reference.id,
+                analysis_run_id=run.id,
+            )
         object_id = created.id
     elif payload.object_type == "event":
         created = create_event_with_source(
@@ -466,6 +494,11 @@ def _create_manual_object_for_source(
         object_id = created.id
     else:
         raise ManualEntryError("Unsupported manual object type")
+
+    if target_source_validation_status == "source_invalid" and payload.object_type in {"claim", "event", "missing_item_candidate"}:
+        created.source_validation_status = "source_invalid"
+        db.add(created)
+        db.flush()
 
     add_analysis_run_output(db, run.id, "source_reference", source_reference.id, 0)
     add_analysis_run_output(db, run.id, payload.object_type, object_id, 1)

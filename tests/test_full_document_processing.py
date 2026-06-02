@@ -7,7 +7,9 @@ from app.models.document_processing import DocumentProcessingItemModel
 from app.schemas.full_document_processing import DocumentProcessingItemRead
 from app.services.full_document_processing import (
     FullDocumentProcessingValidationError,
+    FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT,
     PROFILES,
+    build_full_document_processing_user_prompt,
     validate_full_document_processing_payload,
     list_profiles,
     update_document_processing_item_status,
@@ -36,10 +38,48 @@ class _FakeDb:
 def test_full_document_processing_profiles_are_hungarian_and_stable() -> None:
     profiles = list_profiles()
 
-    assert [profile.key for profile in profiles] == ["person_search_seeds", "entity_search_seeds"]
+    assert [profile.key for profile in profiles] == ["person_search_seeds"]
     assert profiles[0].label == "Személykeresési fókuszok"
     assert "person" in profiles[0].item_kinds
-    assert "organization" in profiles[1].item_kinds
+
+
+def test_full_document_processing_prompts_keep_rules_in_system_and_data_in_user_prompt() -> None:
+    document = type("Document", (), {"original_filename": "irat.pdf"})()
+    page_sources = [
+        {
+            "source_label": "page_1",
+            "document_id": uuid4(),
+            "page_id": uuid4(),
+            "page_number": 1,
+            "text": "Kovács Ágnes, eladólány az Általános Áruházban.",
+        }
+    ]
+
+    user_prompt = build_full_document_processing_user_prompt(profile=PROFILES[0], document=document, page_sources=page_sources)
+
+    assert "Forráshű teljes iratfeldolgozó komponens vagy." in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "Alapelvek:" in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "Feladat:" in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "Mezőszabályok:" in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "JSON szabályok:" in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "Add vissza JSON formában a SOURCE-ban szereplő személyeket." in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "short_description" not in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "A recommended_search_focus rövid keresési kifejezés legyen" in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "display_label + 1-4 forrásbeli szó" in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "őrizd meg a SOURCE szerinti írásmódot" in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "ne cseréld át másik idézőjelre" in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "A source_label megadása minden items elemben kötelező." in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert '"recommended_search_focus":"..."' in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "unsupported_items" not in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert '{"items":[]}' in FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT
+    assert "DOCUMENT:\nirat.pdf" in user_prompt
+    assert "PROFILE:\nperson_search_seeds" in user_prompt
+    assert "SOURCE:\npage_1:" in user_prompt
+    assert "Kovács Ágnes" in user_prompt
+    assert "TASK:" not in user_prompt
+    assert "JSON forma:" not in user_prompt
+    assert "Mezőszabályok:" not in user_prompt
+    assert "Add vissza JSON formában" not in user_prompt
 
 
 def test_document_processing_item_schema_accepts_graph_ready_fields() -> None:
@@ -118,11 +158,11 @@ def test_validate_full_document_processing_payload_keeps_source_exact_items() ->
             {
                 "item_kind": "person",
                 "display_label": "Pauline Dubourg",
-                "short_description": "Mosónő, aki három éve ismeri az áldozatokat.",
+                "short_description": "Pauline Dubourg mosónő, aki három éve ismeri az áldozatokat.",
+                "recommended_search_focus": "Pauline Dubourg mosónő áldozatok",
                 "mentioned_forms": ["Pauline Dubourg"],
                 "source_supported_details": [{"detail": "mosónő", "source_label": "page_7"}],
                 "relationships": [],
-                "recommended_search_focus": "Pauline Dubourg mosónő",
                 "alternative_search_focuses": ["Pauline Dubourg tanúvallomása"],
                 "source_evidence": [
                     {
@@ -148,8 +188,74 @@ def test_validate_full_document_processing_payload_keeps_source_exact_items() ->
 
     assert unsupported == []
     assert valid_items[0]["display_label"] == "Pauline Dubourg"
+    assert valid_items[0]["recommended_search_focus"] == "Pauline Dubourg mosónő áldozatok"
     assert valid_items[0]["source_evidence"][0]["quote_char_start"] == 0
     assert valid_items[0]["source_evidence"][0]["page_id"] == str(page_id)
+
+
+def test_validate_full_document_processing_payload_falls_back_to_label_when_focus_is_missing() -> None:
+    payload = {
+        "items": [
+            {
+                "item_kind": "person",
+                "display_label": "Kovács Ágnes",
+                "source_label": "page_1",
+            }
+        ],
+    }
+    page_sources = [
+        {
+            "source_label": "page_1",
+            "document_id": uuid4(),
+            "page_id": uuid4(),
+            "page_number": 1,
+            "text": "Kovács Ágnes, eladólány az Általános Áruházban.",
+        }
+    ]
+
+    valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
+
+    assert unsupported == []
+    assert valid_items[0]["recommended_search_focus"] == "Kovács Ágnes"
+
+
+def test_validate_full_document_processing_payload_repairs_wrong_source_label_when_label_exists_elsewhere() -> None:
+    page_id = uuid4()
+    document_id = uuid4()
+    payload = {
+        "items": [
+            {
+                "item_kind": "person",
+                "display_label": "Anna nővér",
+                "short_description": "Anna nővér hatalmában tartja dr. Torbágyot.",
+                "source_label": "page_1",
+            }
+        ],
+        "unsupported_items": [],
+    }
+    page_sources = [
+        {
+            "source_label": "page_1",
+            "document_id": document_id,
+            "page_id": uuid4(),
+            "page_number": 1,
+            "text": "Címlap.",
+        },
+        {
+            "source_label": "page_2",
+            "document_id": document_id,
+            "page_id": page_id,
+            "page_number": 2,
+            "text": "Anna nővér, aki hatalmában tartja dr. Torbágyot.",
+        },
+    ]
+
+    valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
+
+    assert unsupported == []
+    assert valid_items[0]["source_evidence"][0]["source_label"] == "page_2"
+    assert valid_items[0]["source_evidence"][0]["page_id"] == str(page_id)
+    assert valid_items[0]["source_evidence"][0]["quote_text"] == "Anna nővér"
 
 
 def test_validate_full_document_processing_payload_rejects_non_source_quote() -> None:
@@ -175,7 +281,11 @@ def test_validate_full_document_processing_payload_rejects_non_source_quote() ->
 
     valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
 
-    assert valid_items == []
+    assert len(valid_items) == 1
+    assert valid_items[0]["display_label"] == "Kitalált személy"
+    assert valid_items[0]["source_evidence"] == []
+    assert valid_items[0]["source_supported_details"][-1]["validation_status"] == "unconfirmed"
+    assert valid_items[0]["source_supported_details"][-1]["llm_source_label"] == "page_1"
     assert "a név nem található" in unsupported[0]
 
 
@@ -258,7 +368,12 @@ def test_validate_full_document_processing_payload_rejects_parenthetical_alias_l
 
     valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
 
-    assert valid_items == []
+    assert len(valid_items) == 1
+    assert valid_items[0]["display_label"] == "Zlinek Zsófia (Pipi nővér)"
+    assert valid_items[0]["source_evidence"] == []
+    assert valid_items[0]["recommended_search_focus"] == "Zlinek Zsófia (Pipi nővér)"
+    assert valid_items[0]["source_supported_details"][-1]["validation_status"] == "unconfirmed"
+    assert valid_items[0]["source_supported_details"][-1]["llm_source_label"] == "page_1"
     assert "a név nem található" in unsupported[0]
 
 

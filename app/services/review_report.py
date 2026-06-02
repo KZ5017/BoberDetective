@@ -14,6 +14,7 @@ from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
 from app.schemas.review import HumanReviewRead
 from app.schemas.review_report import CaseReviewReport, ReviewReportCounts, ReviewReportFilters, ReviewReportItem, ReviewReportSource
+from app.services.source_references import validate_source_references
 from app.services.text_store import read_chunk_text, read_chunk_text_from_store, read_page_text, read_page_text_from_store
 
 
@@ -88,7 +89,7 @@ def _claim_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:
             created_by_analysis_run_id=claim.created_by_analysis_run_id,
             created_at=claim.created_at,
             updated_at=claim.updated_at,
-            sources=_claim_sources(db, claim.id),
+            sources=_claim_sources(db, claim.id, include_unresolved_context=claim.source_validation_status == "source_invalid"),
             reviews=_reviews(db, case_id, "claim", claim.id),
         )
         for claim in claims
@@ -117,7 +118,7 @@ def _event_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:
             created_by_analysis_run_id=event.created_by_analysis_run_id,
             created_at=event.created_at,
             updated_at=event.updated_at,
-            sources=_event_sources(db, event.id),
+            sources=_event_sources(db, event.id, include_unresolved_context=event.source_validation_status == "source_invalid"),
             reviews=_reviews(db, case_id, "event", event.id),
         )
         for event in events
@@ -134,7 +135,8 @@ def _entity_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:
     )
     items: list[ReviewReportItem] = []
     for entity in entities:
-        sources = _entity_sources(db, entity.id)
+        source_validation_status = _entity_source_validation_status(db, case_id, entity.id)
+        sources = _entity_sources(db, entity.id, include_unresolved_context=source_validation_status == "source_invalid")
         items.append(
             ReviewReportItem(
                 object_type="entity",
@@ -143,7 +145,7 @@ def _entity_items(db: Session, case_id: UUID) -> list[ReviewReportItem]:
                 body_text=entity.description,
                 subtype=entity.entity_type,
                 review_status=entity.review_status,
-                source_validation_status="source_valid" if sources else "source_invalid",
+                source_validation_status=source_validation_status,
                 created_by_analysis_run_id=entity.created_by_analysis_run_id,
                 created_at=entity.created_at,
                 updated_at=entity.updated_at,
@@ -174,7 +176,11 @@ def _contradiction_candidate_items(db: Session, case_id: UUID) -> list[ReviewRep
             created_by_analysis_run_id=candidate.created_by_analysis_run_id,
             created_at=candidate.created_at,
             updated_at=candidate.updated_at,
-            sources=_contradiction_candidate_sources(db, candidate.id),
+            sources=_contradiction_candidate_sources(
+                db,
+                candidate.id,
+                include_unresolved_context=candidate.source_validation_status == "source_invalid",
+            ),
             reviews=_reviews(db, case_id, "contradiction_candidate", candidate.id),
         )
         for candidate in candidates
@@ -201,34 +207,49 @@ def _missing_item_candidate_items(db: Session, case_id: UUID) -> list[ReviewRepo
             created_by_analysis_run_id=candidate.created_by_analysis_run_id,
             created_at=candidate.created_at,
             updated_at=candidate.updated_at,
-            sources=_missing_item_candidate_sources(db, candidate.id),
+            sources=_missing_item_candidate_sources(
+                db,
+                candidate.id,
+                include_unresolved_context=candidate.source_validation_status == "source_invalid",
+            ),
             reviews=_reviews(db, case_id, "missing_item_candidate", candidate.id),
         )
         for candidate in candidates
     ]
 
 
-def _claim_sources(db: Session, claim_id: UUID) -> list[ReviewReportSource]:
+def _claim_sources(db: Session, claim_id: UUID, *, include_unresolved_context: bool = False) -> list[ReviewReportSource]:
     rows = db.execute(
         select(ClaimSourceModel, SourceReferenceModel)
         .join(SourceReferenceModel, SourceReferenceModel.id == ClaimSourceModel.source_reference_id)
         .where(ClaimSourceModel.claim_id == claim_id)
         .order_by(ClaimSourceModel.relevance_rank.asc())
     )
-    return [_report_source(db, source_link, source_reference) for source_link, source_reference in rows]
+    return [
+        _report_source(db, source_link, source_reference, include_unresolved_context=include_unresolved_context)
+        for source_link, source_reference in rows
+    ]
 
 
-def _event_sources(db: Session, event_id: UUID) -> list[ReviewReportSource]:
+def _event_sources(db: Session, event_id: UUID, *, include_unresolved_context: bool = False) -> list[ReviewReportSource]:
     rows = db.execute(
         select(EventSourceModel, SourceReferenceModel)
         .join(SourceReferenceModel, SourceReferenceModel.id == EventSourceModel.source_reference_id)
         .where(EventSourceModel.event_id == event_id)
         .order_by(EventSourceModel.relevance_rank.asc())
     )
-    return [_report_source(db, source_link, source_reference) for source_link, source_reference in rows]
+    return [
+        _report_source(db, source_link, source_reference, include_unresolved_context=include_unresolved_context)
+        for source_link, source_reference in rows
+    ]
 
 
-def _contradiction_candidate_sources(db: Session, contradiction_candidate_id: UUID) -> list[ReviewReportSource]:
+def _contradiction_candidate_sources(
+    db: Session,
+    contradiction_candidate_id: UUID,
+    *,
+    include_unresolved_context: bool = False,
+) -> list[ReviewReportSource]:
     rows = db.execute(
         select(ContradictionCandidateSourceModel, SourceReferenceModel)
         .join(SourceReferenceModel, SourceReferenceModel.id == ContradictionCandidateSourceModel.source_reference_id)
@@ -243,12 +264,18 @@ def _contradiction_candidate_sources(db: Session, contradiction_candidate_id: UU
             relevance_rank=index,
             source_link_id=source_link.id,
             source_link_type="contradiction_candidate_source",
+            include_unresolved_context=include_unresolved_context,
         )
         for index, (source_link, source_reference) in enumerate(rows)
     ]
 
 
-def _missing_item_candidate_sources(db: Session, missing_item_candidate_id: UUID) -> list[ReviewReportSource]:
+def _missing_item_candidate_sources(
+    db: Session,
+    missing_item_candidate_id: UUID,
+    *,
+    include_unresolved_context: bool = False,
+) -> list[ReviewReportSource]:
     rows = db.execute(
         select(MissingItemCandidateSourceModel, SourceReferenceModel)
         .join(SourceReferenceModel, SourceReferenceModel.id == MissingItemCandidateSourceModel.source_reference_id)
@@ -263,12 +290,13 @@ def _missing_item_candidate_sources(db: Session, missing_item_candidate_id: UUID
             relevance_rank=index,
             source_link_id=source_link.id,
             source_link_type="missing_item_candidate_source",
+            include_unresolved_context=include_unresolved_context,
         )
         for index, (source_link, source_reference) in enumerate(rows)
     ]
 
 
-def _entity_sources(db: Session, entity_id: UUID) -> list[ReviewReportSource]:
+def _entity_sources(db: Session, entity_id: UUID, *, include_unresolved_context: bool = False) -> list[ReviewReportSource]:
     rows = db.execute(
         select(EntityMentionModel, SourceReferenceModel)
         .join(SourceReferenceModel, SourceReferenceModel.id == EntityMentionModel.source_reference_id)
@@ -283,15 +311,28 @@ def _entity_sources(db: Session, entity_id: UUID) -> list[ReviewReportSource]:
             relevance_rank=index,
             source_link_id=mention.id,
             source_link_type="entity_mention",
+            include_unresolved_context=include_unresolved_context,
         )
         for index, (mention, source_reference) in enumerate(rows)
     ]
+
+
+def _entity_source_validation_status(db: Session, case_id: UUID, entity_id: UUID) -> str:
+    source_reference_ids = list(
+        db.execute(select(EntityMentionModel.source_reference_id).where(EntityMentionModel.entity_id == entity_id)).scalars()
+    )
+    if not source_reference_ids:
+        return "source_invalid"
+    validations = validate_source_references(db, case_id, source_reference_ids)
+    return "source_valid" if any(validation.is_valid for validation in validations) else "source_invalid"
 
 
 def _report_source(
     db: Session,
     source_link: ClaimSourceModel | EventSourceModel,
     source_reference: SourceReferenceModel,
+    *,
+    include_unresolved_context: bool = False,
 ) -> ReviewReportSource:
     return _report_source_from_reference(
         db,
@@ -300,6 +341,7 @@ def _report_source(
         relevance_rank=source_link.relevance_rank,
         source_link_id=source_link.id,
         source_link_type=source_link.__tablename__[:-1] if hasattr(source_link, "__tablename__") else None,
+        include_unresolved_context=include_unresolved_context,
     )
 
 
@@ -311,6 +353,7 @@ def _report_source_from_reference(
     relevance_rank: int | None,
     source_link_id: UUID | None = None,
     source_link_type: str | None = None,
+    include_unresolved_context: bool = False,
 ) -> ReviewReportSource:
     document = db.get(DocumentModel, source_reference.document_id) if db is not None else None
     page = db.get(DocumentPageModel, source_reference.page_id) if db is not None and source_reference.page_id else None
@@ -321,6 +364,7 @@ def _report_source_from_reference(
         source_reference.quote_text,
         source_reference.quote_char_start,
         source_reference.quote_char_end,
+        include_unresolved_context=include_unresolved_context,
     )
     return ReviewReportSource(
         source_link_id=source_link_id,
@@ -369,6 +413,8 @@ def _source_excerpt(
     quote_text: str,
     quote_char_start: int | None,
     quote_char_end: int | None,
+    *,
+    include_unresolved_context: bool = False,
 ) -> tuple[str | None, int | None, int | None]:
     if source_text is None:
         return None, None, None
@@ -377,6 +423,8 @@ def _source_excerpt(
     if quote_start is None or quote_end is None or source_text[quote_start:quote_end] != quote_text:
         found_at = source_text.find(quote_text)
         if found_at < 0:
+            if include_unresolved_context:
+                return source_text, 0, len(source_text)
             return None, None, None
         quote_start = found_at
         quote_end = found_at + len(quote_text)

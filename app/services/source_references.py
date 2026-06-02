@@ -61,6 +61,7 @@ def create_source_reference_for_run(
     extraction_run_id: UUID | None = None,
     *,
     commit: bool = True,
+    allow_unresolved_quote: bool = False,
 ) -> SourceReferenceModel:
     document = _get_case_document(db, case_id, payload.document_id)
     page = _get_case_page(db, case_id, payload.page_id, payload.document_id)
@@ -79,12 +80,18 @@ def create_source_reference_for_run(
         source_text = read_page_text_from_store(db, page) if page is not None else None
 
     if source_text is not None:
-        quote_char_start, quote_char_end = _resolve_quote_span(
-            source_text,
-            payload.quote_text,
-            quote_char_start,
-            quote_char_end,
-        )
+        try:
+            quote_char_start, quote_char_end = _resolve_quote_span(
+                source_text,
+                payload.quote_text,
+                quote_char_start,
+                quote_char_end,
+            )
+        except SourceReferenceValidationError:
+            if not allow_unresolved_quote:
+                raise
+            quote_char_start = None
+            quote_char_end = None
 
     user = get_or_create_dev_user(db)
     source_reference = SourceReferenceModel(

@@ -13,7 +13,7 @@ from app.models.missing_item import MissingItemCandidateModel, MissingItemCandid
 from app.models.review import HumanReviewModel
 from app.models.source_reference import SourceReferenceModel
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
-from app.services.source_references import ensure_source_reference_document_is_active
+from app.services.source_references import ensure_source_reference_document_is_active, validate_source_references
 from app.services.storage import StoragePaths
 from app.services.users import get_or_create_dev_user
 
@@ -171,7 +171,8 @@ def attach_detached_source_item(
         skipped_duplicate_source = duplicate is not None
         if not skipped_duplicate_source:
             db.add(EventSourceModel(event_id=target.id, source_reference_id=source_reference.id, relevance_rank=None, support_type="direct"))
-        target.source_validation_status = "source_valid"
+        db.flush()
+        target.source_validation_status = _event_source_validation_status(db, case_id, target.id)
         target.updated_at = datetime.now(UTC)
         object_type = "event"
         object_id = target.id
@@ -193,7 +194,8 @@ def attach_detached_source_item(
         skipped_duplicate_source = duplicate is not None
         if not skipped_duplicate_source:
             db.add(MissingItemCandidateSourceModel(missing_item_candidate_id=target.id, source_reference_id=source_reference.id, relevance_rank=None))
-        target.source_validation_status = "source_valid"
+        db.flush()
+        target.source_validation_status = _missing_item_source_validation_status(db, case_id, target.id)
         target.updated_at = datetime.now(UTC)
         object_type = "missing_item_candidate"
         object_id = target.id
@@ -215,7 +217,8 @@ def attach_detached_source_item(
         skipped_duplicate_source = duplicate is not None
         if not skipped_duplicate_source:
             db.add(ClaimSourceModel(claim_id=target.id, source_reference_id=source_reference.id, relevance_rank=None, support_type="direct"))
-        target.source_validation_status = "source_valid"
+        db.flush()
+        target.source_validation_status = _claim_source_validation_status(db, case_id, target.id)
         target.updated_at = datetime.now(UTC)
         object_type = "claim"
         object_id = target.id
@@ -273,6 +276,38 @@ def attach_detached_source_item(
     db.commit()
     db.refresh(item)
     return item
+
+
+def _claim_source_validation_status(db: Session, case_id: UUID, claim_id: UUID) -> str:
+    source_reference_ids = list(
+        db.execute(select(ClaimSourceModel.source_reference_id).where(ClaimSourceModel.claim_id == claim_id)).scalars()
+    )
+    return _source_validation_status_for_ids(db, case_id, source_reference_ids)
+
+
+def _event_source_validation_status(db: Session, case_id: UUID, event_id: UUID) -> str:
+    source_reference_ids = list(
+        db.execute(select(EventSourceModel.source_reference_id).where(EventSourceModel.event_id == event_id)).scalars()
+    )
+    return _source_validation_status_for_ids(db, case_id, source_reference_ids)
+
+
+def _missing_item_source_validation_status(db: Session, case_id: UUID, candidate_id: UUID) -> str:
+    source_reference_ids = list(
+        db.execute(
+            select(MissingItemCandidateSourceModel.source_reference_id).where(
+                MissingItemCandidateSourceModel.missing_item_candidate_id == candidate_id
+            )
+        ).scalars()
+    )
+    return _source_validation_status_for_ids(db, case_id, source_reference_ids)
+
+
+def _source_validation_status_for_ids(db: Session, case_id: UUID, source_reference_ids: list[UUID]) -> str:
+    if not source_reference_ids:
+        return "source_invalid"
+    validations = validate_source_references(db, case_id, source_reference_ids)
+    return "source_valid" if any(validation.is_valid for validation in validations) else "source_invalid"
 
 
 def delete_detached_source_item(

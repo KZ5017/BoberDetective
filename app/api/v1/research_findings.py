@@ -139,17 +139,31 @@ def post_research_finding_bulk_delete(
 
 def _research_finding_read(db: Session, finding: ResearchFindingModel) -> ResearchFindingRead:
     source_reference = finding.source_reference
-    source_read = _source_reference_read_with_excerpt(db, source_reference) if source_reference is not None else None
+    source_read = (
+        _source_reference_read_with_excerpt(
+            db,
+            source_reference,
+            include_unresolved_context=finding.source_validation_status == "source_invalid",
+        )
+        if source_reference is not None
+        else None
+    )
     return ResearchFindingRead.model_validate(finding).model_copy(update={"source_reference": source_read})
 
 
-def _source_reference_read_with_excerpt(db: Session, source_reference: SourceReferenceModel) -> SourceReferenceRead:
+def _source_reference_read_with_excerpt(
+    db: Session,
+    source_reference: SourceReferenceModel,
+    *,
+    include_unresolved_context: bool = False,
+) -> SourceReferenceRead:
     source_text = _source_text_for_excerpt(db, source_reference)
     excerpt, excerpt_start, excerpt_end = _source_excerpt(
         source_text,
         source_reference.quote_text,
         source_reference.quote_char_start,
         source_reference.quote_char_end,
+        include_unresolved_context=include_unresolved_context,
     )
     return SourceReferenceRead.model_validate(source_reference).model_copy(
         update={
@@ -175,6 +189,8 @@ def _source_excerpt(
     quote_text: str,
     quote_char_start: int | None,
     quote_char_end: int | None,
+    *,
+    include_unresolved_context: bool = False,
 ) -> tuple[str | None, int | None, int | None]:
     if source_text is None:
         return None, None, None
@@ -183,6 +199,8 @@ def _source_excerpt(
     if quote_start is None or quote_end is None or source_text[quote_start:quote_end] != quote_text:
         found_at = source_text.find(quote_text)
         if found_at < 0:
+            if include_unresolved_context:
+                return source_text, 0, len(source_text)
             return None, None, None
         quote_start = found_at
         quote_end = found_at + len(quote_text)

@@ -48,26 +48,45 @@ PROFILES: tuple[FullDocumentProcessingProfile, ...] = (
         description="Teljes iratból kinyert személyek és személyhez köthető keresési fókuszok előállítása.",
         item_kinds=("person",),
     ),
-    FullDocumentProcessingProfile(
-        key="entity_search_seeds",
-        label="Entitáskeresési fókuszok",
-        description="Teljes iratból kinyert szervezetek, helyek, hivatkozások, mellékletek és egyéb fókuszok előállítása.",
-        item_kinds=("organization", "location", "document_reference", "case_reference", "attachment", "other"),
-    ),
 )
 
 PROFILE_KEYS = {profile.key for profile in PROFILES}
 WORK_STATUSES = {"active", "set_aside", "converted", "deleted"}
 USER_SETTABLE_WORK_STATUSES = {"active", "set_aside", "deleted"}
 FULL_DOCUMENT_PROCESSING_MAX_OUTPUT_TOKENS = 9000
-FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT = """You are a source-faithful investigative document processing component.
-You work with Hungarian source documents.
-The source document is the only source of truth.
-Do not use outside knowledge.
-Do not infer guilt, responsibility, legal qualification, risk, or personal blame.
-Return only a valid JSON object.
-"""
+FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT = """Forráshű teljes iratfeldolgozó komponens vagy.
 
+Alapelvek:
+- A SOURCE az egyetlen igazságforrás.
+- Magyar forrásiratokkal dolgozol.
+- Ne használj külső tudást, ne pótolj hiányzó adatot, ne feltételezz, ne következtess.
+- Ne állapíts meg bűnösséget, felelősséget, jogi minősítést, kockázatot vagy személyes hibát.
+
+Feladat:
+- Add vissza JSON formában a SOURCE-ban szereplő személyeket.
+- Minden szereplőt a hozzá tartozó display_label értéke határoz meg.
+- A display_label értéke kizárólag és pontosan a forrásban szereplő névalak legyen.
+- Minden szereplő kizárólag egyszer szerepelhet az items listában, még akkor is ha több oldalon is szerepel.
+
+Mezőszabályok:
+- Az item_kind értéke person legyen.
+- A recommended_search_focus rövid keresési kifejezés legyen: display_label + 1-4 forrásbeli szó, amely a személy saját szerepét, címét, foglalkozását vagy jelzőjét azonosítja.
+- A recommended_search_focus nem mondat, nem összefoglaló, nem idézet és nem felsorolás; ne tegyél bele töltelékszöveget vagy felesleges kapcsolati neveket.
+- A display_label és recommended_search_focus értékekben őrizd meg a SOURCE szerinti írásmódot, beleértve a " és ' jeleket is. JSON stringben szükség esetén csak escape-eld őket, ne cseréld át másik idézőjelre.
+- A source_label megadása minden items elemben kötelező. Értéke csak page_1, page_2, page_3 stb. alakú lehet, a SOURCE-ban látható page címkék közül.
+- Minden szereplőhöz annak az oldalnak a source_label értékét add meg, ahol a display_label névalak szerepel.
+
+JSON szabályok:
+- Csak érvényes JSON objektumot adhatsz vissza.
+- Ne írj magyarázatot, markdown blokkot vagy JSON-on kívüli szöveget.
+- A JSON objektumok minden mezőneve dupla idézőjelben legyen.
+- A JSON stringeken belüli dupla idézőjeleket escape-eld.
+
+Elvárt JSON forma:
+{"items":[{"item_kind":"person","display_label":"...","recommended_search_focus":"...","source_label":"page_1"}]}
+Ha nincs használható elem:
+{"items":[]}
+"""
 
 def list_profiles() -> list[FullDocumentProcessingProfile]:
     return list(PROFILES)
@@ -329,7 +348,6 @@ def build_full_document_processing_user_prompt(
         f"text:\n{page_source['text']}"
         for page_source in page_sources
     )
-    item_kind = profile.item_kinds[0]
     return f"""DOCUMENT:
 {document.original_filename}
 
@@ -337,27 +355,7 @@ PROFILE:
 {profile.key} - {profile.description}
 
 SOURCE:
-{source_pages}
-
-TASK:
-Add vissza JSON formában a szereplőket és röviden a szerepüket.
-Minden szereplőt a hozzá tartozó display_label értéke határoz meg.
-A display_label értéke kizárólag és pontosan a forrásban szereplő névalak legyen.
-Minden szereplő kizárólag egyszer szerepelhet az items listában, még akkor is ha több oldalon is szerepel.
-Minden szereplőhöz add meg annak az oldalnak a source_label értékét, ahol a display_label névalak szerepel.
-
-JSON forma:
-{{
-  "items": [
-    {{
-      "item_kind": "{item_kind}",
-      "display_label": "...",
-      "short_description": "...",
-      "source_label": "page_1"
-    }}
-  ],
-  "unsupported_items": []
-}}"""
+{source_pages}"""
 
 
 def validate_full_document_processing_payload(
@@ -386,9 +384,17 @@ def validate_full_document_processing_payload(
             continue
 
         valid_evidence = _build_source_evidence_from_item(raw_item, display_label, page_by_label)
+        source_supported_details = _object_list(raw_item.get("source_supported_details", []))
         if valid_evidence is None:
-            unsupported_items.append(f"{display_label}: a név nem található a megadott forrásoldalon")
-            continue
+            validation_message = f"{display_label}: a név nem található a kiválasztott forrásoldalakon"
+            unsupported_items.append(validation_message)
+            source_supported_details.append(
+                {
+                    "validation_status": "unconfirmed",
+                    "validation_message": validation_message,
+                    "llm_source_label": _source_label_from_item(raw_item),
+                }
+            )
 
         valid_items.append(
             {
@@ -396,11 +402,11 @@ def validate_full_document_processing_payload(
                 "display_label": display_label,
                 "short_description": _clean_string(raw_item.get("short_description")),
                 "mentioned_forms": _string_list(raw_item.get("mentioned_forms", [])),
-                "source_supported_details": _object_list(raw_item.get("source_supported_details", [])),
+                "source_supported_details": source_supported_details,
                 "relationships": _object_list(raw_item.get("relationships", [])),
-                "recommended_search_focus": _clean_string(raw_item.get("recommended_search_focus")) or display_label,
+                "recommended_search_focus": _search_focus_from_item(raw_item, display_label),
                 "alternative_search_focuses": _string_list(raw_item.get("alternative_search_focuses", [])),
-                "source_evidence": valid_evidence,
+                "source_evidence": valid_evidence or [],
             }
         )
     return valid_items, unsupported_items
@@ -530,11 +536,12 @@ def _build_source_evidence_from_item(
 ) -> list[dict[str, Any]] | None:
     source_label = _source_label_from_item(raw_item)
     page_source = page_by_label.get(source_label or "")
-    if page_source is None:
-        return None
-
     label_candidates = _label_lookup_candidates(display_label, _string_list(raw_item.get("mentioned_forms", [])))
-    quote_span = _find_first_label_span(page_source["text"], label_candidates)
+    quote_span: tuple[int, int] | None = None
+    if page_source is not None:
+        quote_span = _find_first_label_span(page_source["text"], label_candidates)
+    if quote_span is None:
+        page_source, quote_span = _find_label_on_any_page(page_by_label, label_candidates)
     if quote_span is None:
         return None
 
@@ -542,7 +549,7 @@ def _build_source_evidence_from_item(
     exact_quote_text = page_source["text"][quote_start:quote_end]
     return [
         {
-            "source_label": source_label,
+            "source_label": page_source["source_label"],
             "quote_text": exact_quote_text,
             "document_id": str(page_source["document_id"]),
             "page_id": str(page_source["page_id"]),
@@ -551,6 +558,17 @@ def _build_source_evidence_from_item(
             "quote_char_end": quote_end,
         }
     ]
+
+
+def _find_label_on_any_page(
+    page_by_label: dict[str, dict[str, Any]],
+    label_candidates: list[str],
+) -> tuple[dict[str, Any] | None, tuple[int, int] | None]:
+    for page_source in page_by_label.values():
+        quote_span = _find_first_label_span(page_source["text"], label_candidates)
+        if quote_span is not None:
+            return page_source, quote_span
+    return None, None
 
 
 def _source_label_from_item(raw_item: dict[str, Any]) -> str | None:
@@ -637,6 +655,43 @@ def _repeated_item_keys(items: list[DocumentProcessingItemModel]) -> set[tuple[s
         key = _dedupe_key_for_item(item.item_kind, item.display_label, {})
         counts[key] = counts.get(key, 0) + 1
     return {key for key, count in counts.items() if count > 1}
+
+
+def _search_focus_from_item(raw_item: dict[str, Any], display_label: str) -> str:
+    llm_focus = _clean_string(raw_item.get("recommended_search_focus"))
+    if llm_focus is not None:
+        return _compact_search_focus(display_label, _strip_terminal_period(llm_focus))
+    return display_label
+
+
+def _compact_search_focus(display_label: str, focus: str) -> str:
+    stripped_focus = focus.strip()
+    if not stripped_focus:
+        return display_label
+    if stripped_focus.startswith(display_label):
+        tail = stripped_focus[len(display_label) :].strip()
+        separator = re.match(r"^[,;:–-]\s*", tail)
+        if separator is not None:
+            tail = tail[separator.end() :]
+        compact_tail = _first_focus_clause(tail)
+        return f"{display_label} {compact_tail}".strip() if compact_tail else display_label
+    return _first_focus_clause(stripped_focus) or display_label
+
+
+def _first_focus_clause(value: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        return ""
+    first_clause = re.split(r"\s*[,;.!?]\s+", stripped, maxsplit=1)[0]
+    first_clause = re.sub(r"\s+", " ", first_clause).strip()
+    words = first_clause.split()
+    if len(words) > 8:
+        first_clause = " ".join(words[:8])
+    return first_clause
+
+
+def _strip_terminal_period(value: str) -> str:
+    return re.sub(r"\s*\.\s*$", "", value).strip()
 
 
 def _normalize_identity_key(value: str) -> str:

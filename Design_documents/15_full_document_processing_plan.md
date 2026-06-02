@@ -130,43 +130,37 @@ Személyek és keresési fókuszok
 Feladat:
 
 - szemelyek kinyerese,
-- emlitesi formak gyujtese,
-- rovid forrashu leiras,
-- kapcsolodo szerep vagy viszony csak akkor, ha forras tamasztja ala,
-- ajanlott keresesi fokuszok keszitese.
+- rovid, hasznalhato keresesi fokusz keszitese,
+- forrasoldal megadasa, ahol a modell szerint a nevalak szerepel.
+
+Aktualis implementacios szabaly:
+
+- az LLM csak `display_label`, `recommended_search_focus` es `source_label` mezoket ad vissza,
+- a prompt nem ker `short_description`, `unsupported_items`, idezetet, emlitesi formakat vagy kapcsolatokat,
+- a `recommended_search_focus` rovid keresesi kifejezes: `display_label` + 1-4 forrasbeli megkulonbozteto szo, nem mondat es nem osszefoglalo,
+- a backend validalja, hogy a nev megtalalhato-e a megadott vagy kivalasztott forrasoldalakon,
+- ha a nev nem talalhato, az elem nem torlodik: ugyanabba a munkalistaba kerul, ures `source_evidence_json` ertekkel es `Nem megerősített` frontend jelzessel.
+- ha az LLM rossz `source_label` erteket ad, a backend eloszor a megadott oldalon keres, majd a teljes kivalasztott oldaltartomanyon belul megkeresi a validalt nevalakot es a tenyleges talalati oldalt menti.
 
 Peldak kimeneti mezokre:
 
 ```text
 display_label
-mentioned_forms
-short_description
-source_supported_details
-relationships
 recommended_search_focus
-alternative_search_focuses
-quote_refs
-confidence_note
+source_label
 ```
 
-### 4.2 `entity_search_seeds`
+### 4.2 Nem-szemely profilok allapota
 
-UI:
+Az eredetileg tervezett `entity_search_seeds` profil ki lett vezetve az aktiv backendbol es frontendbol.
 
-```text
-Entitások és keresési fókuszok
-```
+Indok:
 
-Feladat:
+- a jelenlegi kompakt prompt szemelyekre lett stabilizalva,
+- szervezetek, helyek, idopontok, hivatkozasok es mellekletek kinyerese mas, gondosabb profiltervezest igenyel,
+- felkesz, pontatlan profil ne maradjon valaszthato vagy kodszemetkent az aktiv workflow-ban.
 
-- szervezetek,
-- helyek,
-- ugyhivatkozasok,
-- irathivatkozasok,
-- mellekletek,
-- egyeb konkret azonosithato objektumok kinyerese.
-
-Nem cel minden fonev vagy altalanos fogalom kinyerese.
+Ha kesobb nem-szemely teljesirat-profil kell, azt uj tervezesi korben kell visszahozni, kulon prompttal es validacios szerzodessel.
 
 ## 5. Javasolt adatmodell
 
@@ -206,7 +200,6 @@ Engedelyezett ertekek elso korben:
 
 ```text
 person_search_seeds
-entity_search_seeds
 ```
 
 ### 5.2 `item_kind`
@@ -215,12 +208,6 @@ Nem vegleges strukturalt objektumtipus, hanem munkadarab-jelleg:
 
 ```text
 person
-organization
-location
-document_reference
-case_reference
-attachment
-other
 ```
 
 Ez kesobb grafnezethez is hasznos lehet, de nem jelent automatikus `entity` rekordot.
@@ -349,7 +336,7 @@ Valasz:
 }
 ```
 
-Elso implementalt szeletben a futas szinkron. A service a kivalasztott oldaltartomany aktualis oldalait egyetlen LLM-keresben kuldi ki. Az aktualis prompt nem ker karakterpontos idezetet az LLM-tol: a modell `display_label`, rovid leiras es `source_label` mezot ad, a backend pedig a megadott oldalon megkeresi a `display_label` forrasbeli alakjat, es ebbol epiti a mentett `source_evidence` mezot.
+Elso implementalt szeletben a futas szinkron. A service a kivalasztott oldaltartomany aktualis oldalait egyetlen LLM-keresben kuldi ki. Az aktualis prompt nem ker karakterpontos idezetet az LLM-tol: a modell `display_label`, `recommended_search_focus` es `source_label` mezot ad, a backend pedig a megadott vagy kivalasztott oldalakon megkeresi a `display_label` forrasbeli alakjat, es ebbol epiti a mentett `source_evidence` mezot. Ha a nevalak nem validalhato, az elem nem veszik el, hanem nem megerositett munkalista-elemkent marad kezelheto.
 
 Kesobbi nagyobb iratokhoz jobb lehet a hatterjob-szeru modell:
 
@@ -458,11 +445,11 @@ Return only a valid JSON object.
 Aktualis user task lenyege:
 
 ```text
-Add vissza JSON formában a szereplőket és röviden a szerepüket.
-Minden szereplőt a hozzá tartozó display_label értéke határoz meg.
+Add vissza JSON formában a szereplőket.
 A display_label értéke kizárólag és pontosan a forrásban szereplő névalak legyen.
-Minden szereplő kizárólag egyszer szerepelhet az items listában, még akkor is ha több oldalon is szerepel.
-Minden szereplőhöz add meg annak az oldalnak a source_label értékét, ahol a display_label névalak szerepel.
+A recommended_search_focus rövid keresési kifejezés legyen: display_label + 1-4 forrásbeli szó.
+A recommended_search_focus nem mondat, nem összefoglaló, nem idézet és nem felsorolás.
+Minden szereplőhöz add meg annak a SOURCE-ban szereplő page_ címkének a source_label értékét, ahol a display_label névalak szerepel.
 ```
 
 Elvart JSON:
@@ -473,15 +460,14 @@ Elvart JSON:
     {
       "item_kind": "person",
       "display_label": "...",
-      "short_description": "...",
-      "source_label": "page_7"
+      "recommended_search_focus": "...",
+      "source_label": "page_..."
     }
-  ],
-  "unsupported_items": []
+  ]
 }
 ```
 
-Az LLM altal adott minimalis forma utan a backend tolti ki a belso munkadarab-mezoket es a forrasbizonyitekot. Ez szandekosan kevesebb munka az LLM-nek, mert a korabbi reszletes schema es quote-generaltatas hajlamos volt lassu, ismetlo vagy ervenytelen JSON kimenetet okozni.
+Az LLM altal adott minimalis forma utan a backend tolti ki a belso munkadarab-mezoket es a forrasbizonyitekot. Ez szandekosan kevesebb munka az LLM-nek, mert a korabbi reszletes schema, `short_description`, `unsupported_items` es quote-generaltatas hajlamos volt lassu, ismetlo vagy ervenytelen JSON kimenetet okozni.
 
 ## 9. Source handling
 
@@ -499,7 +485,7 @@ PAGE page_2:
 ...
 ```
 
-- az aktualis implementacio szerint a modell csak `source_label` mezot ad vissza,
+- az aktualis implementacio szerint a modell `display_label`, `recommended_search_focus` es `source_label` mezot ad vissza,
 - a backend a megadott oldalon megkeresi a `display_label` forrasbeli alakjat,
 - backend szamitja az idezetet es az offsetet.
 
@@ -514,8 +500,9 @@ Backend validacio:
 - iratnak vannak aktualis oldalai,
 - profil ismert,
 - modell JSON ervenyes,
-- `source_label` ismert oldalra mutat,
-- a `display_label` megtalalhato a megjelolt oldalon; az aktualis implementacio OCR-spacing tolerans egyezest is elfogad, peldaul `Pistaba` / `Pista ba` jellegu eltereseknel, de a mentett bizonyitek az eredeti forrasszoveg pontos substringje es karakterpozicioja,
+- `source_label` ismert oldalra mutat, vagy a backend a kivalasztott oldaltartomanyban meg tudja talalni a `display_label` alakot masik oldalon,
+- a `display_label` megtalalhato a megjelolt vagy kivalasztott oldalon; az aktualis implementacio OCR-spacing tolerans egyezest is elfogad, peldaul `Pistaba` / `Pista ba` jellegu eltereseknel, de a mentett bizonyitek az eredeti forrasszoveg pontos substringje es karakterpozicioja,
+- ha a `display_label` sehol nem talalhato a kivalasztott oldaltartomanyban, az elem nem megy veszendobe: ures `source_evidence_json` es validacios metadata mellett `Nem megerősített` munkalista-elemkent jelenik meg,
 - nincs kulso forras,
 - azonos `display_label` tobb elofordulasa nem torlodik automatikusan; a lista olvasasi valasza `occurrence_status` mezovel jelzi, hogy `unique` vagy `repeated`,
 - nincs onkenyes `max_items` plafon: ha egy iratban sok forrassal igazolhato munkadarab van, nem dobjuk el oket csak elemszam miatt.
@@ -538,10 +525,10 @@ Aktualis `Teljes iratfeldolgozás` feluleten:
   - `Jelöltek törlése (...)`,
 - munkadarab kartyan:
   - cim,
-  - rovid leiras,
   - ajanlott keresesi fokusz,
   - egy soros forrasbizonyitek,
   - `Egyedi` vagy `Többször előforduló` cimke,
+  - `Nem megerősített` cimke es validacios uzenet, ha a nevalakot a backend nem talalta meg a kivalasztott forrasoldalakon,
   - gomb: `Fókusz átvitele kutatási keresésbe`,
   - gomb: `Félreteszem`,
   - felretett nezetben gomb: `Vissza az aktív listába`,
@@ -561,7 +548,7 @@ Javasolt sorrend:
 2. Run type bovites: `full_document_processing`. **Kesz.**
 3. Profil registry backend oldalon. **Elso szelet kesz.**
 4. Service: oldalak osszeallitasa `PAGE page_n` blokkokba. **Elso run-start szelet kesz.**
-5. Prompt + JSON parser + backend source-evidence construction. **Aktualis szelet kesz: az LLM minimalis szereplo/source_label JSON-t ad, a backend a display_label alapjan epiti a forrasbizonyitekot.**
+5. Prompt + JSON parser + backend source-evidence construction. **Aktualis szelet kesz: az LLM minimalis `display_label` / `recommended_search_focus` / `source_label` JSON-t ad, a backend a display_label alapjan epiti a forrasbizonyitekot vagy nem megerositett munkalista-elemet.**
 6. API: run inditas, item lista, item statusz modositas, csoportos soft delete. **Elso teljes backend szelet kesz.**
 7. Frontend: futtatas gomb bekotese, lista megjelenitese. **Elso szelet kesz: profilok, oldaltartomany, futtatas, aktiv/felretett munkalista, forrasbizonyitek, felretetel/visszaallitas, torlesre jeloles, osszes lathato torlesre jelolese, csoportos torles, nev alapu munkalista kereses, fokusz atadas.**
 8. Frontend: ajanlott fokusz atvitele az `Ügy munkapad` elemzesi fokusz mezobe. **Elso szelet kesz.**

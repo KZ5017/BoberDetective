@@ -11,11 +11,8 @@ from app.db.base import Base
 class DocumentProcessingItemModel(Base):
     __tablename__ = "document_processing_items"
     __table_args__ = (
-        CheckConstraint("profile_key in ('person_search_seeds', 'entity_search_seeds')", name="ck_document_processing_items_profile_key"),
-        CheckConstraint(
-            "item_kind in ('person', 'organization', 'location', 'document_reference', 'case_reference', 'attachment', 'other')",
-            name="ck_document_processing_items_item_kind",
-        ),
+        CheckConstraint("profile_key in ('person_search_seeds')", name="ck_document_processing_items_profile_key"),
+        CheckConstraint("item_kind in ('person')", name="ck_document_processing_items_item_kind"),
         CheckConstraint("length(trim(display_label)) > 0", name="ck_document_processing_items_display_label_not_blank"),
         CheckConstraint("jsonb_typeof(mentioned_forms_json) = 'array'", name="ck_document_processing_items_mentioned_forms_array"),
         CheckConstraint(

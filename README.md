@@ -125,7 +125,7 @@ Completed:
 - End-to-end frontend/API smoke history covers case creation, TXT import, review queue filtering, claim review, JSON export, export history backing endpoint, download, and Vite proxy
 - Source-bound `Kutatási találatok` workflow: `search_findings` creates source-cited research worklist items, users can set aside/restore/delete/bulk-delete them, and selected findings can be converted into structured claim/entity/event/missing item candidate objects
 - Full-case deletion through `Ügy végleges törlése`, preserving global audit history while removing case-owned rows, files, and Qdrant points
-- Full-document processing surface: selected active document plus page range and profile can create backend source-evidence-validated `document_processing_items`; users can switch between active/félretett views, restore set-aside items, filter by item name, mark one or all visible items for deletion, bulk-delete marked items, see repeated-label tags, and hand a recommended focus back to the `Ügy munkapad`
+- Full-document processing surface: selected active document plus page range can create backend source-evidence-validated person-search `document_processing_items`; users can switch between active/félretett views, restore set-aside items, filter by item name, mark one or all visible items for deletion, bulk-delete marked items, see repeated-label tags, and hand a recommended focus back to the `Ügy munkapad`
 - Retired raw chunk extraction modules (`extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`) are no longer active backend/frontend workflows
 
 PDF/OCR sample checks:
@@ -136,6 +136,7 @@ PDF/OCR sample checks:
 Next:
 
 - Continue full-document prompt/profile tuning from live output quality
+- Continue tuning person `recommended_search_focus` values used as whole-case follow-up search focuses
 - Design the explicit handoff from full-document preparatory items into focused `search_findings` runs or reusable search-focus workflows
 - Decide whether item conversion should first create research findings, structured manual objects, or only prefilled search runs
 - After the full-document processing surface and integration, design and implement the full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
@@ -198,7 +199,7 @@ Initial backend scaffold exists under `app/` with:
 - JSONL audit writer skeleton
 - storage path resolver with path traversal protection
 - SQLAlchemy/psycopg DB layer
-- Alembic migration foundation through `0041_detach_audit_lifecycle`
+- Alembic migration foundation through `0042_doc_proc_person_only`
 - `users`, `cases`, `case_users`, `audit_events` tables
 - case create/list API
 - DB + JSONL audit on case creation

@@ -64,30 +64,44 @@ CONTRADICTION_FOCUS_STOPWORDS = {
     "kozott",
 }
 
-EXTRACT_CONTRADICTIONS_SYSTEM_PROMPT = """You are a source-faithful contradiction-candidate identification component.
-You are analyzing Hungarian claim/source text.
-You may only use the provided CLAIM objects and their source quotes.
-You must not use external knowledge and must not fill in missing facts.
-You may return only strict contradiction_candidates that require human review.
-Do not state that a contradiction is proven, important, or legally relevant.
-Do not decide guilt, legal classification, risk, or personal responsibility.
-Return only a valid JSON object.
-Do not write explanations, introductions, markdown, or code fences before or after the JSON.
-In JSON strings, every internal double quote must be escaped with a backslash.
-Return short, general title and description values in Hungarian; do not copy long claim text and do not use quotation marks.
-Every candidate must include claim_label_a and claim_label_b.
-You may compare only claim pairs present in the provided CLAIM_PAIR blocks.
-Return a candidate only when a concrete, mutually exclusive, or factually conflicting statement is visible inside one provided claim pair.
-The fact that two claims concern the same person, object, document, or event is not by itself a contradiction.
-Different context, additional detail, later description, or a different role is not by itself a contradiction.
-Every candidate must include: is_contradiction_candidate=true and conflict_basis.
-conflict_basis must be one of: time, location, identity, amount, document_metadata, mutually_exclusive_fact, none.
-contradiction_type must be one of: time_conflict, location_conflict, identity_conflict, document_mismatch, amount_conflict, other.
-severity_hint must be one of: low, medium, high.
-Keep severity_hint conservative: high is justified only for document identity conflicts or clear document incompatibility candidates.
-If the pair is only related but not conflicting, do not put it into contradiction_candidates; put it into unsupported_contradiction_candidates with a short Hungarian reason.
-Expected JSON shape:
-{"contradiction_candidates":[{"is_contradiction_candidate":true,"conflict_basis":"time","contradiction_type":"time_conflict","title":"Ellenorizendo elteres","description":"A claim par konkretan utkozo teny miatt emberi ellenorzest igenyel","claim_label_a":"claim_1","claim_label_b":"claim_2","severity_hint":"medium","confidence":"low"}],"unsupported_contradiction_candidates":["pair_2: osszefuggo de nem utkozo"]}
+EXTRACT_CONTRADICTIONS_SYSTEM_PROMPT = """Forráshű ellentmondásjelölt-azonosító komponens vagy.
+
+Alapelvek:
+- Csak a megadott CLAIM_PAIR blokkokban szereplő állításokat és forrásidézeteket használhatod.
+- Ne használj külső tudást, ne pótolj hiányzó adatot, ne feltételezz, ne következtess.
+- Nem döntheted el, hogy egy ellentmondás bizonyított, fontos vagy jogilag releváns.
+- Nem állapíthatsz meg bűnösséget, jogi minősítést, kockázatot vagy személyes felelősséget.
+
+Feladat:
+- Vizsgáld meg a megadott CLAIM_PAIR blokkokat a QUERY fókusza szerint.
+- Legfeljebb MAX_CANDIDATES darab szigorú, emberi ellenőrzést igénylő ellentmondásjelöltet adj vissza.
+- Csak akkor adj vissza contradiction_candidates elemet, ha ugyanazon CLAIM_PAIR blokkon belül konkrét, kölcsönösen kizáró vagy tényszerűen ütköző állítás látható.
+- Csak ugyanazon CLAIM_PAIR blokkon belüli claim_label_a és claim_label_b értékeket hasonlíthatsz össze.
+- Ha egy pár csak kapcsolódó, de nem ütköző, ne tedd a contradiction_candidates listába; tedd az unsupported_contradiction_candidates listába rövid magyar indokkal.
+
+Nem elég ellentmondáshoz:
+- Az, hogy két állítás ugyanarról a személyről, tárgyról, dokumentumról vagy eseményről szól.
+- Az eltérő kontextus, további részlet, későbbi leírás vagy eltérő szerep önmagában.
+
+Mezőszabályok:
+- Minden jelöltben kötelező az is_contradiction_candidate=true és a conflict_basis.
+- conflict_basis értéke csak ez lehet: time, location, identity, amount, document_metadata, mutually_exclusive_fact, none.
+- contradiction_type értéke csak ez lehet: time_conflict, location_conflict, identity_conflict, document_mismatch, amount_conflict, other.
+- severity_hint értéke csak ez lehet: low, medium, high.
+- A severity_hint legyen konzervatív: high csak dokumentumazonossági ütközésnél vagy egyértelmű dokumentum-inkompatibilitási jelöltnél indokolt.
+- A title és description rövid, általános magyar szöveg legyen. Ne másolj hosszú állításszöveget, és ne használj idézőjeleket.
+- A title és description csak azt írja le, miért igényel a pár emberi ellenőrzést.
+
+JSON szabályok:
+- Csak érvényes JSON objektumot adhatsz vissza.
+- Ne írj magyarázatot, markdown blokkot vagy JSON-on kívüli szöveget.
+- A JSON objektumok minden mezőneve dupla idézőjelben legyen.
+- A JSON stringeken belüli dupla idézőjeleket escape-eld.
+
+Elvárt JSON forma:
+{"contradiction_candidates":[{"is_contradiction_candidate":true,"conflict_basis":"time","contradiction_type":"time_conflict","title":"Ellenőrizendő eltérés","description":"A claim pár konkrétan ütköző tény miatt emberi ellenőrzést igényel","claim_label_a":"claim_1","claim_label_b":"claim_2","severity_hint":"medium","confidence":"low"}],"unsupported_contradiction_candidates":["pair_2: összefüggő, de nem ütköző"]}
+Ha nincs használható ellentmondásjelölt:
+{"contradiction_candidates":[],"unsupported_contradiction_candidates":[]}
 """
 
 
@@ -460,31 +474,11 @@ def build_detect_contradiction_candidates_user_prompt(
             f"source_reference_id_b: {pair.claim_b.source_reference.id}\n"
             f"quote_text_b: {pair.claim_b.source_reference.quote_text}"
         )
-    focus_text = query.strip() if isinstance(query, str) and query.strip() else "No specific focus; search for reviewable contradiction candidates among the provided source-cited claim pairs."
+    focus_text = query.strip() if isinstance(query, str) and query.strip() else "Nincs külön fókusz."
     return (
         f"QUERY:\n{focus_text}\n\n"
-        f"CLAIM_PAIRS:\n{chr(10).join(pair_blocks)}\n\n"
-        "TASK:\n"
-        "Goal:\n"
-        f"- Evaluate the claim pairs above and return at most {max_candidates} strict contradiction candidates.\n"
-        "- The claim and quote texts may be Hungarian.\n"
-        "- Return title, description, and unsupported reasons in Hungarian.\n\n"
-        "Conflict rules:\n"
-        "- First decide whether there is only thematic relation or a concrete factual conflict.\n"
-        "- Use is_contradiction_candidate=true only when there is a concrete factual conflict.\n"
-        "- Do not state that the contradiction is proven; record only that the claim pair requires human review.\n\n"
-        "Unsupported items:\n"
-        "- If the same central person or object only appears in a different context, put the pair into unsupported_contradiction_candidates.\n"
-        "- If the pair is related but not factually conflicting, put the pair into unsupported_contradiction_candidates.\n\n"
-        "Pair and label rules:\n"
-        "- claim_label_a and claim_label_b may only come from the same CLAIM_PAIR block.\n"
-        "- Do not compare claims across different CLAIM_PAIR blocks.\n\n"
-        "Title and description rules:\n"
-        "- The title and description must be short, without quotation marks, and must not copy claim text.\n"
-        "- The title and description must describe only why the pair needs human review.\n\n"
-        "JSON safety rules:\n"
-        "- Avoid text containing double quotes.\n"
-        "- If such a character is unavoidable, escape it as valid JSON."
+        f"MAX_CANDIDATES:\n{max_candidates}\n\n"
+        f"CLAIM_PAIRS:\n{chr(10).join(pair_blocks)}"
     )
 
 

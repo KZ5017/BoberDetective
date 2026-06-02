@@ -50,9 +50,23 @@ class AnalysisModuleResearchFinding(BaseModel):
     suggested_type_reason: str | None
     relevance_reason: str
     llm_support_status: str
+    source_validation_status: str
     quote_text: str
     source_label: str
     source_reference_id: UUID
+    document_id: UUID
+    chunk_id: UUID
+
+
+class AnalysisModuleUnconfirmedResearchFinding(BaseModel):
+    title: str
+    finding_text: str
+    suggested_type: str
+    suggested_type_reason: str | None
+    relevance_reason: str
+    quote_text: str
+    source_label: str
+    validation_message: str
     document_id: UUID
     chunk_id: UUID
 
@@ -63,6 +77,7 @@ class AnalysisModuleRunResponse(BaseModel):
     model: str
     contradiction_candidates: list[AnalysisModuleContradictionCandidate] = []
     research_findings: list[AnalysisModuleResearchFinding] = []
+    unconfirmed_research_findings: list[AnalysisModuleUnconfirmedResearchFinding] = []
     unsupported_items: list[str]
     selected_chunk_ids: list[UUID]
     validation_status: str

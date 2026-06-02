@@ -1,6 +1,8 @@
 from uuid import uuid4
+from types import SimpleNamespace
 
 from app.models.source_reference import SourceReferenceModel
+from app.services import detached_sources
 from app.services.detached_sources import create_detached_source_item
 
 
@@ -58,3 +60,23 @@ def test_create_detached_source_item_preserves_origin_and_source_snapshot() -> N
     assert item.detach_comment == "rossz forras"
     assert item.source_snapshot_json["quote_text"] == "fontos idezet"
     assert item.source_snapshot_json["citation_label"] == "irat.pdf, chunk 3"
+
+
+def test_source_validation_status_for_ids_keeps_invalid_when_no_source_reference_valid(monkeypatch) -> None:
+    monkeypatch.setattr(
+        detached_sources,
+        "validate_source_references",
+        lambda db, case_id, source_reference_ids: [SimpleNamespace(is_valid=False) for _source_id in source_reference_ids],
+    )
+
+    assert detached_sources._source_validation_status_for_ids(_FakeDb(), uuid4(), [uuid4()]) == "source_invalid"
+
+
+def test_source_validation_status_for_ids_is_valid_when_any_source_reference_valid(monkeypatch) -> None:
+    monkeypatch.setattr(
+        detached_sources,
+        "validate_source_references",
+        lambda db, case_id, source_reference_ids: [SimpleNamespace(is_valid=False), SimpleNamespace(is_valid=True)],
+    )
+
+    assert detached_sources._source_validation_status_for_ids(_FakeDb(), uuid4(), [uuid4(), uuid4()]) == "source_valid"

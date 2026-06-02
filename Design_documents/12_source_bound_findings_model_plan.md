@@ -377,17 +377,14 @@ Elso verzios javaslat:
 {
   "findings": [
     {
+      "source_label": "chunk_1",
+      "quote_text": "...",
       "title": "...",
       "finding_text": "...",
       "suggested_type": "other",
       "suggested_type_reason": "...",
-      "relevance_reason": "...",
-      "quote_text": "...",
-      "source_label": "chunk_1"
+      "relevance_reason": "..."
     }
-  ],
-  "unsupported_findings": [
-    "..."
   ]
 }
 ```
@@ -396,6 +393,7 @@ Validacio:
 
 - `quote_text` karakterpontosan szerepeljen a hivatkozott SOURCE chunkban,
 - `source_label` letezzen az adott batchben,
+- az aktualis prompt azert keri a `source_label` mezot elso mezokent, mert a helyi modell igy kevesebbszer hagyja ki,
 - `suggested_type` csak allowlistbol johet,
 - forras nelkuli elem nem mentheto,
 - JSON hibakat ugyanugy kezelni kell, mint a jelenlegi moduloknal.

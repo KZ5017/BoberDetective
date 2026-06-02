@@ -59,6 +59,7 @@ def create_research_finding(
     suggested_type: str = "other",
     suggested_type_reason: str | None = None,
     llm_support_status: str = "confirmed",
+    source_validation_status: str = "source_valid",
 ) -> ResearchFindingModel:
     if title.strip() == "":
         raise ResearchFindingValidationError("Research finding title is required")
@@ -70,6 +71,8 @@ def create_research_finding(
         raise ResearchFindingValidationError("Unsupported research finding suggested type")
     if llm_support_status not in {"confirmed", "unconfirmed"}:
         raise ResearchFindingValidationError("Unsupported research finding LLM support status")
+    if source_validation_status not in {"pending_source_validation", "source_valid", "source_invalid"}:
+        raise ResearchFindingValidationError("Unsupported research finding source validation status")
 
     run = db.get(AnalysisRunModel, analysis_run_id)
     if run is None or run.case_id != case_id:
@@ -89,7 +92,7 @@ def create_research_finding(
         suggested_type=suggested_type,
         suggested_type_reason=suggested_type_reason.strip() if isinstance(suggested_type_reason, str) and suggested_type_reason.strip() else None,
         relevance_reason=relevance_reason.strip(),
-        source_validation_status="source_valid",
+        source_validation_status=source_validation_status,
         llm_support_status=llm_support_status,
         conversion_status="not_converted",
         created_at=datetime.now(UTC),
@@ -110,9 +113,6 @@ def convert_research_finding_to_manual_object(
     finding = get_research_finding(db, case_id, finding_id)
     if finding.conversion_status == "converted":
         raise ResearchFindingValidationError("Research finding has already been converted")
-    if finding.source_validation_status != "source_valid":
-        raise ResearchFindingValidationError("Research finding source is not valid")
-
     source_reference = db.get(SourceReferenceModel, finding.source_reference_id)
     if source_reference is None or source_reference.case_id != case_id:
         raise ResearchFindingValidationError("Source reference not found for this research finding")
@@ -125,6 +125,7 @@ def convert_research_finding_to_manual_object(
             finding.source_reference_id,
             payload,
             input_kind="manual_research_finding_conversion",
+            target_source_validation_status=finding.source_validation_status,
         )
     except ManualEntryError as exc:
         raise ResearchFindingValidationError(str(exc)) from exc

@@ -320,6 +320,9 @@ export type DetachedSourceItemRead = {
     citation_label?: string | null;
     source_kind?: string | null;
   } | null;
+  source_text_excerpt: string | null;
+  source_text_excerpt_char_start: number | null;
+  source_text_excerpt_char_end: number | null;
   handling_status: string;
   reattached_to_object_type: string | null;
   reattached_to_object_id: string | null;
@@ -345,9 +348,22 @@ export type AnalysisResponse = {
     suggested_type_reason: string | null;
     relevance_reason: string;
     llm_support_status: string;
+    source_validation_status: string;
     quote_text: string;
     source_label: string;
     source_reference_id: string;
+    document_id: string;
+    chunk_id: string;
+  }>;
+  unconfirmed_research_findings: Array<{
+    title: string;
+    finding_text: string;
+    suggested_type: string;
+    suggested_type_reason: string | null;
+    relevance_reason: string;
+    quote_text: string;
+    source_label: string;
+    validation_message: string;
     document_id: string;
     chunk_id: string;
   }>;

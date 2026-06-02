@@ -1,10 +1,16 @@
+import re
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.schemas.analysis_modules import AnalysisModuleResearchFinding, AnalysisModuleRunRequest, AnalysisModuleRunResponse
+from app.schemas.analysis_modules import (
+    AnalysisModuleResearchFinding,
+    AnalysisModuleRunRequest,
+    AnalysisModuleRunResponse,
+    AnalysisModuleUnconfirmedResearchFinding,
+)
 from app.schemas.source_reference import SourceReferenceCreate
 from app.services.analysis_module_common import (
     AnalysisModuleError,
@@ -26,17 +32,38 @@ from app.services.text_store import read_chunk_text, read_chunk_text_from_store
 SUPPORTED_FINDING_TYPES = {"claim", "event", "entity", "document_reference", "other"}
 SEARCH_FINDINGS_MAX_OUTPUT_TOKENS = 6000
 
-SEARCH_FINDINGS_SYSTEM_PROMPT = """You are a source-faithful research finding extraction component.
-You are analyzing Hungarian source text.
-You may only use the provided SOURCE texts.
-You must not use external knowledge and must not fill in missing facts.
-Stay factual: do not assume, do not infer, and do not add any interpretation that is not directly supported by the source.
-Do not decide guilt, legal classification, risk, or personal responsibility.
-Return all user-facing textual fields in Hungarian.
-Return quote_text exactly as copied from the Hungarian SOURCE text: do not translate it and do not rewrite it.
-Respond only with a valid JSON object.
-Expected JSON shape:
-{"findings":[{"title":"...","finding_text":"...","suggested_type":"other","suggested_type_reason":"...","relevance_reason":"...","quote_text":"...","source_label":"chunk_1"}],"unsupported_findings":[{"title":"...","finding_text":"...","suggested_type":"other","suggested_type_reason":"...","relevance_reason":"...","quote_text":"...","source_label":"chunk_1","unsupported_reason":"..."}]}
+SEARCH_FINDINGS_SYSTEM_PROMPT = """Forráshű kutatási találatkinyerő komponens vagy.
+
+Alapelvek:
+- A SOURCE az egyetlen igazságforrás.
+- A QUERY a keresés fókusza.
+- Ne használj külső tudást, ne pótolj hiányzó adatot, ne feltételezz, ne következtess.
+
+Feladat:
+- Vizsgáld meg a SOURCE tartalmát a QUERY fókusza szerint.
+- Add vissza JSON formában azokat a kutatási találatokat, amelyekre igaz, hogy a SOURCE alapján kapcsolódnak a QUERY-hez.
+- Ha több különálló találat van, mindegyiket külön elemként add vissza.
+- Ha nincs használható találat, a findings legyen üres lista.
+
+Mezőszabályok:
+- A source_label megadása minden findings elemben kötelező. Értéke csak chunk_1, chunk_2, chunk_3 stb. alakú lehet, a SOURCE-ban látható chunk címkék közül.
+- Minden findings elem első mezője a source_label legyen.
+- A quote_text megadása minden findings elemben kötelező. Értéke az a SOURCE-ból kimásolt szövegrész legyen, amelyhez a QUERY kapcsolódik. A másolást szöveghűen, karakterpontosan kell elvégezned.
+- A title egy pontos, értelmes, leíró magyar mondat legyen, amely összefoglalja a találatot.
+- A finding_text 1-3 magyar mondat legyen arról, amit a quote_text megfogalmaz.
+- A relevance_reason röviden foglalja össze a QUERY és a találat kapcsolatát.
+- Ha a találat besorolható claim, event, entity, document_reference kategóriába, akkor az legyen a suggested_type értéke. Ha nem, akkor other.
+
+JSON szabályok:
+- Csak érvényes JSON objektumot adhatsz vissza.
+- Ne írj magyarázatot, markdown blokkot vagy JSON-on kívüli szöveget.
+- A JSON objektumok minden mezőneve dupla idézőjelben legyen, például "source_label", nem source_label.
+- A JSON stringeken belüli dupla idézőjeleket escape-eld.
+
+Elvárt JSON forma:
+{"findings":[{"source_label":"chunk_1","quote_text":"...","title":"...","finding_text":"...","relevance_reason":"...","suggested_type":"other","suggested_type_reason":"..."}]}
+Ha nincs használható találat:
+{"findings":[]}
 """
 
 
@@ -77,6 +104,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
         batches = split_retrieved_chunks(retrieved_chunks, payload.batch_size)
         add_retrieved_chunk_inputs(db, run.id, retrieved_chunks, chunk_batch_lookup(batches))
         response_findings: list[AnalysisModuleResearchFinding] = []
+        response_unconfirmed_findings: list[AnalysisModuleUnconfirmedResearchFinding] = []
         unsupported_items: list[str] = []
         failed_batch_count = 0
         processed_batch_count = 0
@@ -97,7 +125,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                     max_tokens=SEARCH_FINDINGS_MAX_OUTPUT_TOKENS,
                 )
                 parsed = parse_llm_json_object(completion.content)
-                valid_findings, batch_unsupported = validate_extracted_findings(parsed, batch, db=db)
+                valid_findings, batch_unsupported, _batch_unconfirmed = validate_extracted_findings(parsed, batch, db=db)
                 unsupported_items.extend(batch_unsupported)
                 processed_batch_count += 1
             except Exception as exc:
@@ -118,6 +146,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                         citation_label=f"{finding['document_name']}, chunk {finding['chunk'].chunk_index}",
                     ),
                     extraction_run_id=run.id,
+                    allow_unresolved_quote=finding["source_validation_status"] == "source_invalid",
                 )
                 add_analysis_run_output(db, run.id, "source_reference", source_reference.id, output_position)
                 persisted_finding = create_research_finding(
@@ -131,6 +160,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                     source_reference_id=source_reference.id,
                     analysis_run_id=run.id,
                     llm_support_status=finding["llm_support_status"],
+                    source_validation_status=finding["source_validation_status"],
                 )
                 add_analysis_run_output(db, run.id, "research_finding", persisted_finding.id, output_position)
                 response_findings.append(
@@ -142,6 +172,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                         suggested_type_reason=persisted_finding.suggested_type_reason,
                         relevance_reason=persisted_finding.relevance_reason,
                         llm_support_status=persisted_finding.llm_support_status,
+                        source_validation_status=persisted_finding.source_validation_status,
                         quote_text=finding["quote_text"],
                         source_label=finding["source_label"],
                         source_reference_id=source_reference.id,
@@ -170,7 +201,8 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
             raise AnalysisModuleError(message)
 
         validation_status = "passed"
-        if failed_batch_count > 0 or unsupported_items or not response_findings:
+        invalid_source_finding_count = sum(1 for finding in response_findings if finding.source_validation_status == "source_invalid")
+        if failed_batch_count > 0 or unsupported_items or invalid_source_finding_count > 0 or response_unconfirmed_findings or not response_findings:
             validation_status = "warning"
         finish_analysis_run(
             db,
@@ -182,6 +214,8 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                 "processed_batch_count": processed_batch_count,
                 "failed_batch_count": failed_batch_count,
                 "created_research_finding_count": len(response_findings),
+                "unconfirmed_research_finding_count": len(response_unconfirmed_findings),
+                "source_invalid_research_finding_count": invalid_source_finding_count,
                 "unsupported_count": len(unsupported_items),
             },
         )
@@ -190,6 +224,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
             module_key="search_findings",
             model=settings.llm_chat_model,
             research_findings=response_findings,
+            unconfirmed_research_findings=response_unconfirmed_findings,
             unsupported_items=unsupported_items,
             selected_chunk_ids=[retrieved.chunk.id for retrieved in retrieved_chunks],
             validation_status=validation_status,
@@ -214,48 +249,7 @@ def build_search_findings_user_prompt(
     return (
         f"QUERY:\n{focus_text}\n\n"
         f"BATCH:\n{batch_index}/{batch_count}\n\n"
-        f"SOURCE:\n{build_source_blocks(db, retrieved_chunks)}\n\n"
-        "TASK:\n"
-        "Goal:\n"
-        "- Your primary task is to find research findings about the QUERY focus, not general facts from the SOURCE.\n"
-        "- A source-backed fact is not enough. Return it only if it is directly about the QUERY focus or the same focus item in a clear Hungarian inflected form.\n"
-        "- If the QUERY explicitly names or clearly describes one of these concrete focus items: person, organization, location, phone number, email address, license plate, money amount, case reference, document reference, or attachment, and the SOURCE directly contains that same item or its clear Hungarian inflected form, treat it as a finding candidate.\n"
-        "- The SOURCE texts are Hungarian.\n"
-        "- Return title, finding_text, suggested_type_reason, relevance_reason, and unsupported_reason in Hungarian.\n\n"
-        "Selection rules:\n"
-        "- Evaluate every possible finding separately from the perspective of the QUERY.\n"
-        "- Return only a finding that is independently and directly related to the focus given in the QUERY.\n"
-        "- The fact that a SOURCE chunk was included in the batch is not enough reason to extract a finding.\n"
-        "- If there are multiple separate, directly sourced findings, return them as separate items.\n"
-        "- Do not stop at a single finding if the batch contains multiple relevant source locations.\n\n"
-        "Unsupported items:\n"
-        "- If it is not directly about the QUERY focus, put it into unsupported_findings.\n"
-        "- If your relevance_reason would say that the item is not relevant to the QUERY, do not return it in findings.\n"
-        "- If the SOURCE chunk does not contain direct information about the QUERY focus, do not create a finding that only states the absence of information.\n"
-        "- If the SOURCE chunk contains only indirect or contextual information about the QUERY focus, or if the connection requires explanation, put the item into unsupported_findings.\n"
-        "- Do not return as a finding the fact that the source contains no information about the searched person, object, or topic.\n\n"
-        "Identity and role rules:\n"
-        "- If the QUERY contains a specific person name, return a finding about that person only if quote_text directly contains that name, or if quote_text itself clearly identifies the same person.\n"
-        "- Do not identify another person in the source as the person named in the QUERY.\n"
-        "- If quote_text does not contain or directly identify the person named in the QUERY, do not create a finding about that person.\n"
-        "- Do not classify a speaker as a witness, deponent, expert, victim, or other procedural role unless quote_text directly supports this.\n"
-        "- If the QUERY concerns witnesses, statements, or procedural roles, do not return mere dialogue, narrator comments, or background scenes as findings only because they are loosely related to the topic.\n\n"
-        "Title and finding text rules:\n"
-        "- The title must be short, factual, and source-faithful: it may name only the relationship or fact directly supported by quote_text.\n"
-        "- The finding_text must not assume, infer, or say more than what quote_text directly supports.\n"
-        "- If the source only supports a relationship, reaction, presence, knowledge, or statement, then the title and finding_text must record only that.\n"
-        "- Do not call anyone a perpetrator, killer, guilty person, or responsible person unless quote_text states this literally and directly.\n"
-        "- The relevance_reason must not mention general context; it must specifically explain which part of quote_text is directly related to the QUERY focus.\n\n"
-        "Type suggestion rules:\n"
-        "- If it is clear that a finding is a claim, event, or entity, set suggested_type to claim, event, or entity accordingly.\n"
-        "- Do not force this classification.\n"
-        "- If the finding type is unclear, set suggested_type to other.\n\n"
-        "Quote rules:\n"
-        "- Every findings item must have source_label and quote_text.\n"
-        "- Copy quote_text character-exactly from the corresponding SOURCE chunk: do not translate, fix, add accents, or normalize it.\n"
-        "- The quote_text must not be too narrow: by itself, it must make it possible to verify who or what finding_text is about and what the core finding is.\n"
-        "- If the subject, object, or reason of the finding is clear only from the previous or next sentence, quote_text must include those necessary sentences together.\n"
-        "- Do not copy a full chunk or an unnecessarily long passage into quote_text; provide a focused, coherent quote, usually 1-4 sentences."
+        f"SOURCE:\n{build_source_blocks(db, retrieved_chunks)}"
     )
 
 
@@ -264,34 +258,131 @@ def validate_extracted_findings(
     retrieved_chunks: list[RetrievedChunk],
     *,
     db: Session | None = None,
-) -> tuple[list[dict[str, Any]], list[str]]:
+) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
     findings_value = payload.get("findings", [])
-    unsupported_value = payload.get("unsupported_findings", [])
-    if not isinstance(findings_value, list) or not isinstance(unsupported_value, list):
-        raise AnalysisModuleError("LLM JSON has invalid findings or unsupported_findings fields")
+    if not isinstance(findings_value, list):
+        raise AnalysisModuleError("LLM JSON has invalid findings field")
 
     chunks_by_label = {retrieved.label: retrieved for retrieved in retrieved_chunks}
     valid_findings: list[dict[str, Any]] = []
     unsupported_items: list[str] = []
+    unconfirmed_findings: list[dict[str, Any]] = []
     for item in findings_value:
         finding = _validated_finding_item(item, chunks_by_label, llm_support_status="confirmed", db=db)
         if finding is None:
-            source_label = item.get("source_label") if isinstance(item, dict) else None
-            unsupported_items.append(f"Skipped finding with invalid source_label or quote_text from {source_label}")
+            repaired_finding = _repaired_validated_finding_item(item, chunks_by_label, db=db)
+            if repaired_finding is not None:
+                valid_findings.append(repaired_finding)
+            else:
+                invalid_finding = _source_invalid_finding_item(item, chunks_by_label)
+                if invalid_finding is not None:
+                    valid_findings.append(invalid_finding)
+                else:
+                    unsupported_items.append(_finding_validation_error(item, chunks_by_label, db=db))
             continue
         valid_findings.append(finding)
+    return valid_findings, unsupported_items, unconfirmed_findings
 
-    for item in unsupported_value:
-        if isinstance(item, str):
-            unsupported_items.append(item)
-            continue
-        finding = _validated_finding_item(item, chunks_by_label, llm_support_status="unconfirmed", db=db)
-        if finding is None:
-            source_label = item.get("source_label") if isinstance(item, dict) else None
-            unsupported_items.append(f"Skipped unsupported finding with invalid source_label or quote_text from {source_label}")
-            continue
-        valid_findings.append(finding)
-    return valid_findings, unsupported_items
+
+def _finding_validation_error(item: Any, chunks_by_label: dict[str, RetrievedChunk], *, db: Session | None = None) -> str:
+    if not isinstance(item, dict):
+        return "item: az LLM találat nem objektum"
+
+    title = item.get("title")
+    finding_text = item.get("finding_text")
+    relevance_reason = item.get("relevance_reason")
+    quote_text = item.get("quote_text")
+    source_label = item.get("source_label")
+    if not isinstance(source_label, str) or source_label.strip() == "":
+        return "item: hiányzó vagy érvénytelen source_label"
+    if source_label not in chunks_by_label:
+        available_labels = ", ".join(chunks_by_label.keys())
+        return f"{source_label}: ismeretlen source_label; elérhető címkék: {available_labels}"
+    if not all(isinstance(value, str) for value in [title, finding_text, relevance_reason, quote_text]):
+        return f"{source_label}: hiányzó vagy érvénytelen kötelező találati mező"
+    if title.strip() == "" or finding_text.strip() == "" or relevance_reason.strip() == "" or quote_text.strip() == "":
+        return f"{source_label}: üres kötelező találati mező"
+
+    retrieved = chunks_by_label[source_label]
+    source_text = read_chunk_text_from_store(db, retrieved.chunk) if db is not None else read_chunk_text(retrieved.chunk)
+    if _resolve_quote_text(source_text, quote_text) is None:
+        return f"{source_label}: quote_text nem pontos vagy nem található a megadott forrásszövegben: {_debug_text_excerpt(quote_text)}"
+    return f"{source_label}: ismeretlen validációs hiba"
+
+
+def _base_finding_fields(item: Any, chunks_by_label: dict[str, RetrievedChunk]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    title = item.get("title")
+    finding_text = item.get("finding_text")
+    suggested_type = item.get("suggested_type", "other")
+    suggested_type_reason = item.get("suggested_type_reason")
+    relevance_reason = item.get("relevance_reason")
+    quote_text = item.get("quote_text")
+    source_label = item.get("source_label")
+    if suggested_type not in SUPPORTED_FINDING_TYPES:
+        suggested_type = "other"
+    if not all(isinstance(value, str) for value in [title, finding_text, relevance_reason, quote_text, source_label]):
+        return None
+    if title.strip() == "" or finding_text.strip() == "" or relevance_reason.strip() == "" or quote_text.strip() == "":
+        return None
+    retrieved = chunks_by_label.get(source_label)
+    if retrieved is None:
+        return None
+    return {
+        "title": title,
+        "finding_text": finding_text,
+        "suggested_type": suggested_type,
+        "suggested_type_reason": suggested_type_reason if isinstance(suggested_type_reason, str) and suggested_type_reason.strip() else None,
+        "relevance_reason": relevance_reason,
+        "quote_text": quote_text,
+        "source_label": source_label,
+        "chunk": retrieved.chunk,
+        "document_name": retrieved.document_name,
+    }
+
+
+def _repaired_validated_finding_item(
+    item: Any,
+    chunks_by_label: dict[str, RetrievedChunk],
+    *,
+    db: Session | None = None,
+) -> dict[str, Any] | None:
+    base = _base_finding_fields(item, chunks_by_label)
+    if base is None:
+        return None
+    quote_text = base["quote_text"]
+    chunk = base["chunk"]
+    source_text = read_chunk_text_from_store(db, chunk) if db is not None else read_chunk_text(chunk)
+    if _resolve_quote_text(source_text, quote_text) is not None:
+        return None
+    partial_quote = _resolve_partial_quote_text(source_text, quote_text)
+    if partial_quote is None:
+        return None
+    return {
+        "title": base["title"],
+        "finding_text": base["finding_text"],
+        "suggested_type": base["suggested_type"],
+        "suggested_type_reason": base["suggested_type_reason"],
+        "relevance_reason": base["relevance_reason"],
+        "quote_text": partial_quote,
+        "source_label": base["source_label"],
+        "chunk": chunk,
+        "document_name": base["document_name"],
+        "llm_support_status": "unconfirmed",
+        "source_validation_status": "source_valid",
+    }
+
+
+def _source_invalid_finding_item(item: Any, chunks_by_label: dict[str, RetrievedChunk]) -> dict[str, Any] | None:
+    base = _base_finding_fields(item, chunks_by_label)
+    if base is None:
+        return None
+    return {
+        **base,
+        "llm_support_status": "unconfirmed",
+        "source_validation_status": "source_invalid",
+    }
 
 
 def _validated_finding_item(
@@ -334,6 +425,7 @@ def _validated_finding_item(
         "chunk": retrieved.chunk,
         "document_name": retrieved.document_name,
         "llm_support_status": llm_support_status,
+        "source_validation_status": "source_valid",
     }
 
 
@@ -345,4 +437,62 @@ def _resolve_quote_text(source_text: str, quote_text: str) -> str | None:
         return None
     if normalized_quote in source_text:
         return normalized_quote
+    normalized_source, source_index_map = _normalize_for_quote_lookup(source_text)
+    normalized_lookup_quote, _quote_index_map = _normalize_for_quote_lookup(quote_text)
+    if len(normalized_lookup_quote) < 8:
+        return None
+    normalized_start = normalized_source.casefold().find(normalized_lookup_quote.casefold())
+    if normalized_start < 0:
+        return None
+    normalized_end = normalized_start + len(normalized_lookup_quote) - 1
+    return source_text[source_index_map[normalized_start] : source_index_map[normalized_end] + 1]
+
+
+def _resolve_partial_quote_text(source_text: str, quote_text: str) -> str | None:
+    matched_parts: list[str] = []
+    for part in _quote_candidate_parts(quote_text):
+        if _normalized_length(part) < 12:
+            continue
+        resolved_part = _resolve_quote_text(source_text, part)
+        if resolved_part is not None:
+            matched_parts.append(resolved_part)
+
+    if not matched_parts:
+        return None
+    strong_parts = [part for part in matched_parts if _normalized_length(part) >= 30]
+    if strong_parts:
+        return max(strong_parts, key=_normalized_length)
+    if len(matched_parts) >= 2:
+        return max(matched_parts, key=_normalized_length)
     return None
+
+
+def _quote_candidate_parts(quote_text: str) -> list[str]:
+    rough_parts = re.split(r"\.\.\.|…|\n+", quote_text)
+    parts: list[str] = []
+    for rough_part in rough_parts:
+        parts.extend(re.split(r"(?<=[.!?])\s+", rough_part))
+    return [part.strip(" \t\r\n\"'„”") for part in parts if part.strip(" \t\r\n\"'„”")]
+
+
+def _normalized_length(value: str) -> int:
+    normalized_value, _index_map = _normalize_for_quote_lookup(value)
+    return len(normalized_value)
+
+
+def _normalize_for_quote_lookup(value: str) -> tuple[str, list[int]]:
+    chars: list[str] = []
+    index_map: list[int] = []
+    for index, char in enumerate(value):
+        if char.isspace():
+            continue
+        chars.append(char)
+        index_map.append(index)
+    return "".join(chars), index_map
+
+
+def _debug_text_excerpt(value: str, limit: int = 160) -> str:
+    collapsed = " ".join(value.split())
+    if len(collapsed) > limit:
+        collapsed = f"{collapsed[:limit]}..."
+    return f'"{collapsed}"'

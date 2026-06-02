@@ -20,6 +20,9 @@ class DetachedSourceItemRead(BaseModel):
     object_review_status_snapshot: str | None
     source_validation_status_snapshot: str | None
     source_snapshot_json: dict | None
+    source_text_excerpt: str | None = None
+    source_text_excerpt_char_start: int | None = None
+    source_text_excerpt_char_end: int | None = None
     handling_status: str
     reattached_to_object_type: str | None
     reattached_to_object_id: UUID | None
@@ -37,4 +40,3 @@ class DetachedSourceItemList(BaseModel):
 class DetachedSourceAttachCreate(BaseModel):
     target_object_id: UUID
     review_comment: str | None = None
-

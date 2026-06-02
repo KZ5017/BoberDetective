@@ -31,7 +31,7 @@ Minden MVP LLM promptban szerepeljen:
 7. Minden output idézetének szó szerint vagy ellenőrizhetően szerepelnie kell valamelyik input chunkban.
 8. Csak a kért JSON formátumot adhatja vissza, magyarázó szöveg nélkül.
 
-> **Aktuális implementációs megjegyzés, 2026-05-26:** az aktív `search_findings` workflow-nál a tényleges LLM-instrukciós nyelv angol, mert a helyi Qwen modell ezzel stabilabban követi a precíz feladatkorlátokat. Ez nem változtatja meg a felhasználói vagy forrásnyelvet: a SOURCE chunkok magyar szövegek, a felhasználó felé megjelenő `title`, `finding_text`, `suggested_type_reason`, `relevance_reason` és `unsupported_reason` mezők magyarul készülnek, a `quote_text` pedig karakterpontosan a magyar forrásból másolandó, fordítás és javítás nélkül. A jelenlegi prompt a QUERY fókuszt tartja kapuként: forrással alátámasztott tény csak akkor kerülhet találatba, ha közvetlenül a QUERY fókuszról vagy ugyanannak a fókuszelemnek egy világos magyar ragozott alakjáról szól. A példálózó fókuszelemek: személy, szervezet, hely, telefonszám, email cím, rendszám, pénzösszeg, ügyszám, irathivatkozás és melléklet.
+> **Aktuális implementációs megjegyzés, 2026-06-02:** az aktív `search_findings` workflow promptja magyar system prompt + dinamikus user prompt szerkezetet használ. A system prompt tartalmazza a feladatot, a forráshűségi szabályokat, a kimeneti mezők jelentését, a `quote_text` / `source_label` követelményeket és a valid JSON elvárást. A user prompt csak a futás változó adatait adja (`QUERY`, `BATCH`, `SOURCE`). Az elvárt JSON alakban minden finding objektum első mezője `source_label`, mert a helyi modell így megbízhatóbban adja vissza.
 
 ## 3. Közös input contract
 

@@ -109,6 +109,34 @@ def test_source_excerpt_falls_back_to_quote_search() -> None:
     assert end == 26
 
 
+def test_source_excerpt_can_include_unresolved_context_for_invalid_source() -> None:
+    source_text = "ebben a szovegreszben kell ellenorizni a hibas idezetet"
+    excerpt, start, end = _source_excerpt(
+        source_text,
+        "hibas LLM idezet",
+        None,
+        None,
+        include_unresolved_context=True,
+    )
+
+    assert excerpt == source_text
+    assert start == 0
+    assert end == len(source_text)
+
+
+def test_source_excerpt_hides_unresolved_context_by_default() -> None:
+    excerpt, start, end = _source_excerpt(
+        "ebben a szovegreszben nincs pontos idezet",
+        "masik idezet",
+        None,
+        None,
+    )
+
+    assert excerpt is None
+    assert start is None
+    assert end is None
+
+
 def test_report_source_expands_document_chunk_and_excerpt_details() -> None:
     document_id = uuid4()
     page_id = uuid4()

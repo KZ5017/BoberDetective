@@ -7,6 +7,7 @@ from app.models.research_finding import ResearchFindingModel
 from app.models.source_reference import SourceReferenceModel
 from app.schemas.manual_entry import ManualObjectFromSourceCreate
 from app.schemas.research_finding import ResearchFindingCreate, ResearchFindingRead
+from app.api.v1.research_findings import _source_excerpt
 from app.services import research_findings
 from app.services.research_findings import (
     ResearchFindingValidationError,
@@ -42,6 +43,35 @@ class FakeAuditWriter:
 
     def write(self, event):
         pass
+
+
+def test_research_finding_source_excerpt_can_include_unresolved_context_for_invalid_source() -> None:
+    source_text = "Ebben a szovegreszben elvileg keresni kellene a hibas LLM idezetet."
+
+    excerpt, start, end = _source_excerpt(
+        source_text,
+        "hibas LLM altal adott idezet",
+        None,
+        None,
+        include_unresolved_context=True,
+    )
+
+    assert excerpt == source_text
+    assert start == 0
+    assert end == len(source_text)
+
+
+def test_research_finding_source_excerpt_hides_unresolved_context_by_default() -> None:
+    excerpt, start, end = _source_excerpt(
+        "Ebben a szovegreszben nincs pontos idezet.",
+        "masik idezet",
+        None,
+        None,
+    )
+
+    assert excerpt is None
+    assert start is None
+    assert end is None
 
 
 def test_create_research_finding_requires_title() -> None:
@@ -191,11 +221,19 @@ def test_convert_research_finding_marks_target_and_preserves_source(monkeypatch)
     monkeypatch.setattr(research_findings, "DatabaseAuditWriter", FakeAuditWriter)
     monkeypatch.setattr(research_findings, "JsonlAuditWriter", FakeAuditWriter)
 
-    def fake_create_manual_object_from_source_reference(db, case_id_arg, source_reference_id_arg, payload, input_kind):
+    def fake_create_manual_object_from_source_reference(
+        db,
+        case_id_arg,
+        source_reference_id_arg,
+        payload,
+        input_kind,
+        target_source_validation_status="source_valid",
+    ):
         assert case_id_arg == case_id
         assert source_reference_id_arg == source_reference_id
         assert payload.object_type == "claim"
         assert input_kind == "manual_research_finding_conversion"
+        assert target_source_validation_status == "source_valid"
         return uuid4(), source_reference, "claim", target_object_id
 
     monkeypatch.setattr(research_findings, "create_manual_object_from_source_reference", fake_create_manual_object_from_source_reference)

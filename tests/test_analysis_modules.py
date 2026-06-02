@@ -12,6 +12,7 @@ from app.services import analysis_module_contradictions
 from app.services import analysis_module_common
 from app.services.analysis_module_contradictions import (
     ClaimPair,
+    EXTRACT_CONTRADICTIONS_SYSTEM_PROMPT,
     RetrievedClaim,
     build_detect_contradiction_candidates_user_prompt,
     claim_review_statuses_for_scope,
@@ -26,7 +27,7 @@ from app.services.analysis_modules import (
     validate_extracted_contradiction_candidates,
     validate_extracted_findings,
 )
-from app.services.analysis_module_findings import build_search_findings_user_prompt
+from app.services.analysis_module_findings import SEARCH_FINDINGS_SYSTEM_PROMPT, build_search_findings_user_prompt
 from app.services.search import KeywordSearchHit
 
 
@@ -461,28 +462,74 @@ def test_build_search_findings_user_prompt_is_source_bound_and_type_flexible() -
     assert "QUERY:\nmatrózzal kapcsolatos releváns találatok" in prompt
     assert "BATCH:\n1/2" in prompt
     assert "chunk_1:" in prompt
-    assert "Selection rules:" in prompt
-    assert "Unsupported items:" in prompt
-    assert "Identity and role rules:" in prompt
-    assert "If there are multiple separate, directly sourced findings" in prompt
-    assert "Do not force this classification" in prompt
-    assert "about the QUERY focus, not general facts from the SOURCE" in prompt
-    assert "A source-backed fact is not enough" in prompt
-    assert "same focus item in a clear Hungarian inflected form" in prompt
-    assert "If it is not directly about the QUERY focus, put it into unsupported_findings." in prompt
-    assert "If your relevance_reason would say that the item is not relevant to the QUERY" in prompt
-    assert "do not create a finding that only states the absence of information" in prompt
-    assert "Do not identify another person in the source" in prompt
-    assert "the SOURCE directly contains that same item or its clear Hungarian inflected form" in prompt
-    assert "treat it as a finding candidate" in prompt
-    assert "Return title, finding_text, suggested_type_reason, relevance_reason, and unsupported_reason in Hungarian" in prompt
-    assert "suggested_type" in prompt
+    assert "TASK:" not in prompt
+    assert "Feladat:" not in prompt
+    assert "Mezők:" not in prompt
+    assert "Feladat és Szabályok:" not in prompt
+    assert "Találati szabályok:" not in prompt
+    assert "Forrásidézet:" not in prompt
+    assert "Vizsgáld meg a SOURCE tartalmát" not in prompt
+    assert "Add vissza JSON formában" not in prompt
+    assert "Ha több különálló találat van" not in prompt
+    assert "Ha nincs használható találat" not in prompt
+    assert "quote_text" not in prompt
+    assert "source_label értékét: pontosan annak a SOURCE blokknak" not in prompt
+    assert "A quote_text 3-5 egymást követő mondat legyen" not in prompt
+    assert "A title egy pontos, értelmes, leíró magyar mondat legyen" not in prompt
+    assert "finding_text" not in prompt
+    assert "relevance_reason" not in prompt
+    assert "suggested_type" not in prompt
+    assert "Azonosítási szabály:" not in prompt
+    assert "Idézeti egyezési szabály:" not in prompt
+    assert "A QUERY nem kulcsszólista, hanem egyetlen keresési egység." not in prompt
+    assert "Ha csak a QUERY egy különálló szava vagy részlete található meg" not in prompt
+    assert "A QUERY-ben szereplő konkrét nevek és azonosítók elsőbbséget élveznek" not in prompt
+    assert "új forrásalapú információt ad róla, adj vissza találatot" not in prompt
+    assert "Csak olyan találatot adj vissza, amelyet a SOURCE közvetlenül alátámaszt." not in prompt
+    assert "Inkább legyen érthető mint rövid" not in prompt
+
+
+def test_search_findings_system_prompt_is_hungarian_and_source_faithful() -> None:
+    assert "Forráshű kutatási találatkinyerő komponens vagy." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Alapelvek:" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A SOURCE az egyetlen igazságforrás." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A QUERY a keresés fókusza." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Ne használj külső tudást, ne pótolj hiányzó adatot, ne feltételezz, ne következtess." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Feladat:" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Vizsgáld meg a SOURCE tartalmát a QUERY fókusza szerint." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Add vissza JSON formában azokat a kutatási találatokat, amelyekre igaz, hogy a SOURCE alapján kapcsolódnak a QUERY-hez." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Ha több különálló találat van, mindegyiket külön elemként add vissza." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Ha nincs használható találat, a findings legyen üres lista." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Mezőszabályok:" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A source_label megadása minden findings elemben kötelező." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Minden findings elem első mezője a source_label legyen." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Értéke csak chunk_1, chunk_2, chunk_3 stb. alakú lehet" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A quote_text megadása minden findings elemben kötelező." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A másolást szöveghűen, karakterpontosan kell elvégezned." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A title egy pontos, értelmes, leíró magyar mondat legyen" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A finding_text 1-3 magyar mondat legyen arról, amit a quote_text megfogalmaz." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A relevance_reason röviden foglalja össze a QUERY és a találat kapcsolatát." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Ha nem, akkor other." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Legalább 2, maximum 4 egymás után következő mondat legyen." not in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Nem alkalmazhatsz rövidítést és nem hagyhatsz ki forrásrészeket." not in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Ne fűzz össze egymástól különálló forrásrészleteket" not in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "JSON szabályok:" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Csak érvényes JSON objektumot adhatsz vissza." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Ne írj magyarázatot, markdown blokkot vagy JSON-on kívüli szöveget." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert 'A JSON objektumok minden mezőneve dupla idézőjelben legyen, például "source_label", nem source_label.' in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A JSON stringeken belüli dupla idézőjeleket escape-eld." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Elvárt JSON forma:" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert '{"findings":[{"source_label":"chunk_1","quote_text":"..."' in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Ha nincs használható találat:" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert '{"findings":[]}' in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "strict selection filter" not in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "not a keyword list" not in SEARCH_FINDINGS_SYSTEM_PROMPT
 
 
 def test_validate_extracted_findings_accepts_exact_source_quote_and_normalizes_unknown_type() -> None:
     chunks = [_retrieved_chunk("chunk_1", "A matróz benézett az ablakon, majd megijedt.")]
 
-    findings, unsupported = validate_extracted_findings(
+    findings, unsupported, unconfirmed = validate_extracted_findings(
         {
             "findings": [
                 {
@@ -495,7 +542,6 @@ def test_validate_extracted_findings_accepts_exact_source_quote_and_normalizes_u
                     "source_label": "chunk_1",
                 }
             ],
-            "unsupported_findings": ["nincs elég forrás"],
         },
         chunks,
     )
@@ -503,13 +549,166 @@ def test_validate_extracted_findings_accepts_exact_source_quote_and_normalizes_u
     assert len(findings) == 1
     assert findings[0]["suggested_type"] == "other"
     assert findings[0]["llm_support_status"] == "confirmed"
-    assert unsupported == ["nincs elég forrás"]
+    assert findings[0]["source_validation_status"] == "source_valid"
+    assert unsupported == []
+    assert unconfirmed == []
 
 
-def test_validate_extracted_findings_skips_quote_outside_source_chunk() -> None:
+def test_validate_extracted_findings_accepts_ocr_spacing_variant() -> None:
+    chunks = [
+        _retrieved_chunk(
+            "chunk_1",
+            "Néhány szót Kovács Ágnesr ő l. Kovács Ágnes három héttel ezel ő tt még manöken volt.",
+        )
+    ]
+
+    findings, unsupported, unconfirmed = validate_extracted_findings(
+        {
+            "findings": [
+                {
+                    "title": "Kovács Ágnes korábbi munkája",
+                    "finding_text": "Kovács Ágnes három héttel ezelőtt még manöken volt.",
+                    "suggested_type": "entity",
+                    "relevance_reason": "A találat Kovács Ágneshez kapcsolódó forrásbeli adatot ad.",
+                    "quote_text": "Kovács Ágnes három héttel ezelőtt még manöken volt",
+                    "source_label": "chunk_1",
+                }
+            ],
+        },
+        chunks,
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["quote_text"] == "Kovács Ágnes három héttel ezel ő tt még manöken volt"
+    assert unsupported == []
+    assert unconfirmed == []
+
+
+def test_validate_extracted_findings_preserves_exact_quote_with_literal_ellipsis() -> None:
+    source_text = "Kovács várt... aztán belépett a szobába. Ágnes az ablaknál állt."
+    chunks = [_retrieved_chunk("chunk_1", source_text)]
+
+    findings, unsupported, unconfirmed = validate_extracted_findings(
+        {
+            "findings": [
+                {
+                    "title": "Kovács belépett a szobába",
+                    "finding_text": "Kovács várakozás után belépett a szobába.",
+                    "suggested_type": "event",
+                    "relevance_reason": "A találat Kovács cselekvéséhez kapcsolódik.",
+                    "quote_text": source_text,
+                    "source_label": "chunk_1",
+                }
+            ],
+        },
+        chunks,
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["quote_text"] == source_text
+    assert findings[0]["llm_support_status"] == "confirmed"
+    assert findings[0]["source_validation_status"] == "source_valid"
+    assert unsupported == []
+    assert unconfirmed == []
+
+
+def test_validate_extracted_findings_repairs_partial_quote_match_as_source_valid() -> None:
+    chunks = [
+        _retrieved_chunk(
+            "chunk_1",
+            "Legalább Kovács itt volna! A beteg nyugtalanul járkált. "
+            "A legokosabb lesz, ha mégiscsak elmegy Kováccsal a Hungáriába, és az esti vonattal elutazik. "
+            "Segítség! Kovács úr!",
+        )
+    ]
+
+    findings, unsupported, unconfirmed = validate_extracted_findings(
+        {
+            "findings": [
+                {
+                    "title": "Kovács keresése",
+                    "finding_text": "A forrás több helyen Kovács jelenlétére vagy segítségére utal.",
+                    "suggested_type": "claim",
+                    "relevance_reason": "A fókusz Kovácsra irányul.",
+                    "quote_text": "Legalább Kovács itt volna! ... A legokosabb lesz, ha mégiscsak elmegy Kováccsal a Hungáriába, és az esti vonattal elutazik. ... Segítség! Kovács úr!",
+                    "source_label": "chunk_1",
+                }
+            ],
+        },
+        chunks,
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["llm_support_status"] == "unconfirmed"
+    assert findings[0]["source_validation_status"] == "source_valid"
+    assert findings[0]["quote_text"] == "A legokosabb lesz, ha mégiscsak elmegy Kováccsal a Hungáriába, és az esti vonattal elutazik."
+    assert unsupported == []
+    assert unconfirmed == []
+
+
+def test_validate_extracted_findings_repairs_two_meaningful_short_partial_quote_matches_as_source_valid() -> None:
+    chunks = [
+        _retrieved_chunk(
+            "chunk_1",
+            "Kovács úr a folyosón állt. A nővér becsukta az ajtót. Kovács visszament a szobába.",
+        )
+    ]
+
+    findings, unsupported, unconfirmed = validate_extracted_findings(
+        {
+            "findings": [
+                {
+                    "title": "Kovács két jelenléte",
+                    "finding_text": "A forrás két külön mondatban is Kovács jelenlétére utal.",
+                    "suggested_type": "entity",
+                    "relevance_reason": "A találat Kovács szerepléséhez kapcsolódik.",
+                    "quote_text": "Kovács úr a folyosón állt. ... Kovács visszament a szobába.",
+                    "source_label": "chunk_1",
+                }
+            ],
+        },
+        chunks,
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["llm_support_status"] == "unconfirmed"
+    assert findings[0]["source_validation_status"] == "source_valid"
+    assert findings[0]["quote_text"] == "Kovács visszament a szobába."
+    assert unsupported == []
+    assert unconfirmed == []
+
+
+def test_validate_extracted_findings_keeps_unrepairable_quote_as_source_invalid() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "Kovács úr itt volt. A nővér becsukta az ajtót.")]
+
+    findings, unsupported, unconfirmed = validate_extracted_findings(
+        {
+            "findings": [
+                {
+                    "title": "Túl rövid részlet",
+                    "finding_text": "A javasolt idézetnek csak egy rövid része található meg.",
+                    "suggested_type": "entity",
+                    "relevance_reason": "A találat Kovácshoz kapcsolódna.",
+                    "quote_text": "Kovács úr itt volt. ... Ez a hosszabb rész nincs a forrásban.",
+                    "source_label": "chunk_1",
+                }
+            ],
+        },
+        chunks,
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["llm_support_status"] == "unconfirmed"
+    assert findings[0]["source_validation_status"] == "source_invalid"
+    assert findings[0]["quote_text"] == "Kovács úr itt volt. ... Ez a hosszabb rész nincs a forrásban."
+    assert unsupported == []
+    assert unconfirmed == []
+
+
+def test_validate_extracted_findings_keeps_quote_without_partial_match_as_source_invalid() -> None:
     chunks = [_retrieved_chunk("chunk_1", "A forrásban ez a mondat szerepel.")]
 
-    findings, unsupported = validate_extracted_findings(
+    findings, unsupported, unconfirmed = validate_extracted_findings(
         {
             "findings": [
                 {
@@ -521,41 +720,40 @@ def test_validate_extracted_findings_skips_quote_outside_source_chunk() -> None:
                     "source_label": "chunk_1",
                 }
             ],
-            "unsupported_findings": [],
-        },
-        chunks,
-    )
-
-    assert findings == []
-    assert unsupported == ["Skipped finding with invalid source_label or quote_text from chunk_1"]
-
-
-def test_validate_extracted_findings_keeps_structured_unsupported_as_unconfirmed() -> None:
-    chunks = [_retrieved_chunk("chunk_1", "Rövid pontos idézet.")]
-
-    findings, unsupported = validate_extracted_findings(
-        {
-            "findings": [],
-            "unsupported_findings": [
-                {
-                    "title": "Nem megerősített találat",
-                    "finding_text": "Rövid pontos idézet.",
-                    "suggested_type": "other",
-                    "suggested_type_reason": "Teszt.",
-                    "relevance_reason": "A modell nem tette a megerősített listába.",
-                    "quote_text": "Rövid pontos idézet.",
-                    "source_label": "chunk_1",
-                },
-                "modell unsupported",
-            ],
         },
         chunks,
     )
 
     assert len(findings) == 1
     assert findings[0]["llm_support_status"] == "unconfirmed"
-    assert "modell unsupported" in unsupported
+    assert findings[0]["source_validation_status"] == "source_invalid"
+    assert findings[0]["quote_text"] == "Ez nincs a chunkban."
+    assert unsupported == []
+    assert unconfirmed == []
 
+
+def test_validate_extracted_findings_reports_unknown_source_label() -> None:
+    chunks = [_retrieved_chunk("chunk_1", "A forrásban ez a mondat szerepel.")]
+
+    findings, unsupported, unconfirmed = validate_extracted_findings(
+        {
+            "findings": [
+                {
+                    "title": "Rossz címke",
+                    "finding_text": "A forrásban ez a mondat szerepel.",
+                    "suggested_type": "claim",
+                    "relevance_reason": "A fókuszhoz kapcsolódna.",
+                    "quote_text": "A forrásban ez a mondat szerepel.",
+                    "source_label": "chunk_9",
+                }
+            ],
+        },
+        chunks,
+    )
+
+    assert findings == []
+    assert unconfirmed == []
+    assert unsupported == ["chunk_9: ismeretlen source_label; elérhető címkék: chunk_1"]
 
 def test_build_detect_contradiction_candidates_user_prompt_handles_empty_focus() -> None:
     claims = [
@@ -566,17 +764,28 @@ def test_build_detect_contradiction_candidates_user_prompt_handles_empty_focus()
 
     prompt = build_detect_contradiction_candidates_user_prompt(None, pairs, max_candidates=3)
 
-    assert "No specific focus" in prompt
+    assert "QUERY:\nNincs külön fókusz." in prompt
+    assert "MAX_CANDIDATES:\n3" in prompt
     assert "CLAIM_PAIRS" in prompt
     assert "pair_1:" in prompt
     assert "claim_label_a: claim_1" in prompt
     assert "claim_label_b: claim_2" in prompt
-    assert "Conflict rules:" in prompt
-    assert "Unsupported items:" in prompt
-    assert "Pair and label rules:" in prompt
-    assert "at most 3" in prompt
-    assert "Do not state that the contradiction is proven" in prompt
-    assert "Avoid text containing double quotes" in prompt
+    assert "Conflict rules:" not in prompt
+    assert "Unsupported items:" not in prompt
+    assert "Pair and label rules:" not in prompt
+    assert "Do not state that the contradiction is proven" not in prompt
+    assert "Avoid text containing double quotes" not in prompt
+
+
+def test_detect_contradiction_candidates_system_prompt_contains_hungarian_rules() -> None:
+    prompt = EXTRACT_CONTRADICTIONS_SYSTEM_PROMPT
+
+    assert "Forráshű ellentmondásjelölt-azonosító komponens vagy." in prompt
+    assert "Csak a megadott CLAIM_PAIR blokkokban szereplő állításokat" in prompt
+    assert "Vizsgáld meg a megadott CLAIM_PAIR blokkokat a QUERY fókusza szerint." in prompt
+    assert "Legfeljebb MAX_CANDIDATES" in prompt
+    assert "Csak érvényes JSON objektumot adhatsz vissza." in prompt
+    assert '{"contradiction_candidates":[],"unsupported_contradiction_candidates":[]}' in prompt
 
 
 def test_select_claim_pairs_is_deterministic_and_limits_pairs() -> None:

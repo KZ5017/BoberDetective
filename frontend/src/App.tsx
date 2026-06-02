@@ -124,6 +124,12 @@ const workSurfaces = ["case_workbench", "full_document_processing", "audit_log"]
 
 type WorkSurface = (typeof workSurfaces)[number];
 
+type DocumentProcessingUnconfirmedDetail = {
+  validation_status: "unconfirmed";
+  validation_message?: string;
+  llm_source_label?: string;
+};
+
 const workSurfaceLabels: Record<WorkSurface, string> = {
   case_workbench: "Ügy munkapad",
   full_document_processing: "Teljes iratfeldolgozás",
@@ -282,11 +288,6 @@ const sourceValidationLabels: Record<string, string> = {
   pending_source_validation: "Forráshivatkozás ellenőrzésre vár"
 };
 
-const llmSupportLabels: Record<string, string> = {
-  confirmed: "LLM megerősített",
-  unconfirmed: "LLM nem megerősített"
-};
-
 const runStatusLabels: Record<string, string> = {
   running: "Folyamatban",
   succeeded: "Sikeres",
@@ -350,6 +351,14 @@ export function App() {
   const [lastFullDocumentRun, setLastFullDocumentRun] = useState<{
     validation_status: string;
     created_item_count: number;
+    unsupported_count: number;
+    unsupported_items: string[];
+  } | null>(null);
+  const [lastResearchFindingRun, setLastResearchFindingRun] = useState<{
+    validation_status: string;
+    created_finding_count: number;
+    corrected_finding_count: number;
+    unconfirmed_finding_count: number;
     unsupported_count: number;
     unsupported_items: string[];
   } | null>(null);
@@ -538,6 +547,13 @@ export function App() {
     [researchFindings, showSetAsideResearchFindings]
   );
   const markedResearchFindingCount = researchFindingsMarkedForDeletion.length;
+  const markableResearchFindingIds = useMemo(
+    () => visibleResearchFindings.filter((finding) => finding.conversion_status !== "converted").map((finding) => finding.id),
+    [visibleResearchFindings]
+  );
+  const allVisibleResearchFindingsMarked =
+    markableResearchFindingIds.length > 0 &&
+    markableResearchFindingIds.every((findingId) => researchFindingsMarkedForDeletion.includes(findingId));
   const visibleDocumentProcessingItems = useMemo(
     () => filterDocumentProcessingItemsByName(documentProcessingItems, documentProcessingItemSearch),
     [documentProcessingItems, documentProcessingItemSearch]
@@ -1183,6 +1199,16 @@ export function App() {
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       if (response.module_key === "search_findings") {
+        setLastResearchFindingRun({
+          validation_status: response.validation_status,
+          created_finding_count: response.research_findings.length,
+          corrected_finding_count: response.research_findings.filter(
+            (finding) => finding.llm_support_status === "unconfirmed" && finding.source_validation_status === "source_valid"
+          ).length,
+          unconfirmed_finding_count: response.research_findings.filter((finding) => finding.source_validation_status === "source_invalid").length,
+          unsupported_count: response.unsupported_items.length,
+          unsupported_items: response.unsupported_items
+        });
         setTimeout(() => {
           researchFindingsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 50);
@@ -1999,6 +2025,12 @@ export function App() {
     );
   }
 
+  function markAllVisibleResearchFindingsForDeletion() {
+    setResearchFindingsMarkedForDeletion((current) =>
+      Array.from(new Set([...current, ...markableResearchFindingIds]))
+    );
+  }
+
   async function handleBulkDeleteResearchFindings() {
     if (!selectedCaseId || researchFindingsMarkedForDeletion.length === 0) return;
     const count = researchFindingsMarkedForDeletion.length;
@@ -2097,7 +2129,7 @@ export function App() {
           <span>{labelSourceExcerpt(source.source_kind)} {formatRange(source.source_text_excerpt_char_start, source.source_text_excerpt_char_end)}</span>
         </div>
         <blockquote>{source.quote_text}</blockquote>
-        {source.source_text_excerpt && <p className="excerpt">{source.source_text_excerpt}</p>}
+        {source.source_text_excerpt && <p className="excerpt">{highlightedSourceExcerpt(source.source_text_excerpt, source.quote_text)}</p>}
         <code className="hash">{source.id}</code>
       </details>
     );
@@ -2177,7 +2209,15 @@ export function App() {
                       {formatRange(firstSource.source_text_excerpt_char_start, firstSource.source_text_excerpt_char_end)}
                     </span>
                   </div>
-                  <p className="excerpt">{firstSource.source_text_excerpt}</p>
+                  <p className="excerpt">
+                    {highlightedSourceExcerpt(
+                      firstSource.source_text_excerpt,
+                      firstExactQuoteInExcerpt(
+                        firstSource.source_text_excerpt,
+                        group.sources.map(({ source }) => source.quote_text)
+                      )
+                    )}
+                  </p>
                 </div>
               )}
               {firstSource.document_sha256_hash && <code className="hash">{firstSource.document_sha256_hash}</code>}
@@ -3465,7 +3505,7 @@ export function App() {
                   {selectedAnalysisDocument && <span>{selectedAnalysisDocument.original_filename}</span>}
                   <span>{labelValidationStatus(analysis.validation_status)}</span>
                   <span>{analysisSourceMetric(analysis)}</span>
-                  <span>{analysis.unsupported_items.length} nem tamogatott</span>
+                  {analysis.module_key !== "search_findings" && <span>{analysis.unsupported_items.length} nem tamogatott</span>}
                   <span>{analysisOutputCount(analysis)} kimenet</span>
                 </div>
                 {analysis.module_key === "search_findings" && (
@@ -3562,6 +3602,30 @@ export function App() {
             <p className="module-note">
               A találatok forráshivatkozáshoz kötött keresési munkadarabok. Végleges, ellenőrizhető objektummá az átalakítás után válnak.
             </p>
+            {lastResearchFindingRun && (
+              <div className="detail-stack">
+                <div className="metrics">
+                  <span>{labelValidationStatus(lastResearchFindingRun.validation_status)}</span>
+                  <span>{lastResearchFindingRun.created_finding_count} mentett találat</span>
+                  <span>{lastResearchFindingRun.corrected_finding_count} javított idézetű találat</span>
+                  <span>{lastResearchFindingRun.unconfirmed_finding_count} nem megerősített találat</span>
+                  <span>{lastResearchFindingRun.unsupported_count} backend által elutasított jelölt</span>
+                </div>
+                {lastResearchFindingRun.created_finding_count === 0 && (
+                  <p className="error-text">Nem jött létre mentett kutatási találat. Az okok az alábbi validációs üzenetekben láthatók.</p>
+                )}
+                {lastResearchFindingRun.unsupported_items.length > 0 && (
+                  <div className="module-note module-note-warning">
+                    <strong>Backend validációval elutasított jelöltek / feldolgozási okok</strong>
+                    <ul>
+                      {lastResearchFindingRun.unsupported_items.slice(0, 5).map((item, index) => (
+                        <li key={`${index}-${item}`}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="finding-toolbar">
               <button
                 type="button"
@@ -3572,10 +3636,19 @@ export function App() {
               </button>
               <button
                 type="button"
+                className="secondary-button"
+                onClick={markAllVisibleResearchFindingsForDeletion}
+                disabled={Boolean(busy) || markableResearchFindingIds.length === 0 || allVisibleResearchFindingsMarked}
+              >
+                Összes törlésre jelölése
+              </button>
+              <button
+                type="button"
+                className="danger-button"
                 onClick={handleBulkDeleteResearchFindings}
                 disabled={Boolean(busy) || markedResearchFindingCount === 0}
               >
-                Jelöltek törlése ({markedResearchFindingCount})
+                <Trash2 size={16} /> Jelöltek törlése ({markedResearchFindingCount})
               </button>
             </div>
             {visibleResearchFindings.length > 0 && (
@@ -3590,7 +3663,7 @@ export function App() {
                       key={finding.id}
                       className={`research-finding-card ${finding.conversion_status === "ignored" ? "is-set-aside" : ""} ${
                         isMarkedForDeletion ? "is-marked-delete" : ""
-                      }`}
+                      } ${finding.source_validation_status === "source_invalid" ? "is-unconfirmed" : ""}`}
                     >
                       <div className="research-finding-header">
                         <div>
@@ -3600,7 +3673,6 @@ export function App() {
                         <span className="status-pill">{labelResearchFindingType(finding.suggested_type)}</span>
                       </div>
                       <div className="tags">
-                        <span>{labelLlmSupportStatus(finding.llm_support_status)}</span>
                         <span>{labelSourceValidationStatus(finding.source_validation_status)}</span>
                         <span>{labelResearchFindingConversionStatus(finding.conversion_status)}</span>
                       </div>
@@ -4051,6 +4123,20 @@ export function App() {
                           Végleges törlés
                         </button>
                       </div>
+                      {item.source_text_excerpt && (
+                        <details className="detached-source-context-details">
+                          <summary>Szövegrész megtekintése</summary>
+                          <div className="module-note">
+                            <span>
+                              {item.source_snapshot_json?.source_kind ? labelSourceExcerpt(item.source_snapshot_json.source_kind) : "Forrásszöveg"}{" "}
+                              {formatRange(item.source_text_excerpt_char_start, item.source_text_excerpt_char_end)}
+                            </span>
+                            <p className="excerpt">
+                              {highlightedSourceExcerpt(item.source_text_excerpt, item.source_snapshot_json?.quote_text)}
+                            </p>
+                          </div>
+                        </details>
+                      )}
                       <details className="detached-source-create-details">
                         <summary>Új találat ebből a forráshivatkozásból</summary>
                         <div className="manual-entry-panel">
@@ -4222,7 +4308,7 @@ export function App() {
                   <Play size={18} /> Feldolgozás indítása
                 </button>
                 <p className="field-hint">
-                  A futtatás a megadott oldaltartomány teljes szövegét egyetlen LLM-kérésben dolgozza fel. Csak karakterpontosan visszaköthető idézettel rendelkező elemek kerülnek mentésre.
+                  A futtatás a megadott oldaltartomány teljes szövegét egyetlen LLM-kérésben dolgozza fel. Csak olyan személyek kerülnek mentésre, akiknek a névalakja megtalálható a megadott forrásoldalon.
                 </p>
               </div>
             </section>
@@ -4267,7 +4353,7 @@ export function App() {
                     <div className="module-note module-note-warning">
                       <strong>Nem megerősített jelöltek / feldolgozási okok</strong>
                       <ul>
-                        {lastFullDocumentRun.unsupported_items.slice(0, 5).map((item, index) => (
+                        {lastFullDocumentRun.unsupported_items.map((item, index) => (
                           <li key={`${index}-${item}`}>{item}</li>
                         ))}
                       </ul>
@@ -4359,11 +4445,14 @@ export function App() {
                   <div className="full-document-items">
                     {visibleDocumentProcessingItems.map((item) => {
                     const isMarkedForDeletion = documentProcessingItemsMarkedForDeletion.includes(item.id);
+                    const isUnconfirmedDocumentProcessingItem = item.source_evidence_json.length === 0;
+                    const unconfirmedDetail = item.source_supported_details_json.find(isDocumentProcessingUnconfirmedDetail);
                     return (
                       <article
                         key={item.id}
                         className={`full-document-item ${item.work_status === "set_aside" ? "is-set-aside" : ""} ${
                           isMarkedForDeletion ? "is-marked-delete" : ""
+                        } ${isUnconfirmedDocumentProcessingItem ? "is-unconfirmed" : ""
                         }`}
                       >
                         <div className="item-card-header">
@@ -4372,6 +4461,7 @@ export function App() {
                             <div className="metrics">
                               <span>{labelDocumentProcessingItemKind(item.item_kind)}</span>
                               <span>{labelDocumentProcessingWorkStatus(item.work_status)}</span>
+                              {isUnconfirmedDocumentProcessingItem && <span>Nem megerősített</span>}
                               <span>{labelDocumentProcessingOccurrence(item.occurrence_status)}</span>
                             </div>
                           </div>
@@ -4418,10 +4508,19 @@ export function App() {
                             </button>
                           </div>
                         </div>
-                        {item.short_description && <p>{item.short_description}</p>}
                         {item.recommended_search_focus && (
                           <div className="module-note">
                             Keresési fókusz: <strong>{item.recommended_search_focus}</strong>
+                          </div>
+                        )}
+                        {isUnconfirmedDocumentProcessingItem && unconfirmedDetail && (
+                          <div className="module-note module-note-warning full-document-unconfirmed-note">
+                            {typeof unconfirmedDetail.validation_message === "string" && <span>{unconfirmedDetail.validation_message}</span>}
+                            {typeof unconfirmedDetail.llm_source_label === "string" && (
+                              <span>
+                                LLM által megadott forrásoldal: <strong>{formatPageSourceLabel(unconfirmedDetail.llm_source_label)}</strong>
+                              </span>
+                            )}
                           </div>
                         )}
                         {item.source_evidence_json[0] && (
@@ -4633,10 +4732,6 @@ function labelSourceValidationStatus(value: string) {
   return sourceValidationLabels[value] ?? value;
 }
 
-function labelLlmSupportStatus(value: string) {
-  return llmSupportLabels[value] ?? value;
-}
-
 function labelResearchFindingType(value: string) {
   return researchFindingTypeLabels[value] ?? value;
 }
@@ -4677,6 +4772,11 @@ function labelDocumentProcessingOccurrence(value: string) {
   return value === "repeated" ? "Többször előforduló" : "Egyedi";
 }
 
+function formatPageSourceLabel(value: string) {
+  const match = /^page_(\d+)$/.exec(value);
+  return match ? `${match[1]}. oldal` : value;
+}
+
 function suggestedResearchFindingManualType(finding: ResearchFindingRead): ManualObjectType {
   if (finding.suggested_type === "entity") return "entity";
   if (finding.suggested_type === "event") return "event";
@@ -4704,6 +4804,24 @@ function reportItemMatchesSearch(item: ReviewReportItem, queryText: string) {
 
 function formatSourceReferenceCount(count: number) {
   return `${count} forráshivatkozás`;
+}
+
+function highlightedSourceExcerpt(excerpt: string, quoteText: string | null | undefined): ReactNode {
+  if (!quoteText) return excerpt;
+  const matchStart = excerpt.indexOf(quoteText);
+  if (matchStart < 0) return excerpt;
+  const matchEnd = matchStart + quoteText.length;
+  return (
+    <>
+      {excerpt.slice(0, matchStart)}
+      <mark className="source-quote-highlight">{excerpt.slice(matchStart, matchEnd)}</mark>
+      {excerpt.slice(matchEnd)}
+    </>
+  );
+}
+
+function firstExactQuoteInExcerpt(excerpt: string, quoteTexts: Array<string | null | undefined>): string | null {
+  return quoteTexts.find((quoteText) => Boolean(quoteText) && excerpt.includes(quoteText as string)) ?? null;
 }
 
 function labelRunStatus(value: string) {
@@ -4975,6 +5093,10 @@ function formatUnknownNumber(value: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isDocumentProcessingUnconfirmedDetail(value: unknown): value is DocumentProcessingUnconfirmedDetail {
+  return isRecord(value) && value.validation_status === "unconfirmed";
 }
 
 function labelAnalysisOutputType(value: string) {
