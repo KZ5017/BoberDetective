@@ -31,6 +31,7 @@ Irat rendező: alapertelmezett munkafelület, iratimport + iratlista bal oldalon
 Ügy munkapad fo arany: Elemzes 0.8fr, Kutatási találatok 1.2fr
 Sidebar: keskenyebb, modellek egymas alatt, modellkartyan belul bal oldalt statusz, jobb oldalt gombok
 Vizualis nyelv: halkabb betusulyok, laposabb gombok, szolidabb chipek
+CSS alap: typography/surface/spacing tokenek + role primitive-ek aktivak
 ```
 
 2026-06-02 dontes:
@@ -439,6 +440,71 @@ Minimalis, alacsony kockazatu sorrend:
 Ebben a szeletben nem kell uj backend endpoint.
 
 ## 10. Kesobbi implementacios szeletek
+
+### 10.0 CSS token es role baseline
+
+2026-06-03-ra a frontend vizualis rendszere mar nem csak egyedi
+selector-ertekekbol all. A `frontend/src/styles.css` elejen letrejott egy
+kozponti tokenretegre epulo baseline.
+
+Token-csaladok:
+
+- `--font-size-*` es `--font-weight-*`: alap meret- es sulyertekek.
+- `--text-*`: szemantikus tipografia szerepek, peldaul panelcim, kartyacim,
+  label, guide szoveg, meta szoveg es kod/id szoveg.
+- `--space-*` es `--layout-*`: oldal, panel, kartya, compact kartya, toolbar,
+  form, chip, gomb es input tavolsagok.
+- `--color-*`: page/surface/border/text/primary/danger/warning/info/selected/
+  success/error/export allapotszinek.
+- `--radius-*`, `--shadow-*`, `--control-min-height`, `--button-min-height`,
+  `--chip-min-height`: formai es kontrollmeret alapok.
+
+CSS role primitive-ek:
+
+```text
+work card:
+  .full-document-item, .research-finding-card, .report-item
+
+inner panel:
+  .collection-summary, .collection-content-panel, .document-collection-bulk-bar,
+  .source-filter-panel, .manual-source-panel, .model-status-panel,
+  .model-status-card, .analysis-readable-card, .object-facts div,
+  .text-sample, .research-run-summary
+
+compact surface:
+  .compact-item, .pair-item, .source-quote-item, .finding-conversion-panel
+
+chip:
+  .status-strip span, .metrics span, .tags span, .status-pill, .source-meta span
+```
+
+Fontos munkaszabaly:
+
+```text
+uj UI finomitasnal eloszor tokent vagy role-valtozot allits,
+es csak akkor adj hozza egyedi selector-erteket,
+ha a komponens tenyleg egyedi viselkedest igenyel.
+```
+
+Ez kulonosen fontos a kovetkezo Full HD / 1080p hangolasnal. A Full HD media
+query szandekosan ures, hogy a kovetkezo kor tiszta baseline-rol induljon. Ne
+valjon ujra sok komponensspecifikus javitofolt gyujtemenyeve. Elso korben
+ezekhez nyuljon:
+
+- `--text-*`
+- `--layout-*`
+- `--control-min-height`
+- `--button-min-height`
+- `--chip-min-height`
+- role-szintu lokalis valtozok, peldaul `--work-card-*`, `--inner-panel-*`,
+  `--compact-surface-*`, `--chip-*`
+
+Live UX ellenorzes:
+
+```text
+a felhasznalo vegigkattintotta a feluletet a token/role refaktor utan,
+es a jelenlegi latvanyt elfogadta jo baseline-nak.
+```
 
 ### 10.1 AppShell komponensbontas
 

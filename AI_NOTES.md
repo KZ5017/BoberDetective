@@ -24,14 +24,16 @@ Fresh-session baseline:
 
 Latest session update:
 
+- Frontend visual-system foundation is now in place in `frontend/src/styles.css`: centralized CSS tokens cover typography, colors/surfaces/borders, spacing/layout, radius, shadows, control heights, and state colors. Existing component classes now share CSS-side role primitives for worklist cards, inner panels, compact surfaces, and meta/status chips without requiring JSX renaming.
+- The live UI was user-tested after the visual pass and accepted as a good current baseline. Future visual tweaks should first adjust the token layer (`--text-*`, `--color-*`, `--layout-*`, `--radius-*`, `--shadow-*`, control height tokens) before adding one-off selector values.
+- The next UI follow-up should be a token-based Full HD / 1080p tuning pass. The Full HD media query has intentionally been emptied so the next pass starts from a clean baseline; it should stay viewport-specific and should primarily override tokens or a small number of role-level values, not reintroduce broad per-component styling.
 - Added a backend/API latest-run summary for `search_findings`: `GET /api/v1/cases/{case_id}/research-findings/latest-run-summary` reports the latest research-finding run focus, source mode, retrieval settings, selected chunk count, saved/corrected/unconfirmed/rejected counts, and validation diagnostics.
 - The `Ügy munkapad` now shows `Szemantikus index állapot` and persistent `Utolsó kutatási keresés` cards in a shared top status row. The research summary persists across refreshes because it is loaded from backend analysis-run/audit/finding state.
 - The `Elemzés` / `Kutatási találatok` desktop split is now `0.8fr / 1.2fr`, giving the finding worklist more room without changing the other work surfaces.
 - The left sidebar is narrower, model cards are stacked vertically, and each model card uses a two-column internal layout: model name/status on the left and load/unload controls on the right.
 - The old bottom analysis-run summary inside the `Elemzés` panel was removed; the useful state now lives in the top latest-run card and the research-finding worklist.
 - A broad frontend visual polish pass is active: lighter font weights for document names, panel/card titles, status chips, guide/error text, dropdown values, full-document worklist titles/focus/source labels, and research/review cards; flatter global button styling with no hover/active movement; and a Full HD media query limited to subtle button/input/chip weight/spacing tweaks.
-- Verification for this slice: `npm --prefix frontend run build`, `git diff --check`, and targeted research-finding/search-finding backend tests were run during the session. No migration was added.
-- Suggested next UI follow-up: inspect the live 1080p proportions after real usage. The Full HD media query is now intentionally narrow in scope and should stay opt-in for viewport-specific tweaks.
+- Verification for this visual-system slice: `npm --prefix frontend run build` and `git diff --check` passed after tokenization and role-primitive cleanup. No migration was added.
 
 Initial implementation exists:
 
