@@ -43,6 +43,33 @@ class ResearchFindingList(BaseModel):
     data: list[ResearchFindingRead]
 
 
+class ResearchFindingLatestRunSummary(BaseModel):
+    analysis_run_id: UUID
+    status: str
+    validation_status: str | None
+    started_at: datetime
+    finished_at: datetime | None
+    query: str | None
+    source_mode: str | None
+    document_id: UUID | None
+    collection_id: UUID | None
+    document_ids: list[UUID]
+    max_chunks: int | None
+    batch_size: int | None
+    retrieval_strategy: str | None
+    selected_chunk_count: int
+    created_finding_count: int
+    corrected_finding_count: int
+    unconfirmed_finding_count: int
+    unsupported_count: int
+    unsupported_items: list[str]
+    error_message: str | None
+
+
+class ResearchFindingLatestRunSummaryResponse(BaseModel):
+    latest_run: ResearchFindingLatestRunSummary | None
+
+
 class ResearchFindingDetail(BaseModel):
     finding: ResearchFindingRead
 

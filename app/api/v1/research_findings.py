@@ -13,6 +13,7 @@ from app.schemas.research_finding import (
     ResearchFindingConvertRequest,
     ResearchFindingConvertResponse,
     ResearchFindingDetail,
+    ResearchFindingLatestRunSummaryResponse,
     ResearchFindingList,
     ResearchFindingRead,
     ResearchFindingSetAsideRequest,
@@ -25,6 +26,7 @@ from app.services.research_findings import (
     delete_research_finding,
     delete_research_findings,
     get_research_finding,
+    get_latest_research_finding_run_summary,
     list_research_findings,
     restore_research_finding,
     set_aside_research_finding,
@@ -38,6 +40,11 @@ router = APIRouter()
 @router.get("/cases/{case_id}/research-findings", response_model=ResearchFindingList)
 def get_case_research_findings(case_id: UUID, db: Session = Depends(get_db)) -> ResearchFindingList:
     return ResearchFindingList(data=[_research_finding_read(db, finding) for finding in list_research_findings(db, case_id)])
+
+
+@router.get("/cases/{case_id}/research-findings/latest-run-summary", response_model=ResearchFindingLatestRunSummaryResponse)
+def get_case_research_findings_latest_run_summary(case_id: UUID, db: Session = Depends(get_db)) -> ResearchFindingLatestRunSummaryResponse:
+    return ResearchFindingLatestRunSummaryResponse(latest_run=get_latest_research_finding_run_summary(db, case_id))
 
 
 @router.get("/cases/{case_id}/research-findings/{finding_id}", response_model=ResearchFindingDetail)

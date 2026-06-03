@@ -24,12 +24,14 @@ Fresh-session baseline:
 
 Latest session update:
 
-- The frontend work-surface shell has been reorganized into a left-sidebar layout with shared surface headers.
-- `Irat rendező` is now the default surface and owns case selection/creation, import, document list, document collections, and document detail workflows.
-- `Ügy munkapad` is now narrowed to analysis/research/review/source workflows; the semantic index readiness card sits as a compact fixed-height block above `Elemzés`, while `Kutatási találatok` can start at the top of the right column.
-- `Ügy munkapad`, `Teljes iratfeldolgozás`, and the document organizer two-column areas now use 1:1 columns, with compact analysis controls and shared source-scope hint styling.
-- Verification for this UI/docs slice: `npm --prefix frontend run build` passed. No backend code or migrations changed in this slice.
-- Suggested next UI follow-up: inspect the live proportions after real usage, then consider extracting the document-organizer surface into smaller frontend components once the layout settles.
+- Added a backend/API latest-run summary for `search_findings`: `GET /api/v1/cases/{case_id}/research-findings/latest-run-summary` reports the latest research-finding run focus, source mode, retrieval settings, selected chunk count, saved/corrected/unconfirmed/rejected counts, and validation diagnostics.
+- The `Ügy munkapad` now shows `Szemantikus index állapot` and persistent `Utolsó kutatási keresés` cards in a shared top status row. The research summary persists across refreshes because it is loaded from backend analysis-run/audit/finding state.
+- The `Elemzés` / `Kutatási találatok` desktop split is now `0.8fr / 1.2fr`, giving the finding worklist more room without changing the other work surfaces.
+- The left sidebar is narrower, model cards are stacked vertically, and each model card uses a two-column internal layout: model name/status on the left and load/unload controls on the right.
+- The old bottom analysis-run summary inside the `Elemzés` panel was removed; the useful state now lives in the top latest-run card and the research-finding worklist.
+- A broad frontend visual polish pass is active: lighter font weights for document names, panel/card titles, status chips, guide/error text, dropdown values, full-document worklist titles/focus/source labels, and research/review cards; flatter global button styling with no hover/active movement; and a Full HD media query limited to subtle button/input/chip weight/spacing tweaks.
+- Verification for this slice: `npm --prefix frontend run build`, `git diff --check`, and targeted research-finding/search-finding backend tests were run during the session. No migration was added.
+- Suggested next UI follow-up: inspect the live 1080p proportions after real usage. The Full HD media query is now intentionally narrow in scope and should stay opt-in for viewport-specific tweaks.
 
 Initial implementation exists:
 

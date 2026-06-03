@@ -2,7 +2,7 @@
 
 ## 0. Aktualisitas
 
-Frissitve: 2026-06-02.
+Frissitve: 2026-06-03.
 
 Ez a dokumentum a kovetkezo frontend iranyt rogziti: a jelenlegi, vizualisan stabil ketoszlopos munkapad ne tovabb zsufolodjon, hanem keruljon egy tobb munkafeluletet kezelo alkalmazasvaz ala.
 
@@ -16,11 +16,21 @@ hanem kozos AppShell + kulon munkafeluletek.
 Aktualis implementacios allapot:
 
 ```text
-elso shell/surface-navigation szelet: kesz
-Ügy munkapad: mukodo, de ujra zsufoltta valt
+shell/surface-navigation szelet: kesz, bal oldali sidebar aktiv
+Ügy munkapad: mukodo, elemzes/kutatasi talalat/review munkafelületre szukitve
 Teljes iratfeldolgozás: backend-kapcsolt, person-profile munkafelület
 Audit napló: placeholder
 Iratgyujtemeny/source-scope layer: mukodo backend/frontend, search_findings es index scope integracioval
+```
+
+2026-06-03 allapot:
+
+```text
+Irat rendező: alapertelmezett munkafelület, iratimport + iratlista bal oldalon, iratgyujtemenyek jobb oldalon
+Ügy munkapad: Szemantikus index állapot + Utolsó kutatási keresés felso statuszsorban
+Ügy munkapad fo arany: Elemzes 0.8fr, Kutatási találatok 1.2fr
+Sidebar: keskenyebb, modellek egymas alatt, modellkartyan belul bal oldalt statusz, jobb oldalt gombok
+Vizualis nyelv: halkabb betusulyok, laposabb gombok, szolidabb chipek
 ```
 
 2026-06-02 dontes:

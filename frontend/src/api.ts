@@ -215,6 +215,33 @@ export type ResearchFindingRead = {
   source_reference: SourceReferenceRead | null;
 };
 
+export type ResearchFindingLatestRunSummary = {
+  analysis_run_id: string;
+  status: string;
+  validation_status: string | null;
+  started_at: string;
+  finished_at: string | null;
+  query: string | null;
+  source_mode: AnalysisSourceMode | string | null;
+  document_id: string | null;
+  collection_id: string | null;
+  document_ids: string[];
+  max_chunks: number | null;
+  batch_size: number | null;
+  retrieval_strategy: RetrievalStrategy | string | null;
+  selected_chunk_count: number;
+  created_finding_count: number;
+  corrected_finding_count: number;
+  unconfirmed_finding_count: number;
+  unsupported_count: number;
+  unsupported_items: string[];
+  error_message: string | null;
+};
+
+export type ResearchFindingLatestRunSummaryResponse = {
+  latest_run: ResearchFindingLatestRunSummary | null;
+};
+
 export type ReviewReportItem = {
   object_type: string;
   object_id: string;
@@ -946,6 +973,10 @@ export function listMissingItemCandidates(caseId: string): Promise<{ data: Missi
 
 export function listResearchFindings(caseId: string): Promise<{ data: ResearchFindingRead[] }> {
   return request(`/cases/${caseId}/research-findings`);
+}
+
+export function getLatestResearchFindingRunSummary(caseId: string): Promise<ResearchFindingLatestRunSummaryResponse> {
+  return request(`/cases/${caseId}/research-findings/latest-run-summary`);
 }
 
 export function listFullDocumentProcessingProfiles(): Promise<{ data: FullDocumentProcessingProfileRead[] }> {

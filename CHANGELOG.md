@@ -1,5 +1,28 @@
 # CHANGELOG.md
 
+## 2026-06-03
+
+### Added
+
+- Added `GET /api/v1/cases/{case_id}/research-findings/latest-run-summary`, returning the latest `search_findings` run summary for a case with focus text, source mode, retrieval settings, selected chunk count, saved/corrected/unconfirmed/rejected counts, and validation/rejection diagnostics.
+- Added a persistent `Utolsó kutatási keresés` frontend status card for the `Ügy munkapad`, backed by the new latest-run summary endpoint instead of transient local state.
+
+### Changed
+
+- Moved the `Utolsó kutatási keresés` card out of the `Kutatási találatok` panel into the same top status row as `Szemantikus index állapot`.
+- Adjusted the `Ügy munkapad` grid so `Elemzés` and `Kutatási találatok` use a `0.8fr / 1.2fr` desktop split, giving more width to the research-finding worklist without affecting other work surfaces.
+- Reduced the left sidebar width, kept the model cards stacked vertically, and made the model-card internals two-column: model name/status on the left and model actions on the right.
+- Removed the old bottom analysis-run summary block from the `Elemzés` panel because the latest-run and research-finding panels now carry the useful state.
+- Refined global UI typography toward a calmer visual weight: document names, panel/card titles, status chips, guide text, error text, dropdown values, full-document worklist card titles/focus/source labels, analysis-run detail labels, and research/review card titles now use lighter font weights.
+- Reworked global button styling from heavy gradient/inset buttons to flatter, quieter buttons with subtle color/border/box-shadow state changes and no hover/active movement.
+- Kept the Full HD media query active as a targeted 1080p layer, currently limited to slightly smaller/lighter buttons, input labels/values, and status-chip weights.
+- Simplified the semantic index readiness card: the Qdrant collection name now appears in the first metadata line, and readiness metrics can wrap over multiple lines instead of clipping.
+
+### Verified
+
+- `npm --prefix frontend run build`
+- `git diff --check`
+
 ## 2026-06-02
 
 ### Changed

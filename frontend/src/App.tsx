@@ -44,6 +44,7 @@ import {
   ManualObjectFromSourcePayload,
   ManualContradictionCandidatePayload,
   MissingItemCandidateRead,
+  ResearchFindingLatestRunSummary,
   ResearchFindingRead,
   ReviewReport,
   ReviewReportFilterValues,
@@ -71,6 +72,7 @@ import {
   deleteReviewReportItem,
   getAnalysisRun,
   getChunkIndexStatus,
+  getLatestResearchFindingRunSummary,
   getReviewReport,
   importDocument,
   getLlmSmoke,
@@ -306,7 +308,7 @@ const runStatusLabels: Record<string, string> = {
 };
 
 const validationStatusLabels: Record<string, string> = {
-  passed: "Atment",
+  passed: "Sikeres",
   failed: "Sikertelen",
   warning: "Figyelmeztetes"
 };
@@ -375,14 +377,7 @@ export function App() {
     unsupported_count: number;
     unsupported_items: string[];
   } | null>(null);
-  const [lastResearchFindingRun, setLastResearchFindingRun] = useState<{
-    validation_status: string;
-    created_finding_count: number;
-    corrected_finding_count: number;
-    unconfirmed_finding_count: number;
-    unsupported_count: number;
-    unsupported_items: string[];
-  } | null>(null);
+  const [lastResearchFindingRun, setLastResearchFindingRun] = useState<ResearchFindingLatestRunSummary | null>(null);
   const [fullDocumentPageStart, setFullDocumentPageStart] = useState("1");
   const [fullDocumentPageEnd, setFullDocumentPageEnd] = useState("1");
   const [moduleKey, setModuleKey] = useState("search_findings");
@@ -409,7 +404,6 @@ export function App() {
   const [selectedReportItem, setSelectedReportItem] = useState<ReviewReportItem | null>(null);
   const objectDetailPanelRef = useRef<HTMLElement | null>(null);
   const researchFindingsPanelRef = useRef<HTMLElement | null>(null);
-  const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [lastExport, setLastExport] = useState<ExportDetail | null>(null);
   const [reviewComments, setReviewComments] = useState<Record<string, string>>({});
   const [objectTextEdit, setObjectTextEdit] = useState({ title: "", description: "" });
@@ -675,6 +669,7 @@ export function App() {
       setDocumentProcessingItems([]);
       setDocumentProcessingItemsMarkedForDeletion([]);
       setLastFullDocumentRun(null);
+      setLastResearchFindingRun(null);
     }
   }, [selectedCaseId]);
 
@@ -1192,6 +1187,7 @@ export function App() {
         eventsResponse,
         missingItemsResponse,
         researchFindingsResponse,
+        researchFindingRunSummaryResponse,
         detachedSourcesResponse
       ] = await Promise.all([
         listDocuments(selectedCaseId),
@@ -1205,6 +1201,7 @@ export function App() {
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId),
         listResearchFindings(selectedCaseId),
+        getLatestResearchFindingRunSummary(selectedCaseId),
         listDetachedSourceItems(selectedCaseId)
       ]);
       setDocuments(documentsResponse.data);
@@ -1216,6 +1213,7 @@ export function App() {
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
       setResearchFindings(researchFindingsResponse.data);
+      setLastResearchFindingRun(researchFindingRunSummaryResponse.latest_run);
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       setReport(reportResponse);
@@ -1552,7 +1550,6 @@ export function App() {
         ...(isContradictionModule ? { contradiction_candidate_limit: contradictionCandidateLimit } : {})
       };
       const response = await runAnalysis(selectedCaseId, moduleKey, payload);
-      setAnalysis(response);
       const [
         reportResponse,
         manualClaimsResponse,
@@ -1562,6 +1559,7 @@ export function App() {
         eventsResponse,
         missingItemsResponse,
         researchFindingsResponse,
+        researchFindingRunSummaryResponse,
         detachedSourcesResponse
       ] = await Promise.all([
         getReviewReport(selectedCaseId, reportFilters),
@@ -1572,6 +1570,7 @@ export function App() {
         listEvents(selectedCaseId),
         listMissingItemCandidates(selectedCaseId),
         listResearchFindings(selectedCaseId),
+        getLatestResearchFindingRunSummary(selectedCaseId),
         listDetachedSourceItems(selectedCaseId)
       ]);
       setReport(reportResponse);
@@ -1581,19 +1580,10 @@ export function App() {
       setEvents(eventsResponse.data);
       setMissingItemCandidates(missingItemsResponse.data);
       setResearchFindings(researchFindingsResponse.data);
+      setLastResearchFindingRun(researchFindingRunSummaryResponse.latest_run);
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       if (response.module_key === "search_findings") {
-        setLastResearchFindingRun({
-          validation_status: response.validation_status,
-          created_finding_count: response.research_findings.length,
-          corrected_finding_count: response.research_findings.filter(
-            (finding) => finding.llm_support_status === "unconfirmed" && finding.source_validation_status === "source_valid"
-          ).length,
-          unconfirmed_finding_count: response.research_findings.filter((finding) => finding.source_validation_status === "source_invalid").length,
-          unsupported_count: response.unsupported_items.length,
-          unsupported_items: response.unsupported_items
-        });
         setTimeout(() => {
           researchFindingsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 50);
@@ -3241,6 +3231,7 @@ export function App() {
       : lastAiOperation
         ? formatDuration(lastAiOperation.durationSeconds)
         : "-";
+    const feedbackMessage = error || notice || "Nincs friss visszajelzés";
     return (
       <section className="panel hero-panel">
         <div>
@@ -3261,6 +3252,10 @@ export function App() {
             <span>Időtartam</span>
             <strong>{durationLabel}</strong>
           </div>
+          <div className={`surface-feedback ${error ? "has-error" : notice ? "has-notice" : ""}`}>
+            <span>Visszajelzés</span>
+            <strong>{feedbackMessage}</strong>
+          </div>
         </div>
       </section>
     );
@@ -3274,7 +3269,11 @@ export function App() {
           <div>
             <strong>Szemantikus index állapot</strong>
             {chunkIndexStatus ? (
-              <span>{labelChunkIndexScope(chunkIndexStatus)} | {chunkIndexStatus.embedding_model}</span>
+              <span>
+                {[labelChunkIndexScope(chunkIndexStatus), chunkIndexStatus.embedding_model, chunkIndexStatus.collection_name]
+                  .filter(Boolean)
+                  .join(" | ")}
+              </span>
             ) : (
               <span>Az aktuális elemzési forráskör indexelési készültsége itt jelenik meg.</span>
             )}
@@ -3303,7 +3302,6 @@ export function App() {
               <span>Forráskör váltásakor vagy frissítéskor töltődik</span>
             </div>
           )}
-          {chunkIndexStatus?.collection_name && <code>{chunkIndexStatus.collection_name}</code>}
           {indexJobIsRunning && <p className="field-hint">Indexeles folyamatban, az allapot automatikusan frissul.</p>}
           {usesSemanticIndex && chunkIndexStatus && !chunkIndexStatus.is_ready && (
             <p className="error-text">Szemantikus vagy hybrid futtatáshoz előbb indexelni kell az aktuális forráskört.</p>
@@ -3323,6 +3321,64 @@ export function App() {
               <input type="checkbox" checked={forceReindex} onChange={(event) => setForceReindex(event.target.checked)} />
               Ujraindexeles
             </label>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  function renderResearchRunSummaryStrip() {
+    if (!lastResearchFindingRun) {
+      return (
+        <section className="research-run-summary is-empty">
+          <div className="research-run-summary-heading">
+            <div>
+              <span>Utolsó kutatási keresés</span>
+              <strong>Még nincs kutatási találatkeresési futás ebben az ügyben.</strong>
+            </div>
+          </div>
+          <div className="metrics">
+            <span>A legutóbbi keresési fókusz és eredmény itt jelenik meg</span>
+          </div>
+        </section>
+      );
+    }
+    return (
+      <section className="research-run-summary">
+        <div className="research-run-summary-heading">
+          <div>
+            <strong>Utolsó kutatási keresés - {lastResearchFindingRun.query || "Nincs megadott fókusz"}</strong>
+          </div>
+          <span className={`status-pill ${lastResearchFindingRun.status === "failed" || lastResearchFindingRun.validation_status === "warning" ? "is-warning" : ""}`}>
+            {labelResearchFindingRunOutcome(lastResearchFindingRun)}
+          </span>
+        </div>
+        <div className="metrics">
+          <span>{labelAnalysisSourceMode((lastResearchFindingRun.source_mode ?? "case") as AnalysisSourceMode)}</span>
+          <span>{lastResearchFindingRun.selected_chunk_count} szövegrész</span>
+          {lastResearchFindingRun.retrieval_strategy && <span>{labelRetrievalStrategy(lastResearchFindingRun.retrieval_strategy as RetrievalStrategy)}</span>}
+          {lastResearchFindingRun.max_chunks !== null && <span>Plafon: {lastResearchFindingRun.max_chunks}</span>}
+          {lastResearchFindingRun.batch_size !== null && <span>Batch: {lastResearchFindingRun.batch_size}</span>}
+          <span>{formatDateTime(lastResearchFindingRun.started_at)}</span>
+        </div>
+        <div className="metrics">
+          <span>{lastResearchFindingRun.created_finding_count} mentett</span>
+          <span>{lastResearchFindingRun.corrected_finding_count} javított</span>
+          <span>{lastResearchFindingRun.unconfirmed_finding_count} nem megerősített</span>
+          <span>{lastResearchFindingRun.unsupported_count} elutasított</span>
+        </div>
+        {lastResearchFindingRun.created_finding_count === 0 && (
+          <p className="error-text">Nem jött létre mentett kutatási találat. Az okok az alábbi validációs üzenetekben láthatók.</p>
+        )}
+        {lastResearchFindingRun.error_message && <p className="error-text">{lastResearchFindingRun.error_message}</p>}
+        {lastResearchFindingRun.unsupported_items.length > 0 && (
+          <div className="module-note module-note-warning research-run-validation">
+            <strong>Backend validációval elutasított jelöltek / feldolgozási okok</strong>
+            <ul>
+              {lastResearchFindingRun.unsupported_items.slice(0, 5).map((item, index) => (
+                <li key={`${index}-${item}`}>{item}</li>
+              ))}
+            </ul>
           </div>
         )}
       </section>
@@ -3367,14 +3423,22 @@ export function App() {
           </aside>
 
           <div className="surface-content">
-            {error && <div className="notice error">{error}</div>}
-            {notice && <div className="notice success">{notice}</div>}
-
         {(activeSurface === "document_organizer" || activeSurface === "case_workbench") && (
-        <section className="main-grid">
+        <section className={`main-grid ${activeSurface === "case_workbench" ? "case-workbench-grid" : ""}`}>
           {renderSurfaceHeader(activeSurface)}
 
-          <div className={`workflow-column ${activeSurface === "document_organizer" ? "document-organizer-column" : ""}`}>
+          {activeSurface === "case_workbench" && (
+            <div className="workbench-status-row">
+              {renderAnalysisReadinessStrip()}
+              {renderResearchRunSummaryStrip()}
+            </div>
+          )}
+
+          <div
+            className={`workflow-column ${
+              activeSurface === "document_organizer" ? "document-organizer-column" : activeSurface === "case_workbench" ? "case-workbench-column" : ""
+            }`}
+          >
           {activeSurface === "document_organizer" && (
           <>
           <section className="case-strip document-organizer-case-panel">
@@ -3969,7 +4033,6 @@ export function App() {
 
           {activeSurface === "case_workbench" && (
           <>
-          {renderAnalysisReadinessStrip()}
           <section className="panel analysis-panel">
             <div className="section-heading">
               <h2>Elemzes</h2>
@@ -4173,39 +4236,18 @@ export function App() {
                 rows={3}
                 placeholder={analysisFocusPlaceholder(moduleKey, isContradictionModule)}
               />
-              <span className="field-hint">
-                {isContradictionModule
-                  ? "Kötelező: ez szűri a már kinyert állításokat és forráshivatkozási idézeteiket."
-                  : "Kötelező: ez választja ki a releváns szövegrészeket a megadott forráskörben. (Rövid, konkrét fókusznál a 3 feletti batch méret ronthatja a találatok kiemelését. Ilyenkor érdemes 1-3 közötti értéket próbálni.)"}
-              </span>
             </label>
+            <p className="field-hint">
+              {isContradictionModule
+                ? "Kötelező: ez szűri a már kinyert állításokat és forráshivatkozási idézeteiket."
+                : "Kötelező: ez választja ki a releváns szövegrészeket a megadott forráskörben. (Rövid, konkrét fókusznál a 3 feletti batch méret ronthatja a találatok kiemelését. Ilyenkor érdemes 1-3 közötti értéket próbálni.)"}
+            </p>
             {requiresFocusText && query.trim().length === 0 && (
               <p className="error-text">A feldolgozashoz adj meg fokuszt; enelkul nagy ugyeknel nem inditunk vak feldolgozast.</p>
             )}
             <button onClick={handleRunAnalysis} disabled={!canRunAnalysis}>
               <Play size={18} /> Futtatas
             </button>
-            {analysis && (
-              <div className="analysis-summary">
-                <div className="metrics">
-                  <span>{labelAnalysisSourceMode(effectiveAnalysisSourceMode)}</span>
-                  {selectedAnalysisDocument && <span>{selectedAnalysisDocument.original_filename}</span>}
-                  <span>{labelValidationStatus(analysis.validation_status)}</span>
-                  <span>{analysisSourceMetric(analysis)}</span>
-                  {analysis.module_key !== "search_findings" && <span>{analysis.unsupported_items.length} nem tamogatott</span>}
-                  <span>{analysisOutputCount(analysis)} kimenet</span>
-                </div>
-                {analysis.module_key === "search_findings" && (
-                  <button
-                    className="secondary-button"
-                    onClick={() => researchFindingsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                  >
-                    Ugrás a kutatási találatokhoz
-                  </button>
-                )}
-                <code>{analysis.analysis_run_id}</code>
-              </div>
-            )}
           </section>
 
           <section className="panel analysis-history-panel">
@@ -4284,39 +4326,12 @@ export function App() {
           </div>
 
           {activeSurface === "case_workbench" && (
-          <div className="review-column">
+          <div className="review-column case-workbench-review-column">
           <section className="panel research-findings-panel" ref={researchFindingsPanelRef}>
             <div className="section-heading">
               <h2>Kutatási találatok</h2>
               <Search size={20} />
             </div>
-            <p className="module-note">
-              A találatok forráshivatkozáshoz kötött keresési munkadarabok. Végleges, ellenőrizhető objektummá az átalakítás után válnak.
-            </p>
-            {lastResearchFindingRun && (
-              <div className="detail-stack">
-                <div className="metrics">
-                  <span>{labelValidationStatus(lastResearchFindingRun.validation_status)}</span>
-                  <span>{lastResearchFindingRun.created_finding_count} mentett találat</span>
-                  <span>{lastResearchFindingRun.corrected_finding_count} javított idézetű találat</span>
-                  <span>{lastResearchFindingRun.unconfirmed_finding_count} nem megerősített találat</span>
-                  <span>{lastResearchFindingRun.unsupported_count} backend által elutasított jelölt</span>
-                </div>
-                {lastResearchFindingRun.created_finding_count === 0 && (
-                  <p className="error-text">Nem jött létre mentett kutatási találat. Az okok az alábbi validációs üzenetekben láthatók.</p>
-                )}
-                {lastResearchFindingRun.unsupported_items.length > 0 && (
-                  <div className="module-note module-note-warning">
-                    <strong>Backend validációval elutasított jelöltek / feldolgozási okok</strong>
-                    <ul>
-                      {lastResearchFindingRun.unsupported_items.slice(0, 5).map((item, index) => (
-                        <li key={`${index}-${item}`}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
             <div className="finding-toolbar">
               <button
                 type="button"
@@ -4570,12 +4585,9 @@ export function App() {
               <h2>Kézi ellentmondásjelölt</h2>
               <GitMerge size={20} />
             </div>
-            <div className="module-note">
+            <p className="field-hint">
               Két érvényes forráshivatkozású, nem elutasított állításból hoz létre ellenőrizendő jelöltet. A rögzítés nem bizonyított ellentmondás, hanem emberi ellenőrzésre váró pár.
-            </div>
-            {manualContradictionClaimOptions.length < 2 && (
-              <p className="muted">Legalább két érvényes forráshivatkozású, nem elutasított állítás kell a kézi jelölthez.</p>
-            )}
+            </p>
             <div className="manual-contradiction-select-row">
               <div className="manual-contradiction-select-field">
                 <span>1. állítás</span>
@@ -4951,9 +4963,9 @@ export function App() {
                     ))}
                   </select>
                 </label>
-                <div className="module-note">
+                <p className="field-hint">
                   {selectedFullDocumentProfile?.description ?? "A profilok betöltése folyamatban."}
-                </div>
+                </p>
                 <div className="form-row">
                   <label>
                     Oldaltól
@@ -5425,6 +5437,15 @@ function labelResearchFindingConversionStatus(value: string) {
     ignored: "Félretéve"
   };
   return labels[value] ?? value;
+}
+
+function labelResearchFindingRunOutcome(run: ResearchFindingLatestRunSummary) {
+  if (run.status === "failed") return "Sikertelen keresés";
+  if (run.status === "running") return "Folyamatban";
+  if (run.validation_status === "warning") return "Sikeres, figyelmeztetéssel";
+  if (run.validation_status === "passed") return "Sikeres keresés";
+  if (run.validation_status === "failed") return "Sikertelen keresés";
+  return labelRunStatus(run.status);
 }
 
 function labelDocumentProcessingItemKind(value: string) {

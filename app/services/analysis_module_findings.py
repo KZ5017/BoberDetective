@@ -203,6 +203,11 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
 
         validation_status = "passed"
         invalid_source_finding_count = sum(1 for finding in response_findings if finding.source_validation_status == "source_invalid")
+        corrected_finding_count = sum(
+            1
+            for finding in response_findings
+            if finding.llm_support_status == "unconfirmed" and finding.source_validation_status == "source_valid"
+        )
         if failed_batch_count > 0 or unsupported_items or invalid_source_finding_count > 0 or response_unconfirmed_findings or not response_findings:
             validation_status = "warning"
         finish_analysis_run(
@@ -215,9 +220,11 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                 "processed_batch_count": processed_batch_count,
                 "failed_batch_count": failed_batch_count,
                 "created_research_finding_count": len(response_findings),
+                "corrected_research_finding_count": corrected_finding_count,
                 "unconfirmed_research_finding_count": len(response_unconfirmed_findings),
                 "source_invalid_research_finding_count": invalid_source_finding_count,
                 "unsupported_count": len(unsupported_items),
+                "unsupported_items": unsupported_items[:5],
             },
         )
         return AnalysisModuleRunResponse(

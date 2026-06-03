@@ -1,13 +1,15 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.analysis import AnalysisRunModel
+from app.models.analysis import AnalysisRunInputModel, AnalysisRunModel
+from app.models.audit import AuditEventModel
 from app.models.research_finding import ResearchFindingModel
 from app.models.source_reference import SourceReferenceModel
+from app.schemas.research_finding import ResearchFindingLatestRunSummary
 from app.schemas.manual_entry import ManualObjectFromSourceCreate
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
 from app.services.manual_entries import ManualEntryError, create_manual_object_from_source_reference
@@ -37,6 +39,79 @@ def list_research_findings(db: Session, case_id: UUID) -> list[ResearchFindingMo
             )
             .order_by(ResearchFindingModel.created_at.desc())
         ).scalars()
+    )
+
+
+def get_latest_research_finding_run_summary(db: Session, case_id: UUID) -> ResearchFindingLatestRunSummary | None:
+    run = db.execute(
+        select(AnalysisRunModel)
+        .where(AnalysisRunModel.case_id == case_id, AnalysisRunModel.run_type == "search_findings")
+        .order_by(AnalysisRunModel.started_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if run is None:
+        return None
+
+    audit = db.execute(
+        select(AuditEventModel)
+        .where(
+            AuditEventModel.analysis_run_id == run.id,
+            AuditEventModel.related_object_type == "analysis_run",
+        )
+        .order_by(AuditEventModel.event_timestamp.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    output_summary = audit.output_summary if audit is not None and isinstance(audit.output_summary, dict) else {}
+    input_parameters = run.input_parameters if isinstance(run.input_parameters, dict) else {}
+
+    document_ids = [
+        document_id
+        for document_id in (_to_uuid(value) for value in _list_value(input_parameters.get("document_ids")))
+        if document_id is not None
+    ]
+    created_count = _int_summary_value(output_summary, "created_research_finding_count")
+    if created_count == 0:
+        created_count = _count_research_findings_for_run(db, run.id)
+
+    corrected_count = _int_summary_value(output_summary, "corrected_research_finding_count")
+    if corrected_count == 0:
+        corrected_count = _count_research_findings_for_run(
+            db,
+            run.id,
+            llm_support_status="unconfirmed",
+            source_validation_status="source_valid",
+        )
+
+    unconfirmed_count = _int_summary_value(output_summary, "source_invalid_research_finding_count")
+    if unconfirmed_count == 0:
+        unconfirmed_count = _count_research_findings_for_run(db, run.id, source_validation_status="source_invalid")
+
+    unsupported_items = [str(item) for item in _list_value(output_summary.get("unsupported_items"))]
+    unsupported_count = _int_summary_value(output_summary, "unsupported_count")
+    if unsupported_count == 0 and unsupported_items:
+        unsupported_count = len(unsupported_items)
+
+    return ResearchFindingLatestRunSummary(
+        analysis_run_id=run.id,
+        status=run.status,
+        validation_status=run.validation_status,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
+        query=_string_or_none(input_parameters.get("query")),
+        source_mode=_string_or_none(input_parameters.get("source_mode")),
+        document_id=_to_uuid(input_parameters.get("document_id")),
+        collection_id=_to_uuid(input_parameters.get("collection_id")),
+        document_ids=document_ids,
+        max_chunks=_int_or_none(input_parameters.get("max_chunks")),
+        batch_size=_int_or_none(input_parameters.get("batch_size")),
+        retrieval_strategy=_string_or_none(input_parameters.get("retrieval_strategy")),
+        selected_chunk_count=_count_selected_chunks_for_run(db, run.id),
+        created_finding_count=created_count,
+        corrected_finding_count=corrected_count,
+        unconfirmed_finding_count=unconfirmed_count,
+        unsupported_count=unsupported_count,
+        unsupported_items=unsupported_items,
+        error_message=run.error_message,
     )
 
 
@@ -239,3 +314,61 @@ def delete_research_findings(
         db.delete(finding)
     db.commit()
     return len(findings)
+
+
+def _count_research_findings_for_run(
+    db: Session,
+    run_id: UUID,
+    *,
+    llm_support_status: str | None = None,
+    source_validation_status: str | None = None,
+) -> int:
+    statement = select(func.count()).select_from(ResearchFindingModel).where(ResearchFindingModel.analysis_run_id == run_id)
+    if llm_support_status is not None:
+        statement = statement.where(ResearchFindingModel.llm_support_status == llm_support_status)
+    if source_validation_status is not None:
+        statement = statement.where(ResearchFindingModel.source_validation_status == source_validation_status)
+    return int(db.execute(statement).scalar_one())
+
+
+def _count_selected_chunks_for_run(db: Session, run_id: UUID) -> int:
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(AnalysisRunInputModel)
+            .where(AnalysisRunInputModel.analysis_run_id == run_id, AnalysisRunInputModel.input_type == "chunk")
+        ).scalar_one()
+    )
+
+
+def _int_summary_value(summary: dict, key: str) -> int:
+    return _int_or_none(summary.get(key)) or 0
+
+
+def _int_or_none(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value)
+    return None
+
+
+def _string_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _to_uuid(value: object) -> UUID | None:
+    if isinstance(value, UUID):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return UUID(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _list_value(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
