@@ -344,6 +344,7 @@ export function App() {
   const [newDocumentCollectionDescription, setNewDocumentCollectionDescription] = useState("");
   const [documentCollectionScopePreview, setDocumentCollectionScopePreview] = useState<DocumentCollectionScopeResolveResponse | null>(null);
   const [analysisRuns, setAnalysisRuns] = useState<AnalysisRunRead[]>([]);
+  const [analysisHistoryKind, setAnalysisHistoryKind] = useState<"search_findings" | "manual_entry">("search_findings");
   const [exports, setExports] = useState<ExportRead[]>([]);
   const [entities, setEntities] = useState<EntityRead[]>([]);
   const [claims, setClaims] = useState<ClaimRead[]>([]);
@@ -598,6 +599,17 @@ export function App() {
     if (!queryText) return report.items;
     return report.items.filter((item) => reportItemMatchesSearch(item, queryText));
   }, [report, reportSearch]);
+  const analysisHistoryCounts = useMemo(
+    () => ({
+      search_findings: analysisRuns.filter((run) => run.run_type === "search_findings").length,
+      manual_entry: analysisRuns.filter((run) => run.run_type === "manual_entry").length
+    }),
+    [analysisRuns]
+  );
+  const visibleAnalysisRuns = useMemo(
+    () => analysisRuns.filter((run) => run.run_type === analysisHistoryKind),
+    [analysisRuns, analysisHistoryKind]
+  );
   const setAsideResearchFindingCount = useMemo(
     () => researchFindings.filter((finding) => finding.conversion_status === "ignored").length,
     [researchFindings]
@@ -4245,32 +4257,221 @@ export function App() {
             {requiresFocusText && query.trim().length === 0 && (
               <p className="error-text">A feldolgozashoz adj meg fokuszt; enelkul nagy ugyeknel nem inditunk vak feldolgozast.</p>
             )}
-            <button onClick={handleRunAnalysis} disabled={!canRunAnalysis}>
+          <button onClick={handleRunAnalysis} disabled={!canRunAnalysis}>
               <Play size={18} /> Futtatas
             </button>
           </section>
 
-          <section className="panel analysis-history-panel">
+          <section className="panel manual-contradiction-panel">
             <div className="section-heading">
-              <h2>Elemzesi elozmenyek</h2>
-              <Archive size={20} />
+              <h2>Kézi ellentmondásjelölt</h2>
+              <GitMerge size={20} />
             </div>
-            <div className="compact-list">
-              {analysisRuns.length === 0 && <p className="muted">Nincs elemzesi futas.</p>}
-              {analysisRuns.slice(0, 8).map((run) => (
-                <article key={run.id} className="compact-item analysis-run-list-item">
-                  <div className="analysis-run-list-main">
-                    <strong>{labelModule(run.run_type)}</strong>
-                    <span>{labelRunStatus(run.status)} | {run.validation_status ? labelValidationStatus(run.validation_status) : "nincs validacio"} | {run.model_name ?? "nincs modell"}</span>
-                    <span>{new Date(run.started_at).toLocaleString()} {run.finished_at ? `-> ${new Date(run.finished_at).toLocaleTimeString()}` : ""}</span>
-                    {run.error_message && <p className="error-text">{run.error_message}</p>}
-                    <code>{run.id}</code>
-                  </div>
-                  <button className="analysis-run-detail-button" onClick={() => handleAnalysisRunDetail(run)} disabled={Boolean(busy)}>
-                    Reszletek
+            <p className="field-hint">
+              Két érvényes forráshivatkozású, nem elutasított állításból hoz létre ellenőrizendő jelöltet. A rögzítés nem bizonyított ellentmondás, hanem emberi ellenőrzésre váró pár.
+            </p>
+            <div className="manual-contradiction-select-row">
+              <div className="manual-contradiction-select-field">
+                <span>1. állítás</span>
+                {renderSearchableSelect({
+                  queryKey: "manual-contradiction:claim-a",
+                  value: manualContradiction.claim_id_a,
+                  onChange: (value) => updateManualContradictionField("claim_id_a", value),
+                  options: manualContradictionClaimOptions.map((item) => ({
+                    id: item.object_id,
+                    label: truncateText(item.title || item.body_text || item.object_id, 90),
+                    searchText: `${item.title} ${item.body_text}`,
+                    disabled: item.object_id === manualContradiction.claim_id_b
+                  })),
+                  placeholder: "Válassz állítást",
+                  searchPlaceholder: "Keresés az állítások között",
+                  ariaLabel: "Első állítás kiválasztása"
+                })}
+              </div>
+              <div className="manual-contradiction-select-field">
+                <span>2. állítás</span>
+                {renderSearchableSelect({
+                  queryKey: "manual-contradiction:claim-b",
+                  value: manualContradiction.claim_id_b,
+                  onChange: (value) => updateManualContradictionField("claim_id_b", value),
+                  options: manualContradictionClaimOptions.map((item) => ({
+                    id: item.object_id,
+                    label: truncateText(item.title || item.body_text || item.object_id, 90),
+                    searchText: `${item.title} ${item.body_text}`,
+                    disabled: item.object_id === manualContradiction.claim_id_a
+                  })),
+                  placeholder: "Válassz állítást",
+                  searchPlaceholder: "Keresés az állítások között",
+                  ariaLabel: "Második állítás kiválasztása"
+                })}
+              </div>
+            </div>
+            <div className="form-row">
+              <label>
+                Elteres tipusa
+                <select
+                  value={manualContradiction.contradiction_type}
+                  onChange={(event) =>
+                    updateManualContradictionField(
+                      "contradiction_type",
+                      event.target.value as ManualContradictionCandidatePayload["contradiction_type"]
+                    )
+                  }
+                >
+                  {(Object.keys(contradictionTypeLabels) as ManualContradictionCandidatePayload["contradiction_type"][]).map((type) => (
+                    <option key={type} value={type}>
+                      {contradictionTypeLabels[type]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Sulyossagi jelzes
+                <select
+                  value={manualContradiction.severity_hint ?? "low"}
+                  onChange={(event) =>
+                    updateManualContradictionField(
+                      "severity_hint",
+                      event.target.value as NonNullable<ManualContradictionCandidatePayload["severity_hint"]>
+                    )
+                  }
+                >
+                  {(Object.keys(severityHintLabels) as NonNullable<ManualContradictionCandidatePayload["severity_hint"]>[]).map((severity) => (
+                    <option key={severity} value={severity}>
+                      {severityHintLabels[severity]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label>
+              Ellenőrzési indoklás
+              <textarea
+                value={manualContradiction.description}
+                onChange={(event) => updateManualContradictionField("description", event.target.value)}
+                rows={3}
+                placeholder="Roviden ird le, milyen konkret elteres miatt kell emberi ellenorzes."
+              />
+            </label>
+            <div className="claim-preview-grid">
+              {selectedManualClaimA && renderClaimPreview(selectedManualClaimA, "")}
+              {selectedManualClaimB && renderClaimPreview(selectedManualClaimB, "")}
+            </div>
+            <button
+              className="manual-contradiction-create-button"
+              onClick={handleCreateManualContradictionCandidate}
+              disabled={
+                Boolean(busy) ||
+                !selectedCaseId ||
+                manualContradictionClaimOptions.length < 2 ||
+                !manualContradiction.claim_id_a ||
+                !manualContradiction.claim_id_b ||
+                manualContradiction.claim_id_a === manualContradiction.claim_id_b ||
+                !manualContradiction.description.trim()
+              }
+            >
+              <GitMerge size={18} /> Kézi jelölt létrehozása
+            </button>
+          </section>
+
+          <section className="history-export-row">
+            <section className="panel analysis-history-panel">
+              <div className="section-heading">
+                <h2>Elemzesi elozmenyek</h2>
+                <Archive size={20} />
+              </div>
+              <div className="analysis-history-toggle" aria-label="Elemzési előzmények típusa">
+                <button
+                  type="button"
+                  className={analysisHistoryKind === "search_findings" ? "" : "secondary-button"}
+                  onClick={() => {
+                    setAnalysisHistoryKind("search_findings");
+                    if (analysisRunDetail && analysisRunDetail.run.run_type !== "search_findings") {
+                      setAnalysisRunDetail(null);
+                    }
+                  }}
+                  disabled={Boolean(busy)}
+                >
+                  Kutatási találatok keresése ({analysisHistoryCounts.search_findings})
+                </button>
+                <button
+                  type="button"
+                  className={analysisHistoryKind === "manual_entry" ? "" : "secondary-button"}
+                  onClick={() => {
+                    setAnalysisHistoryKind("manual_entry");
+                    if (analysisRunDetail && analysisRunDetail.run.run_type !== "manual_entry") {
+                      setAnalysisRunDetail(null);
+                    }
+                  }}
+                  disabled={Boolean(busy)}
+                >
+                  Kézi rögzítés ({analysisHistoryCounts.manual_entry})
+                </button>
+              </div>
+              <div className="compact-list">
+                {visibleAnalysisRuns.length === 0 && <p className="muted">Nincs ilyen típusú elemzési futás.</p>}
+                {visibleAnalysisRuns.slice(0, 8).map((run) => (
+                  <article
+                    key={run.id}
+                    className={`compact-item analysis-run-list-item ${analysisRunDetail?.run.id === run.id ? "is-selected" : ""}`}
+                  >
+                    <div className="analysis-run-list-main">
+                      <strong>{analysisRunHistoryTitle(run)}</strong>
+                      <span>{labelRunStatus(run.status)} | {run.validation_status ? labelValidationStatus(run.validation_status) : "nincs validacio"} | {run.model_name ?? "nincs modell"}</span>
+                      <span>{new Date(run.started_at).toLocaleString()} {run.finished_at ? `-> ${new Date(run.finished_at).toLocaleTimeString()}` : ""}</span>
+                      {run.error_message && <p className="error-text">{run.error_message}</p>}
+                      <code>{run.id}</code>
+                    </div>
+                    <button className="analysis-run-detail-button" onClick={() => handleAnalysisRunDetail(run)} disabled={Boolean(busy)}>
+                      Reszletek
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <div className="history-export-stack">
+              <section className="panel export-history-panel">
+                <div className="section-heading">
+                  <h2>Export elozmenyek</h2>
+                  <button className="icon-button" onClick={refreshExports} title="Export elozmenyek frissitese" disabled={!selectedCaseId || Boolean(busy)}>
+                    <RefreshCw size={18} />
                   </button>
-                </article>
-              ))}
+                </div>
+                <div className="compact-list">
+                  {exports.length === 0 && <p className="muted">Nincs export.</p>}
+                  {exports.slice(0, 10).map((item) => (
+                    <article key={item.id} className="compact-item">
+                      <strong>{item.export_type.toUpperCase()} {labelExportScope(item.export_scope)}</strong>
+                      <span>{labelExportFilter(item.review_filter)} | {new Date(item.created_at).toLocaleString()}</span>
+                      {item.sha256_hash && <code>{item.sha256_hash}</code>}
+                      <a href={`/api/v1/cases/${selectedCaseId}/exports/${item.id}/download`}>Letoltes</a>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <section className="panel export-panel">
+                <div className="section-heading">
+                  <h2>Export</h2>
+                  <Download size={20} />
+                </div>
+                <div className="button-row">
+                  <button onClick={() => handleExport("json")} disabled={!selectedCaseId || Boolean(busy)}>
+                    <Download size={18} /> JSON
+                  </button>
+                  <button onClick={() => handleExport("html")} disabled={!selectedCaseId || Boolean(busy)}>
+                    <Download size={18} /> HTML
+                  </button>
+                </div>
+                {lastExport && (
+                  <div className="export-box">
+                    <strong>{lastExport.export.export_type.toUpperCase()}</strong>
+                    <span>{lastExport.items.length} elem</span>
+                    <a href={`/api/v1/cases/${selectedCaseId}/exports/${lastExport.export.id}/download`}>Letoltes</a>
+                  </div>
+                )}
+              </section>
             </div>
           </section>
 
@@ -4281,42 +4482,7 @@ export function App() {
             </div>
             {!analysisRunDetail && <p className="muted">Valassz elemzesi futast a reszletekhez.</p>}
             {analysisRunDetail && (
-              <div className="detail-stack">
-                <strong>{labelModule(analysisRunDetail.run.run_type)}</strong>
-                <div className="metrics">
-                  <span>{labelRunStatus(analysisRunDetail.run.status)}</span>
-                  <span>{analysisRunDetail.run.validation_status ? labelValidationStatus(analysisRunDetail.run.validation_status) : "nincs validacio"}</span>
-                  <span>{analysisRunDetail.inputs.length} bemenet</span>
-                  <span>{analysisRunDetail.outputs.length} kimenet</span>
-                </div>
-                <code>{analysisRunDetail.run.id}</code>
-                {analysisRunDetail.run.error_message && <p className="error-text">{analysisRunDetail.run.error_message}</p>}
-                <details>
-                  <summary>Bemenetek</summary>
-                  <div className="detail-list">
-                    {analysisRunDetail.inputs.map((input) => (
-                      <article key={input.id} className="compact-item">
-                        <strong>{input.sequence_no}. {labelAnalysisInputType(input.input_type)}</strong>
-                        <span>{input.related_object_type ? labelObjectType(input.related_object_type) : "Forráshivatkozás"} {input.related_object_id ?? input.chunk_id ?? input.document_id ?? ""}</span>
-                        {renderAnalysisSourceSummary(input.source_summary, input.payload_json)}
-                        {input.payload_json && renderAnalysisInputPayload(input.payload_json)}
-                      </article>
-                    ))}
-                  </div>
-                </details>
-                <details>
-                  <summary>Kimenetek</summary>
-                  <div className="detail-list">
-                    {analysisRunDetail.outputs.map((output) => (
-                      <article key={output.id} className="compact-item">
-                        <strong>{output.output_position ?? 0}. {labelAnalysisOutputType(output.output_type)}</strong>
-                        {renderAnalysisOutputSummary(output.output_summary)}
-                        <code>{output.output_object_id}</code>
-                      </article>
-                    ))}
-                  </div>
-                </details>
-              </div>
+              renderAnalysisRunDetailView(analysisRunDetail)
             )}
           </section>
 
@@ -4357,6 +4523,15 @@ export function App() {
                 <Trash2 size={16} /> Jelöltek törlése ({markedResearchFindingCount})
               </button>
             </div>
+            {visibleResearchFindings.length === 0 && (
+              <div className="research-empty-state">
+                <strong>Nincs megjeleníthető kutatási találat</strong>
+                <p>
+                  Itt jelennek meg a kutatási találatjelöltek a keresés lefutása után. Ha korábban voltak találatok, elképzelhető, hogy
+                  át lettek alakítva, félre lettek téve vagy törölve lettek.
+                </p>
+              </div>
+            )}
             {visibleResearchFindings.length > 0 && (
               <div className="research-finding-list">
                 {visibleResearchFindings.map((finding) => {
@@ -4580,118 +4755,6 @@ export function App() {
             )}
           </section>
 
-          <section className="panel">
-            <div className="section-heading">
-              <h2>Kézi ellentmondásjelölt</h2>
-              <GitMerge size={20} />
-            </div>
-            <p className="field-hint">
-              Két érvényes forráshivatkozású, nem elutasított állításból hoz létre ellenőrizendő jelöltet. A rögzítés nem bizonyított ellentmondás, hanem emberi ellenőrzésre váró pár.
-            </p>
-            <div className="manual-contradiction-select-row">
-              <div className="manual-contradiction-select-field">
-                <span>1. állítás</span>
-                {renderSearchableSelect({
-                  queryKey: "manual-contradiction:claim-a",
-                  value: manualContradiction.claim_id_a,
-                  onChange: (value) => updateManualContradictionField("claim_id_a", value),
-                  options: manualContradictionClaimOptions.map((item) => ({
-                    id: item.object_id,
-                    label: truncateText(item.title || item.body_text || item.object_id, 90),
-                    searchText: `${item.title} ${item.body_text}`,
-                    disabled: item.object_id === manualContradiction.claim_id_b
-                  })),
-                  placeholder: "Válassz állítást",
-                  searchPlaceholder: "Keresés az állítások között",
-                  ariaLabel: "Első állítás kiválasztása"
-                })}
-              </div>
-              <div className="manual-contradiction-select-field">
-                <span>2. állítás</span>
-                {renderSearchableSelect({
-                  queryKey: "manual-contradiction:claim-b",
-                  value: manualContradiction.claim_id_b,
-                  onChange: (value) => updateManualContradictionField("claim_id_b", value),
-                  options: manualContradictionClaimOptions.map((item) => ({
-                    id: item.object_id,
-                    label: truncateText(item.title || item.body_text || item.object_id, 90),
-                    searchText: `${item.title} ${item.body_text}`,
-                    disabled: item.object_id === manualContradiction.claim_id_a
-                  })),
-                  placeholder: "Válassz állítást",
-                  searchPlaceholder: "Keresés az állítások között",
-                  ariaLabel: "Második állítás kiválasztása"
-                })}
-              </div>
-              <button
-                className="manual-contradiction-create-button"
-                onClick={handleCreateManualContradictionCandidate}
-                disabled={
-                  Boolean(busy) ||
-                  !selectedCaseId ||
-                  manualContradictionClaimOptions.length < 2 ||
-                  !manualContradiction.claim_id_a ||
-                  !manualContradiction.claim_id_b ||
-                  manualContradiction.claim_id_a === manualContradiction.claim_id_b ||
-                  !manualContradiction.description.trim()
-                }
-              >
-                <GitMerge size={18} /> Kézi jelölt létrehozása
-              </button>
-            </div>
-            <div className="form-row">
-              <label>
-                Elteres tipusa
-                <select
-                  value={manualContradiction.contradiction_type}
-                  onChange={(event) =>
-                    updateManualContradictionField(
-                      "contradiction_type",
-                      event.target.value as ManualContradictionCandidatePayload["contradiction_type"]
-                    )
-                  }
-                >
-                  {(Object.keys(contradictionTypeLabels) as ManualContradictionCandidatePayload["contradiction_type"][]).map((type) => (
-                    <option key={type} value={type}>
-                      {contradictionTypeLabels[type]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Sulyossagi jelzes
-                <select
-                  value={manualContradiction.severity_hint ?? "low"}
-                  onChange={(event) =>
-                    updateManualContradictionField(
-                      "severity_hint",
-                      event.target.value as NonNullable<ManualContradictionCandidatePayload["severity_hint"]>
-                    )
-                  }
-                >
-                  {(Object.keys(severityHintLabels) as NonNullable<ManualContradictionCandidatePayload["severity_hint"]>[]).map((severity) => (
-                    <option key={severity} value={severity}>
-                      {severityHintLabels[severity]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <label>
-              Ellenőrzési indoklás
-              <textarea
-                value={manualContradiction.description}
-                onChange={(event) => updateManualContradictionField("description", event.target.value)}
-                rows={3}
-                placeholder="Roviden ird le, milyen konkret elteres miatt kell emberi ellenorzes."
-              />
-            </label>
-            <div className="claim-preview-grid">
-              {selectedManualClaimA && renderClaimPreview(selectedManualClaimA, "")}
-              {selectedManualClaimB && renderClaimPreview(selectedManualClaimB, "")}
-            </div>
-          </section>
-
           <section className="panel detail-panel object-detail-panel" ref={objectDetailPanelRef}>
             <div className="section-heading">
               <h2>Találat részletei</h2>
@@ -4778,7 +4841,7 @@ export function App() {
             )}
           </section>
 
-          <section className="panel">
+          <section className="panel detached-sources-panel">
             <div className="section-heading">
               <h2>Leválasztott forráshivatkozások</h2>
               <Archive size={20} />
@@ -4829,11 +4892,11 @@ export function App() {
                       {item.source_text_excerpt && (
                         <details className="detached-source-context-details">
                           <summary>Szövegrész megtekintése</summary>
-                          <div className="module-note">
-                            <span>
+                          <div className="compact-item detached-source-context-card">
+                            <strong>
                               {item.source_snapshot_json?.source_kind ? labelSourceExcerpt(item.source_snapshot_json.source_kind) : "Forrásszöveg"}{" "}
                               {formatRange(item.source_text_excerpt_char_start, item.source_text_excerpt_char_end)}
-                            </span>
+                            </strong>
                             <p className="excerpt">
                               {highlightedSourceExcerpt(item.source_text_excerpt, item.source_snapshot_json?.quote_text)}
                             </p>
@@ -4877,48 +4940,6 @@ export function App() {
                 </article>
               ))}
             </div>
-          </section>
-
-          <section className="panel">
-            <div className="section-heading">
-              <h2>Export elozmenyek</h2>
-              <button className="icon-button" onClick={refreshExports} title="Export elozmenyek frissitese" disabled={!selectedCaseId || Boolean(busy)}>
-                <RefreshCw size={18} />
-              </button>
-            </div>
-            <div className="compact-list">
-              {exports.length === 0 && <p className="muted">Nincs export.</p>}
-              {exports.slice(0, 10).map((item) => (
-                <article key={item.id} className="compact-item">
-                  <strong>{item.export_type.toUpperCase()} {labelExportScope(item.export_scope)}</strong>
-                  <span>{labelExportFilter(item.review_filter)} | {new Date(item.created_at).toLocaleString()}</span>
-                  {item.sha256_hash && <code>{item.sha256_hash}</code>}
-                  <a href={`/api/v1/cases/${selectedCaseId}/exports/${item.id}/download`}>Letoltes</a>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section className="panel">
-            <div className="section-heading">
-              <h2>Export</h2>
-              <Download size={20} />
-            </div>
-            <div className="button-row">
-              <button onClick={() => handleExport("json")} disabled={!selectedCaseId || Boolean(busy)}>
-                <Download size={18} /> JSON
-              </button>
-              <button onClick={() => handleExport("html")} disabled={!selectedCaseId || Boolean(busy)}>
-                <Download size={18} /> HTML
-              </button>
-            </div>
-            {lastExport && (
-              <div className="export-box">
-                <strong>{lastExport.export.export_type.toUpperCase()}</strong>
-                <span>{lastExport.items.length} elem</span>
-                <a href={`/api/v1/cases/${selectedCaseId}/exports/${lastExport.export.id}/download`}>Letoltes</a>
-              </div>
-            )}
           </section>
 
           </div>
@@ -5346,6 +5367,14 @@ function labelModule(value: string) {
   return moduleLabels[value] ?? value;
 }
 
+function analysisRunHistoryTitle(run: AnalysisRunRead) {
+  const baseTitle = labelModule(run.run_type);
+  if (!run.display_label) {
+    return baseTitle;
+  }
+  return `${baseTitle} - ${truncateText(run.display_label, 90)}`;
+}
+
 function labelAnalysisSourceMode(value: AnalysisSourceMode) {
   return analysisSourceModeLabels[value] ?? value;
 }
@@ -5650,6 +5679,189 @@ function labelAnalysisInputType(value: string) {
   return labels[value] ?? value;
 }
 
+function renderAnalysisRunDetailView(detail: AnalysisRunDetail) {
+  if (detail.run.run_type === "manual_entry") {
+    return renderManualEntryRunDetailView(detail);
+  }
+
+  const focusInput = detail.inputs.find((input) => input.input_type === "query_text");
+  const focusText = typeof focusInput?.payload_json?.query === "string" ? focusInput.payload_json.query : null;
+  const sourceInputs = detail.inputs.filter((input) => input.input_type === "chunk" || input.source_summary);
+  const outputGroups = groupAnalysisRunOutputs(detail.outputs);
+  const processRows = buildAnalysisProcessRows(sourceInputs, outputGroups);
+  const unmatchedOutputGroups = outputGroups.filter((group) => !groupMatchedSourceChunkId(group));
+
+  return (
+    <div className="analysis-run-detail-view">
+      <section className="analysis-run-overview analysis-readable-card">
+        <div>
+          <strong>{labelModule(detail.run.run_type)}</strong>
+          <span>{detail.run.model_name ?? "nincs modell"}</span>
+        </div>
+        <div className="metrics">
+          <span>{labelRunStatus(detail.run.status)}</span>
+          <span>{detail.run.validation_status ? labelValidationStatus(detail.run.validation_status) : "nincs validacio"}</span>
+          <span>{sourceInputs.length} forrás</span>
+          <span>{outputGroups.length} eredménycsoport</span>
+          <span>{detail.run.finished_at ? formatDateTime(detail.run.finished_at) : formatDateTime(detail.run.started_at)}</span>
+        </div>
+        <code>{detail.run.id}</code>
+        {detail.run.error_message && <p className="error-text">{detail.run.error_message}</p>}
+      </section>
+
+      <section className="analysis-detail-block">
+        <div className="section-heading compact-heading">
+          <h3>Keresési fókusz</h3>
+        </div>
+        <div className="module-note">
+          {focusText ? focusText : "Ehhez a futáshoz nincs külön keresési fókusz rögzítve."}
+        </div>
+      </section>
+
+      <section className="analysis-detail-block">
+        <div className="section-heading compact-heading">
+          <h3>Forrásból létrejött eredmények</h3>
+          <span>{processRows.length} forrássor</span>
+        </div>
+        <div className="analysis-process-list">
+          {processRows.length === 0 && <p className="muted">Nincs megjeleníthető forrásfolyamat.</p>}
+          {processRows.map((row) => renderAnalysisProcessRow(row))}
+          {unmatchedOutputGroups.length > 0 && (
+            <article className="analysis-process-row analysis-process-row-unmatched">
+              <div className="analysis-process-source">
+                <strong>Forráshoz nem párosított eredmények</strong>
+                <p className="muted">Ezekhez a kimenetekhez a részletes válaszban nincs közvetlen szövegrész-kapcsolat.</p>
+              </div>
+              <div className="analysis-process-arrow">{"->"}</div>
+              <div className="analysis-process-results">
+                {unmatchedOutputGroups.map((group) => renderAnalysisOutputGroup(group))}
+              </div>
+            </article>
+          )}
+        </div>
+      </section>
+
+    </div>
+  );
+}
+
+function renderManualEntryRunDetailView(detail: AnalysisRunDetail) {
+  const sourceInput = detail.inputs.find((input) => input.source_summary) ?? detail.inputs[0] ?? null;
+  const createdOutputs = detail.outputs.filter((output) => output.output_type !== "source_reference");
+  const sourceOutput = detail.outputs.find((output) => output.output_type === "source_reference");
+
+  return (
+    <div className="analysis-run-detail-view">
+      <section className="analysis-run-overview analysis-readable-card">
+        <div>
+          <strong>{labelModule(detail.run.run_type)}</strong>
+          <span>Kézzel létrehozott vagy csatolt forráshivatkozott elem</span>
+        </div>
+        <div className="metrics">
+          <span>{labelRunStatus(detail.run.status)}</span>
+          <span>{detail.run.validation_status ? labelValidationStatus(detail.run.validation_status) : "nincs validacio"}</span>
+          <span>{createdOutputs.length} célobjektum</span>
+          <span>{sourceOutput ? "1 forráshivatkozás" : "nincs forráshivatkozás"}</span>
+          <span>{detail.run.finished_at ? formatDateTime(detail.run.finished_at) : formatDateTime(detail.run.started_at)}</span>
+        </div>
+        {detail.run.error_message && <p className="error-text">{detail.run.error_message}</p>}
+      </section>
+
+      <section className="analysis-detail-block">
+        <div className="section-heading compact-heading">
+          <h3>Kézi rögzítés folyamata</h3>
+        </div>
+        <div className="analysis-process-list">
+          <article className="analysis-process-row">
+            <div className="analysis-process-source">
+              <strong>Kiválasztott forrás</strong>
+              {sourceInput?.source_summary ? renderAnalysisSourceSummary(sourceInput.source_summary, sourceInput.payload_json) : (
+                <p className="muted">Ehhez a kézi futáshoz nincs megjeleníthető forrásbemenet.</p>
+              )}
+            </div>
+            <div className="analysis-process-arrow">{"->"}</div>
+            <div className="analysis-process-results">
+              {createdOutputs.length === 0 && <p className="muted">Nincs megjeleníthető létrehozott vagy csatolt célobjektum.</p>}
+              {createdOutputs.map((output) => (
+                <article key={output.id} className="compact-item analysis-output-group">
+                  <div className="analysis-output-group-heading">
+                    <strong>{labelAnalysisOutputType(output.output_type)}</strong>
+                  </div>
+                  {renderAnalysisOutputSummary(output.output_summary)}
+                </article>
+              ))}
+            </div>
+          </article>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function groupAnalysisRunOutputs(outputs: AnalysisRunDetail["outputs"]) {
+  const groups = new Map<string, AnalysisRunDetail["outputs"]>();
+  outputs.forEach((output) => {
+    const key = output.output_position === null ? output.id : String(output.output_position);
+    groups.set(key, [...(groups.get(key) ?? []), output]);
+  });
+  return Array.from(groups.entries()).map(([key, items]) => ({ key, items }));
+}
+
+function buildAnalysisProcessRows(
+  sourceInputs: AnalysisRunDetail["inputs"],
+  outputGroups: Array<{ key: string; items: AnalysisRunDetail["outputs"] }>
+) {
+  return sourceInputs.map((input) => ({
+    input,
+    outputGroups: outputGroups.filter((group) => groupMatchedSourceChunkId(group) === input.chunk_id)
+  }));
+}
+
+function groupMatchedSourceChunkId(group: { key: string; items: AnalysisRunDetail["outputs"] }) {
+  return group.items.find((output) => output.output_summary?.chunk_id)?.output_summary?.chunk_id ?? null;
+}
+
+function renderAnalysisProcessRow(row: {
+  input: AnalysisRunDetail["inputs"][number];
+  outputGroups: Array<{ key: string; items: AnalysisRunDetail["outputs"] }>;
+}) {
+  return (
+    <article key={row.input.id} className="analysis-process-row">
+      <div className="analysis-process-source">
+        <strong>{row.input.sequence_no}. {labelAnalysisInputType(row.input.input_type)}</strong>
+        {renderAnalysisSourceSummary(row.input.source_summary, row.input.payload_json)}
+        {row.input.payload_json && renderAnalysisInputPayload(row.input.payload_json)}
+      </div>
+      <div className="analysis-process-arrow">{"->"}</div>
+      <div className="analysis-process-results">
+        {row.outputGroups.length === 0 && <p className="muted">Ebből a forrásból nem jött létre mentett eredmény.</p>}
+        {row.outputGroups.map((group) => renderAnalysisOutputGroup(group))}
+      </div>
+    </article>
+  );
+}
+
+function renderAnalysisOutputGroup(group: { key: string; items: AnalysisRunDetail["outputs"] }) {
+  const primaryOutput = group.items.find((output) => output.output_type !== "source_reference") ?? group.items[0];
+  const companionOutputs = group.items.filter((output) => output.id !== primaryOutput.id && output.output_type !== "source_reference");
+
+  return (
+    <article key={group.key} className="compact-item analysis-output-group">
+      <div className="analysis-output-group-heading">
+        <strong>{labelAnalysisOutputType(primaryOutput.output_type)}</strong>
+        <span>pozíció {primaryOutput.output_position ?? group.key}</span>
+      </div>
+      {renderAnalysisOutputSummary(primaryOutput.output_summary)}
+      {companionOutputs.map((output) => (
+        <div key={output.id} className="analysis-output-companion">
+          <span>{labelAnalysisOutputType(output.output_type)}</span>
+          {renderAnalysisOutputSummary(output.output_summary)}
+        </div>
+      ))}
+    </article>
+  );
+}
+
 function renderAnalysisSourceSummary(
   summary: AnalysisRunDetail["inputs"][number]["source_summary"],
   payload: Record<string, unknown> | null
@@ -5689,7 +5901,14 @@ function renderAnalysisSourceSummary(
 }
 
 function renderAnalysisOutputSummary(summary: AnalysisRunDetail["outputs"][number]["output_summary"]) {
-  if (!summary) return null;
+  if (!summary) {
+    return (
+      <div className="analysis-readable-card analysis-output-missing">
+        <strong>Az eredmény már nem elérhető</strong>
+        <p className="muted">A futásnaplóban megmaradt a kimenet nyoma, de a hozzá tartozó elem már nem áll rendelkezésre. Valószínűleg törölve lett.</p>
+      </div>
+    );
+  }
   return (
     <div className="analysis-readable-card">
       {summary.title && <strong>{summary.title}</strong>}
@@ -5697,8 +5916,12 @@ function renderAnalysisOutputSummary(summary: AnalysisRunDetail["outputs"][numbe
         {summary.review_status && <span>{labelReviewStatus(summary.review_status)}</span>}
         {summary.source_validation_status && <span>{labelSourceValidationStatus(summary.source_validation_status)}</span>}
         {summary.source_count !== null && summary.source_count !== undefined && <span>{formatSourceReferenceCount(summary.source_count)}</span>}
+        {summary.document_filename && <span>{summary.document_filename}</span>}
+        {summary.page_number !== null && summary.page_number !== undefined && <span>{summary.page_number}. oldal</span>}
+        {summary.chunk_index !== null && summary.chunk_index !== undefined && <span>{summary.chunk_index}. szövegrész</span>}
       </div>
       {summary.body_text && <p className="analysis-source-preview">{summary.body_text}</p>}
+      {summary.quote_text && summary.quote_text !== summary.body_text && <blockquote>{summary.quote_text}</blockquote>}
     </div>
   );
 }
@@ -5742,7 +5965,7 @@ function renderAnalysisInputPayload(payload: Record<string, unknown>) {
     );
   }
 
-  return <pre>{JSON.stringify(payload, null, 2)}</pre>;
+  return null;
 }
 
 function labelRetrievalMatchType(value: unknown) {

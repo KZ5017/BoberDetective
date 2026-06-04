@@ -26,6 +26,7 @@ class AnalysisRunRead(BaseModel):
     validation_status: str | None
     error_message: str | None
     created_at: datetime
+    display_label: str | None = None
 
 
 class AnalysisRunList(BaseModel):
@@ -65,6 +66,15 @@ class AnalysisRunOutputSummary(BaseModel):
     review_status: str | None = None
     source_validation_status: str | None = None
     source_count: int | None = None
+    source_reference_id: UUID | None = None
+    document_id: UUID | None = None
+    document_filename: str | None = None
+    page_id: UUID | None = None
+    chunk_id: UUID | None = None
+    page_number: int | None = None
+    chunk_index: int | None = None
+    citation_label: str | None = None
+    quote_text: str | None = None
 
 
 class AnalysisRunOutputRead(BaseModel):

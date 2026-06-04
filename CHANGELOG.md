@@ -1,5 +1,27 @@
 # CHANGELOG.md
 
+## 2026-06-05
+
+### Added
+
+- Added frontend-oriented analysis-run summary metadata: analysis run list items now expose `display_label`, using the `search_findings` query for research runs and the created object title for `manual_entry` runs.
+- Expanded analysis run output summaries with source-reference document/page/chunk/quote metadata when available, so the frontend can render source-to-result rows without depending on raw IDs or nested technical payloads.
+- Added readable empty/unavailable states to the analysis-run details view for outputs that no longer exist, for example after related findings or review objects have been deleted.
+
+### Changed
+
+- Reworked the `Ügy munkapad` layout: `Áttekintési jelentés`, `Találat részletei`, `Leválasztott forráshivatkozások`, and `Elemzési futás részletei` are full-width rows; `Elemzés` and `Kézi ellentmondásjelölt` are stacked in the left column; `Kutatási találatok` fills the right column and scrolls internally.
+- Reorganized the lower workbench row so `Elemzési előzmények` sits beside stacked `Export előzmények` and `Export` panels in a 1:1 layout.
+- Split `Elemzési előzmények` into `Kutatási találatok keresése` and `Kézi rögzítés` views, highlighted the selected run card, and showed the research focus or manually created object title directly on each card when available.
+- Reworked `Elemzési futás részletei` into a human-readable source-to-result flow: source cards show the full source text sent into the run, result cards omit duplicated nested source-reference noise, and `manual_entry` runs render the selected source next to the object created or attached from it.
+- Moved the `Kézi jelölt létrehozása` action to the bottom of the `Kézi ellentmondásjelölt` panel and made it full width, leaving the two claim selectors more horizontal space.
+
+### Verified
+
+- `.venv/bin/pytest -q` (`278 passed`, 1 Docling deprecation warning)
+- `npm --prefix frontend run build`
+- `git diff --check`
+
 ## 2026-06-03
 
 ### Added

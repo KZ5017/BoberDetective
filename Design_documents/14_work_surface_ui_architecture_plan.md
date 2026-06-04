@@ -506,6 +506,64 @@ a felhasznalo vegigkattintotta a feluletet a token/role refaktor utan,
 es a jelenlegi latvanyt elfogadta jo baseline-nak.
 ```
 
+### 10.0.1 Ügy munkapad panelrendezesi baseline
+
+2026-06-05-re az `Ügy munkapad` mar nem csak ket altalanos oszlopbol all,
+hanem funkcio szerint rendezett sorokbol.
+
+Felso statuszsor:
+
+- `Szemantikus index állapot`
+- `Utolsó kutatási keresés`
+
+Fo elemzesi/kutatasi sor:
+
+- bal oldalon egymas alatt:
+  - `Elemzés`
+  - `Kézi ellentmondásjelölt`
+- jobb oldalon:
+  - `Kutatási találatok`
+
+A jobb oldali `Kutatási találatok` panel a bal oldali ket panel egyuttes
+magassagahoz igazodik, es belso scrollt hasznal. Nem tolhatja tovabb az egesz
+oldal magassagat csak azert, mert sok talalati kartya van benne.
+
+Kozepso/tovabbi teljes szelessegu sorok:
+
+- `Áttekintési jelentés`
+- `Találat részletei`
+- `Leválasztott forráshivatkozások`
+- `Elemzési futás részletei`
+
+Elozmeny/export sor:
+
+- bal oldalon: `Elemzési előzmények`
+- jobb oldalon egymas alatt:
+  - `Export előzmények`
+  - `Export`
+
+Ez a sor 1:1 szelessegben osztozik, es az `Elemzési előzmények` belso scrollt
+hasznal, hogy ne fusson tul a jobb oldali export stack magassagan.
+
+Az `Elemzési futás részletei` panel celja nem a nyers technikai payload
+megjelenitese, hanem emberileg olvashato folyamatnezete:
+
+- bal oldalon: a feldolgozasba kuldott forras vagy forrasok,
+- jobb oldalon: az adott forrasbol letrejott talalat/objektum/forrashivatkozas,
+- `manual_entry` futasnal: a kezzel kivalasztott forras es az abbol letrehozott
+  vagy ahhoz kapcsolt objektum,
+- torolt vagy mar nem elerheto kimenetnel: rovid magyar uzenet arrol, hogy az
+  eredmeny mar nem all rendelkezesre.
+
+Backend tamogatas:
+
+- `AnalysisRunRead.display_label` jeleniti meg az elozmenykartyan a kereses
+  fokuszat vagy a kezi rogzitessel letrehozott objektum cimet.
+- `AnalysisRunOutputSummary` forrashivatkozas mezoi adjak a dokumentum/oldal/
+  szovegresz/idezet adatokat, hogy a frontend ne technikai ID-kbol epitkezzen.
+- Az analysis input source summary teljes szovegreszt ad vissza a reszletnezeti
+  emberi ellenorzeshez; ez itt tudatosan nem rovid preview.
+
 ### 10.1 AppShell komponensbontas
 
 Miutan a surface-valtas mukodik:

@@ -86,7 +86,7 @@ def analysis_input_source_summary(db: Session, item: AnalysisRunInputModel) -> A
         chunk_index=chunk.chunk_index if chunk is not None else None,
         char_start=chunk.char_start if chunk is not None else None,
         char_end=chunk.char_end if chunk is not None else None,
-        text_preview=_bounded_preview(read_chunk_text_from_store(db, chunk)) if chunk is not None else None,
+        text_preview=read_chunk_text_from_store(db, chunk) if chunk is not None else None,
     )
 
 
@@ -149,11 +149,13 @@ def analysis_output_summary(db: Session, item: AnalysisRunOutputModel) -> Analys
         finding = db.get(ResearchFindingModel, item.output_object_id)
         if finding is None:
             return None
+        source = db.get(SourceReferenceModel, finding.source_reference_id)
         return AnalysisRunOutputSummary(
             title=finding.title,
             body_text=finding.finding_text,
             source_validation_status=finding.source_validation_status,
             source_count=1,
+            **_source_reference_summary_fields(db, source),
         )
     if item.output_type == "document_processing_item":
         processing_item = db.get(DocumentProcessingItemModel, item.output_object_id)
@@ -172,6 +174,8 @@ def analysis_output_summary(db: Session, item: AnalysisRunOutputModel) -> Analys
         return AnalysisRunOutputSummary(
             title=document.original_filename if document is not None else "Forrashivatkozas",
             body_text=_bounded_preview(source.quote_text),
+            source_count=1,
+            **_source_reference_summary_fields(db, source),
         )
     if item.output_type == "chunk":
         chunk = db.get(DocumentChunkModel, item.output_object_id)
@@ -187,6 +191,24 @@ def analysis_output_summary(db: Session, item: AnalysisRunOutputModel) -> Analys
 
 def _count_sources(db: Session, column, object_id: UUID) -> int:
     return int(db.execute(select(func.count()).where(column == object_id)).scalar_one())
+
+
+def _source_reference_summary_fields(db: Session, source: SourceReferenceModel | None) -> dict:
+    if source is None:
+        return {}
+    document = db.get(DocumentModel, source.document_id)
+    chunk = db.get(DocumentChunkModel, source.chunk_id) if source.chunk_id is not None else None
+    return {
+        "source_reference_id": source.id,
+        "document_id": source.document_id,
+        "document_filename": document.original_filename if document is not None else None,
+        "page_id": source.page_id,
+        "chunk_id": source.chunk_id,
+        "page_number": source.page_number or (chunk.page_start if chunk is not None else None),
+        "chunk_index": chunk.chunk_index if chunk is not None else None,
+        "citation_label": source.citation_label,
+        "quote_text": source.quote_text,
+    }
 
 
 def _bounded_preview(text: str | None, limit: int = 360) -> str | None:

@@ -106,6 +106,7 @@ export type AnalysisRunRead = {
   error_message: string | null;
   input_parameters: Record<string, unknown> | null;
   output_schema_name: string | null;
+  display_label: string | null;
 };
 
 export type DocumentProcessResponse = {
@@ -146,6 +147,15 @@ export type AnalysisRunDetail = {
       review_status: string | null;
       source_validation_status: string | null;
       source_count: number | null;
+      source_reference_id: string | null;
+      document_id: string | null;
+      document_filename: string | null;
+      page_id: string | null;
+      chunk_id: string | null;
+      page_number: number | null;
+      chunk_index: number | null;
+      citation_label: string | null;
+      quote_text: string | null;
     } | null;
   }>;
 };
