@@ -4651,7 +4651,7 @@ export function App() {
               <h2>Áttekintési jelentés</h2>
               <Archive size={20} />
             </div>
-            <div className="form-row">
+            <div className="report-filter-row">
               <label>
                 Találat típusa
                 <select value={objectType} onChange={(event) => setObjectType(event.target.value)}>

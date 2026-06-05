@@ -451,7 +451,8 @@ Token-csaladok:
 
 - `--font-size-*` es `--font-weight-*`: alap meret- es sulyertekek.
 - `--text-*`: szemantikus tipografia szerepek, peldaul panelcim, kartyacim,
-  label, guide szoveg, meta szoveg es kod/id szoveg.
+  label, control/input, hint/error, searchable option, detail/source text,
+  guide szoveg, meta/chip szoveg, monospace es kod/id szoveg.
 - `--space-*` es `--layout-*`: oldal, panel, kartya, compact kartya, toolbar,
   form, chip, gomb es input tavolsagok.
 - `--color-*`: page/surface/border/text/primary/danger/warning/info/selected/
@@ -486,10 +487,9 @@ es csak akkor adj hozza egyedi selector-erteket,
 ha a komponens tenyleg egyedi viselkedest igenyel.
 ```
 
-Ez kulonosen fontos a kovetkezo Full HD / 1080p hangolasnal. A Full HD media
-query szandekosan ures, hogy a kovetkezo kor tiszta baseline-rol induljon. Ne
-valjon ujra sok komponensspecifikus javitofolt gyujtemenyeve. Elso korben
-ezekhez nyuljon:
+Ez kulonosen fontos a Full HD / 1080p hangolasnal. A Full HD media query mar
+aktiv, de tovabbra is a tokenretegre epul. Ne valjon ujra sok
+komponensspecifikus javitofolt gyujtemenyeve. Elso korben ezekhez nyuljon:
 
 - `--text-*`
 - `--layout-*`
@@ -498,6 +498,16 @@ ezekhez nyuljon:
 - `--chip-min-height`
 - role-szintu lokalis valtozok, peldaul `--work-card-*`, `--inner-panel-*`,
   `--compact-surface-*`, `--chip-*`
+
+Aktualis Full HD / 1080p elv:
+
+- csak a Full HD media query-n belul modositson 1080p-specifikus meretet,
+- a global/1440p alap ne valtozzon 1080p-optimalizalas miatt,
+- a media query elsosorban `--text-*`, `--space-*`, `--layout-*`,
+  kontrollmagassag es szerep-szintu override-okat hasznaljon,
+- elfogadhato nehany celzott kontextus override ott, ahol egy komponens
+  valoban mas szerepet tolt be, peldaul searchable-select clear gomb input
+  melletti kontrollkent.
 
 Live UX ellenorzes:
 

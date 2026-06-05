@@ -15,6 +15,9 @@
 - Split `Elemzési előzmények` into `Kutatási találatok keresése` and `Kézi rögzítés` views, highlighted the selected run card, and showed the research focus or manually created object title directly on each card when available.
 - Reworked `Elemzési futás részletei` into a human-readable source-to-result flow: source cards show the full source text sent into the run, result cards omit duplicated nested source-reference noise, and `manual_entry` runs render the selected source next to the object created or attached from it.
 - Moved the `Kézi jelölt létrehozása` action to the bottom of the `Kézi ellentmondásjelölt` panel and made it full width, leaving the two claim selectors more horizontal space.
+- Added global typography tokens for control text, hint/error text, searchable-select options, detail/source text, monospace text, and chip weight; inputs, helper/error text, detail panels, compact cards, excerpts, searchable options, and technical text now use those roles instead of inherited or fixed font sizes.
+- Added the first active Full HD / 1080p tuning layer. It keeps the global layout untouched while compacting typography, spacing, control heights, sidebar/model cards, buttons, source/detail text, searchable-select clear buttons, and status cards inside the Full HD media query.
+- Made `Áttekintési jelentés` filter controls a four-column row and changed `Találat részletei` fact cards to an auto-fit row so 2, 3, or 4 fact cards fill the available width.
 
 ### Verified
 
