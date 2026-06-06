@@ -508,6 +508,9 @@ Aktualis Full HD / 1080p elv:
 - elfogadhato nehany celzott kontextus override ott, ahol egy komponens
   valoban mas szerepet tolt be, peldaul searchable-select clear gomb input
   melletti kontrollkent.
+- searchable dropdownoknal a z-index csak akkor eleg, ha az os panel nem vagja
+  le overflow-val. Clipping eseten a tartalmazo kontextust kell
+  `overflow-visible` iranyba rendezni, vagy kesobb portalos dropdownra valtani.
 
 Live UX ellenorzes:
 

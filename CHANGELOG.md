@@ -18,6 +18,7 @@
 - Added global typography tokens for control text, hint/error text, searchable-select options, detail/source text, monospace text, and chip weight; inputs, helper/error text, detail panels, compact cards, excerpts, searchable options, and technical text now use those roles instead of inherited or fixed font sizes.
 - Added the first active Full HD / 1080p tuning layer. It keeps the global layout untouched while compacting typography, spacing, control heights, sidebar/model cards, buttons, source/detail text, searchable-select clear buttons, and status cards inside the Full HD media query.
 - Made `Áttekintési jelentés` filter controls a four-column row and changed `Találat részletei` fact cards to an auto-fit row so 2, 3, or 4 fact cards fill the available width.
+- Fixed searchable-select dropdown clipping in the analysis source-scope panel by allowing the local panel context to overflow visibly and giving the shared selector a stable stacking context.
 
 ### Verified
 

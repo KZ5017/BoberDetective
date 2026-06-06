@@ -866,12 +866,12 @@ label .field-hint,
 .analysis-panel {
   align-content: start;
   order: 5;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .analysis-panel .source-filter-panel {
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .analysis-panel .source-filter-list {
@@ -1444,6 +1444,7 @@ label .field-hint,
   gap: var(--layout-compact-gap);
   min-width: min(100%, 26rem);
   position: relative;
+  z-index: 50;
 }
 
 .source-action-row .searchable-select {
