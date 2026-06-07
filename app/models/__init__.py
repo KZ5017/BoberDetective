@@ -19,6 +19,7 @@ from app.models.entity import EntityMentionModel, EntityModel
 from app.models.export import ExportItemModel, ExportModel
 from app.models.missing_item import MissingItemCandidateModel, MissingItemCandidateSourceModel
 from app.models.review import HumanReviewModel
+from app.models.rag_answer import RagAnswerModel
 from app.models.research_finding import ResearchFindingModel
 from app.models.source_reference import SourceReferenceModel
 from app.models.user import UserModel
@@ -53,6 +54,7 @@ __all__ = [
     "HumanReviewModel",
     "MissingItemCandidateModel",
     "MissingItemCandidateSourceModel",
+    "RagAnswerModel",
     "ResearchFindingModel",
     "SourceReferenceModel",
     "UserModel",

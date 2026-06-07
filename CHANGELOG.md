@@ -1,5 +1,26 @@
 # CHANGELOG.md
 
+## 2026-06-07
+
+### Added
+
+- Added the first backend foundation for the planned `Általános iratkérdező` work surface: migration `0044_rag_answers`, `RagAnswerModel`, RAG Pydantic schemas, `app/services/rag.py`, `app/api/v1/rag.py`, router registration, and focused backend tests.
+- Limited `Általános iratkérdező` answer modes to `short` and `detailed` across frontend, backend schema, prompt contract, and database constraint; retired the experimental source-focused/strict modes after live model tests.
+- Changed `search_findings` LLM batching so retrieval-ranked chunks are reordered by document/page/chunk before prompting and batches never mix chunks from different documents; the UI now labels `batch_size` as maximum batch size.
+- Changed `Általános iratkérdező` multi-document RAG generation to a two-stage flow: document-level partial answers followed by a final synthesis answer, with `document_answer_count` exposed in retrieval metadata.
+- Added `rag_query` as an allowed analysis run type. The initial `/rag/query` endpoint creates provenance, resolves case/document/collection source scope, reuses the existing chunk retrieval foundation, records selected chunks as run inputs, returns backend-owned `used_sources`, sends labeled source packets to LM Studio, and parses the minimal RAG answer JSON.
+- Added saved RAG answer API paths for explicit user preservation of useful temporary answers: save from run, list, detail, and delete.
+- Added the frontend `Általános iratkérdező` work surface with case/document/collection source scope, hybrid default retrieval, `short` / `detailed` answer modes, temporary answer display, explicit `Válasz mentése`, saved-answer list/detail/delete, and document partial-answer count feedback.
+- Added schema-specific fallback JSON recovery for local-model responses with unescaped internal double quotes in both `search_findings` findings and full-document person-processing items. Recovered objects still go through normal source-label, quote/source-evidence, and source-validation logic.
+
+### Verified
+
+- `.venv/bin/pytest -q` (`304 passed`, 1 Docling deprecation warning)
+- `.venv/bin/alembic upgrade head`
+- `.venv/bin/alembic current` (`0045_limit_rag_answer_modes (head)`)
+- `npm --prefix frontend run build`
+- `git diff --check`
+
 ## 2026-06-05
 
 ### Added

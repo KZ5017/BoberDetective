@@ -17,7 +17,7 @@ class AnalysisRunModel(Base):
             "'chunk_document', 'embed_chunks', 'index_chunks', 'validate_document_processing', "
             "'retired_analysis_module', 'detect_contradiction_candidates', "
             "'search_findings', 'full_document_processing', 'answer_with_citations', 'export_bundle', "
-            "'llm_smoke', 'manual_entry'"
+            "'llm_smoke', 'manual_entry', 'rag_query'"
             ")",
             name="ck_analysis_runs_run_type",
         ),

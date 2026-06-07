@@ -252,6 +252,78 @@ export type ResearchFindingLatestRunSummaryResponse = {
   latest_run: ResearchFindingLatestRunSummary | null;
 };
 
+export type RagSourceMode = "case" | "document" | "collection";
+export type RagAnswerMode = "short" | "detailed";
+
+export type RagUsedSource = {
+  document_id: string;
+  document_filename: string;
+  page_number: number | null;
+  chunk_id: string;
+  chunk_index: number;
+  quote_preview: string;
+  retrieval_score: number | null;
+  retrieval_match_type: string | null;
+};
+
+export type RagQueryResponse = {
+  run_id: string;
+  answer: {
+    answer_text: string;
+    source_summary: string;
+    insufficient_source: boolean;
+    answer_mode: RagAnswerMode;
+  };
+  source_scope: {
+    source_mode: RagSourceMode;
+    case_id: string;
+    document_id: string | null;
+    collection_id: string | null;
+    resolved_document_count: number;
+    resolved_chunk_count: number;
+    inactive_document_count: number;
+    duplicate_membership_count: number;
+    warnings: string[];
+  };
+  used_sources: RagUsedSource[];
+  retrieval_metadata: {
+    retrieval_strategy: RetrievalStrategy;
+    max_chunks: number;
+    selected_chunk_count: number;
+    document_answer_count: number;
+    embedding_model: string | null;
+    collection_name: string | null;
+  };
+  can_save: boolean;
+};
+
+export type RagSavedAnswerListItem = {
+  id: string;
+  title: string | null;
+  question: string;
+  answer_mode: RagAnswerMode | string;
+  source_mode: RagSourceMode | string;
+  source_label: string | null;
+  created_at: string;
+  used_source_count: number;
+};
+
+export type RagSavedAnswerDetail = {
+  id: string;
+  case_id: string;
+  analysis_run_id: string;
+  title: string | null;
+  question: string;
+  answer_text: string;
+  answer_mode: RagAnswerMode | string;
+  source_scope: Record<string, unknown>;
+  used_sources: RagUsedSource[];
+  retrieval_metadata: Record<string, unknown>;
+  model_name: string | null;
+  note: string | null;
+  created_at: string;
+};
+
 export type ReviewReportItem = {
   object_type: string;
   object_id: string;
@@ -987,6 +1059,52 @@ export function listResearchFindings(caseId: string): Promise<{ data: ResearchFi
 
 export function getLatestResearchFindingRunSummary(caseId: string): Promise<ResearchFindingLatestRunSummaryResponse> {
   return request(`/cases/${caseId}/research-findings/latest-run-summary`);
+}
+
+export function runRagQuery(
+  caseId: string,
+  payload: {
+    question: string;
+    source_mode: RagSourceMode;
+    document_id?: string | null;
+    collection_id?: string | null;
+    answer_mode: RagAnswerMode;
+    retrieval_strategy: RetrievalStrategy;
+    max_chunks: number;
+    include_sources?: boolean;
+  }
+): Promise<RagQueryResponse> {
+  return request(`/cases/${caseId}/rag/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function saveRagAnswer(
+  caseId: string,
+  runId: string,
+  payload: { title?: string | null; note?: string | null }
+): Promise<{ answer_id: string; run_id: string; saved: boolean }> {
+  return request(`/cases/${caseId}/rag/runs/${runId}/save-answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function listRagAnswers(caseId: string): Promise<{ data: RagSavedAnswerListItem[] }> {
+  return request(`/cases/${caseId}/rag/answers`);
+}
+
+export function getRagAnswer(caseId: string, answerId: string): Promise<RagSavedAnswerDetail> {
+  return request(`/cases/${caseId}/rag/answers/${answerId}`);
+}
+
+export function deleteRagAnswer(caseId: string, answerId: string): Promise<void> {
+  return request(`/cases/${caseId}/rag/answers/${answerId}`, {
+    method: "DELETE"
+  });
 }
 
 export function listFullDocumentProcessingProfiles(): Promise<{ data: FullDocumentProcessingProfileRead[] }> {

@@ -10,6 +10,7 @@ from app.services.full_document_processing import (
     FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT,
     PROFILES,
     build_full_document_processing_user_prompt,
+    parse_full_document_processing_llm_json_object,
     validate_full_document_processing_payload,
     list_profiles,
     update_document_processing_item_status,
@@ -111,6 +112,25 @@ def test_document_processing_item_schema_accepts_graph_ready_fields() -> None:
     assert read.item_kind == "person"
     assert read.recommended_search_focus == "Pauline Dubourg mosónő"
     assert read.source_supported_details_json[0]["detail"] == "mosónő"
+
+
+def test_parse_full_document_processing_llm_json_object_recovers_unescaped_quote_in_person_name() -> None:
+    payload = parse_full_document_processing_llm_json_object(
+        '{"items":[{"item_kind":"person","display_label":"Mademoiselle Camilla L"Espanaye",'
+        '"recommended_search_focus":"Mademoiselle Camilla L"Espanaye Morgue utcai kettős gyilkosság",'
+        '"source_label":"page_6"}]}'
+    )
+
+    assert payload == {
+        "items": [
+            {
+                "item_kind": "person",
+                "display_label": 'Mademoiselle Camilla L"Espanaye',
+                "recommended_search_focus": 'Mademoiselle Camilla L"Espanaye Morgue utcai kettős gyilkosság',
+                "source_label": "page_6",
+            }
+        ]
+    }
 
 
 def test_update_document_processing_item_status_rejects_converted_target() -> None:

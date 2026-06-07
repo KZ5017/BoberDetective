@@ -76,11 +76,21 @@ Pontosabban:
 
 ## 5. Javasolt felulet
 
-Uj munkafeluleten vagy kesobb kulon modulban:
+Az altalanos RAG kerdezo sajat munkafeluleten jelenjen meg, ne a mar
+meglevo `Ugy munkapad`, `Teljes iratfeldolgozas` vagy `Irat rendezo` panelekbe
+beagyazva.
 
 ```text
 Altalanos iratkerdezo
 ```
+
+Indok:
+
+- hosszabb, egybefuggo valaszokra szamitunk,
+- a valasz olvashatosaga nagy, nyugodt feluletet igenyel,
+- a modul mentalisan mas, mint a munkalista-alapu kutatasi talalat workflow,
+- a mostani oldalsavos munkafelulet alkalmas uj modul felvetelere anelkul,
+  hogy a tobbi munkafeluletet szetfeszitene.
 
 Elhelyezes a munkafeluletek kozott:
 
@@ -93,7 +103,9 @@ Elso feluleti elemek:
 - nagy kerdes beviteli mezo,
 - forraskor valasztasa:
   - teljes ugy,
-  - kijelolt dokumentumok,
+  - egy dokumentum,
+  - egy iratgyujtemeny,
+  - kesobb tobb dokumentum vagy tobb iratgyujtemeny,
   - kesobbi kulon korpuszok, peldaul jogszabalyi korpusz,
 - retrieval strategia:
   - keyword,
@@ -101,10 +113,90 @@ Elso feluleti elemek:
   - hybrid,
 - valasz reszletessege:
   - rovid,
-  - normal,
   - reszletes,
 - opcionális kapcsolo:
   - forrasok megjelenitese.
+
+Elsodleges UX-elv:
+
+- a felhasznalo kerdez,
+- a rendszer egy dedikalt valaszpanelben megjeleniti az aktualis valaszt,
+- a kovetkezo kerdes alapertelmezetten felulirja az elozo ideiglenes valaszt,
+- a valasz csak explicit `Valasz mentese` felhasznaloi muvelettel valik
+  tartos `rag_answers` rekordda.
+
+Ez megelozi az adatbazis-szemetelest, mikozben a hasznos valaszok kulon
+megorizhetok es kesobb visszakereshetok.
+
+### 5.1 Aktualis implementalt allapot, 2026-06-07
+
+Az elso altalanos iratkerdezo szelet mar nem csak terv, hanem aktiv
+backend/frontend workflow.
+
+Implementalt elemek:
+
+- kulon `Általános iratkérdező` munkafelület,
+- migracio `0044_rag_answers` a mentett valaszokhoz,
+- migracio `0045_limit_rag_answer_modes`, amely az aktiv valaszmodokat `short` es `detailed` ertekekre szukiti,
+- `rag_query` analysis run tipus,
+- `RagAnswerModel`,
+- `app/schemas/rag.py`,
+- `app/services/rag.py`,
+- `app/api/v1/rag.py`,
+- router regisztracio,
+- frontend kerdes/futtatas/mentes/listazas/reszlet/torles workflow,
+- `tests/test_rag.py`.
+
+Aktiv API-k:
+
+```text
+POST   /api/v1/cases/{case_id}/rag/query
+POST   /api/v1/cases/{case_id}/rag/runs/{analysis_run_id}/save-answer
+GET    /api/v1/cases/{case_id}/rag/answers
+GET    /api/v1/cases/{case_id}/rag/answers/{answer_id}
+DELETE /api/v1/cases/{case_id}/rag/answers/{answer_id}
+```
+
+Aktualis valaszmodok:
+
+```text
+short
+detailed
+```
+
+A `source_focused` es `strict_source` kiserleti valaszmodok ki lettek vezetve,
+mert elo teszteken a jelenlegi lokalis modellnel nem javitottak a valasz
+forrashuseget, hanem egyes esetekben magabiztosabb teves szerep- vagy
+elkovetoi allitasokat eredmenyeztek.
+
+Aktualis alapertelmezesek:
+
+```text
+retrieval_strategy = hybrid
+max_chunks default = 45
+max_chunks hard cap = 90
+```
+
+Tobbdokumentumos RAG valaszgeneraltas:
+
+1. a retrieval tovabbra is relevancia szerint valasztja ki a chunkokat,
+2. a kivalasztott chunkok dokumentum/page/chunk sorrendbe rendezodnek,
+3. a chunkok dokumentumonkent csoportosulnak,
+4. minden hozzajarulo dokumentumhoz kulon reszvalasz keszul,
+5. a vegso valasz ezekbol a dokumentumszintu reszvalaszokbol keszul.
+
+Egyetlen dokumentum eseten a rendszer egy kozvetlen LLM valaszt ker, nincs
+felesleges reszvalasz-szintezes.
+
+A frontend a `retrieval_metadata.document_answer_count` alapjan jelzi, hany
+dokumentumszintu reszvalaszbol keszult a vegso valasz.
+
+JSON parser megjegyzes:
+
+- az altalanos RAG valasz parser tovabbra is minimalis JSON objektumot var,
+- a lokalis modell gyakori JSON-hibai miatt van celzott fallback helyreallitas,
+- ez nem jelent forrasvalidacio-megkerulest: a backend altal hasznalt forraslista
+  es analysis run inputok tovabbra is a visszakeresett chunkokbol jonnek.
 
 ## 6. Elso kisebb lepes: iratgyujtemeny es forraskor-kijeloles
 
@@ -1181,12 +1273,1154 @@ Mielott implementalni kezdjuk, atfogo terv kell az alabbiakrol:
 8. Milyen prompt-strategia kell a valaszado modulhoz?
 9. Hogyan merjuk a valasz minoseget lokalis modellekkel?
 
+### 10.1 Elso dontesi allapot
+
+Az elso atbeszeles alapjan az alabbi iranyt tekintjuk munkahipotézisnek.
+
+#### RAG valasz adatmodell
+
+Legyen kulon `rag_answers` tabla, de csak az explicit mentett valaszoknak.
+
+Kulon kell kezelni:
+
+- ideiglenes RAG valasz: lefut, megjelenik, de alapbol nem lesz tartos
+  uzleti objektum,
+- mentett RAG valasz: a felhasznalo `Valasz mentese` muvelete utan kerul
+  `rag_answers` tablaba.
+
+Minden RAG futas kapjon `analysis_run` provenance nyomot, de ez nem azonos a
+mentett valasszal.
+
+Javasolt `rag_answers` mezok:
+
+- `id`,
+- `case_id`,
+- `analysis_run_id`,
+- `question`,
+- `answer_text`,
+- `answer_mode`,
+- `source_scope_json`,
+- `used_sources_json`,
+- `retrieval_metadata_json`,
+- `model_name`,
+- `title` opcionálisan,
+- `created_at`.
+
+A `rag_answers` nem review objektum, nem `research_finding`, nem claim, es nem
+automatikusan ellenorizheto ugyteny. Mentett iratkerdezo-valasz.
+
+#### Forraskor valasztas
+
+Elso implementacios korben tamogatando:
+
+- teljes ugy,
+- egy dokumentum,
+- egy iratgyujtemeny.
+
+Kesobbi bovites:
+
+- tobb dokumentum,
+- tobb iratgyujtemeny.
+
+A tobb iratgyujtemeny deduplikalt dokumentumhalmazza oldodjon fel; ugyanaz az
+irat nem jelenhet meg tobbszor a modell bemeneteben.
+
+#### Valasz szerkezete es modja
+
+A valasz reszletessege legyen felhasznalo altal valaszthato.
+
+Aktiv modok:
+
+- `Rovid valasz`,
+- `Reszletes valasz`.
+
+Korabbi otlet volt kulon forraskozpontu es szigoru forrasalapu mod, de a live
+modelltesztek alapjan ezek a jelenlegi lokalis modellel nem lettek stabilabbak,
+ezert az aktiv termekdontes szerint nem kerulnek a valaszthato modok koze.
+
+A valasz minden modban tartalmazzon:
+
+- valaszszoveget,
+- backend altal ismert felhasznalt forrasok listajat,
+- elegtelen forrashelyzet jelzeset, ha a retrieval nem adott jo alapot.
+
+Nem javasolt szazalekos bizonyossagi pontszam, mert hamis precizitas erzetet
+keltheti. Inkabb szoveges allapot kell: peldaul `nincs eleg forras`,
+`gyenge forrasalap`, `tobb forras is alatamasztja`.
+
+#### Kapcsolodas a meglevo rendszerhez
+
+Az altalanos iratkerdezo ne valtsa ki es ne kerulje meg a szigoru workflow-kat:
+
+- `search_findings`,
+- teljes iratfeldolgozas szemelykeresesi munkalistaja,
+- research finding konverzio,
+- forrasvalidacio,
+- ellentmondasjelolt workflow.
+
+Az iratkerdezo alapveto szerepe:
+
+```text
+szabad kerdezes a kijelolt iratanyaghoz, objektumgyartas nelkul
+```
+
+Később lehet `Valaszbol kutatasi talalat inditasa` vagy hasonlo muvelet, de ez
+nem az elso implementacios szelet resze.
+
+#### Backend contract irany
+
+Javasolt kulon API-felulet, nem a meglevo analysis endpoint tovabbterhelese:
+
+```text
+POST /api/v1/cases/{case_id}/rag/query
+POST /api/v1/cases/{case_id}/rag/runs/{run_id}/save-answer
+GET  /api/v1/cases/{case_id}/rag/answers
+GET  /api/v1/cases/{case_id}/rag/answers/{answer_id}
+DELETE /api/v1/cases/{case_id}/rag/answers/{answer_id}
+```
+
+Az elso endpoint ideiglenes valaszt ad vissza es `analysis_run` nyomot rogzit.
+A mentett valasz csak a masodik muvelet utan jon letre.
+
+### 10.2 Backend/API contract v1
+
+Ez a contract az elso implementalhato `Altalanos iratkerdezo` backend szelet
+szerzodese. Celja, hogy a kesobbi kodolas soran ne mosodjon ossze:
+
+- az ideiglenes RAG valasz,
+- a provenance celra rogzitett `analysis_run`,
+- es a felhasznalo altal explicit mentett `rag_answers` rekord.
+
+#### 10.2.1 Fogalmak es enumok
+
+Javasolt `analysis_run.run_type`:
+
+```text
+rag_query
+```
+
+Javasolt RAG source mode ertekek:
+
+```text
+case
+document
+collection
+```
+
+Elso korben ezek legyenek egyes szamu source scope-ok. A tobb dokumentum vagy
+tobb gyujtemeny kesobbi bovites legyen:
+
+```text
+documents
+collections
+```
+
+Javasolt valaszmodok:
+
+```text
+short
+detailed
+```
+
+UI megfeleltetes:
+
+- `short` -> `Rovid valasz`,
+- `detailed` -> `Reszletes valasz`.
+
+Megjegyzes: a korabban tervezett `source_focused` es `strict_source`
+modokat a live modelltesztek alapjan kivezettuk, mert a lokalis modell a
+szigorubbnak szant instrukciok mellett nagyobb magabiztossaggal egeszitett ki
+nem alatamasztott szerepeket es esemenylancokat. A rendszer jelenleg tudatosan
+kevesebbet vallal: ket stabilabb valaszmodot tart meg.
+
+Javasolt retrieval strategia ertekek:
+
+```text
+keyword
+semantic
+hybrid
+```
+
+Alapertelmezett:
+
+```text
+hybrid
+```
+
+#### 10.2.1a Aktualis valaszgeneralasi pipeline
+
+Az aktiv implementacio ket alapelvet kovet:
+
+- a retrieval relevancia alapjan valasztja ki a felhasznalando chunkokat,
+- az LLM bemenetet viszont dokumentumlogikai sorrendben kell felepiteni.
+
+Egy dokumentum eseten a RAG valasz egy kozvetlen LLM-hivasbol keszul, a
+kivalasztott chunkok dokumentum/page/chunk sorrendjeben.
+
+Tobb dokumentum eseten a valaszgeneralas ketlepcsos:
+
+1. dokumentumonkenti reszvalasz keszul csak az adott dokumentum chunkjaibol,
+2. vegso szintezis keszul a dokumentumonkenti reszvalaszokbol.
+
+Ez lassabb lehet, mert N dokumentum eseten N+1 LLM-hivas tortenhet, de
+csokkenti annak kockazatat, hogy kulonbozo iratok egymastol fuggetlen
+szovegreszei egyetlen kevert promptban hamis esemenylancca alljanak ossze.
+Az API `retrieval_metadata.document_answer_count` mezoben jelzi, hany
+dokumentum-reszvalaszbol keszult a vegso valasz.
+
+#### 10.2.2 Ideiglenes kerdezes endpoint
+
+```text
+POST /api/v1/cases/{case_id}/rag/query
+```
+
+Cel:
+
+- kerdes fogadasa,
+- forraskor feloldasa,
+- retrieval futtatasa,
+- LLM valasz generalasa,
+- `analysis_run` provenance mentese,
+- ideiglenes valasz visszaadasa.
+
+Fontos:
+
+```text
+Ez az endpoint nem hoz letre rag_answers rekordot.
+```
+
+Javasolt request:
+
+```json
+{
+  "question": "...",
+  "source_mode": "collection",
+  "document_id": null,
+  "collection_id": "...",
+  "answer_mode": "detailed",
+  "retrieval_strategy": "hybrid",
+  "max_chunks": 45,
+  "include_sources": true
+}
+```
+
+Mezok:
+
+- `question`: kotelezo, nem ures, erdemi kerdes vagy utasitas,
+- `source_mode`: kotelezo, `case | document | collection`,
+- `document_id`: csak `source_mode=document` eseten kotelezo,
+- `collection_id`: csak `source_mode=collection` eseten kotelezo,
+- `answer_mode`: opcionális, default `detailed`,
+- `retrieval_strategy`: opcionális, default `hybrid`,
+- `max_chunks`: opcionális, backend validalt felso korlattal,
+- `include_sources`: UI-megjeleniteshez hasznos jelzes; a backend akkor is
+  tarolja a felhasznalt forrasokat, ha a UI alapbol nem mutatja oket.
+
+Javasolt response:
+
+```json
+{
+  "run_id": "...",
+  "answer": {
+    "answer_text": "...",
+    "source_summary": "...",
+    "insufficient_source": false,
+    "answer_mode": "detailed"
+  },
+  "source_scope": {
+    "source_mode": "collection",
+    "case_id": "...",
+    "document_id": null,
+    "collection_id": "...",
+    "resolved_document_count": 12,
+    "resolved_chunk_count": 84
+  },
+  "used_sources": [
+    {
+      "document_id": "...",
+      "document_filename": "...",
+      "page_number": 4,
+      "chunk_id": "...",
+      "chunk_index": 8,
+      "quote_preview": "...",
+      "retrieval_score": 0.82,
+      "retrieval_match_type": "hybrid"
+    }
+  ],
+  "retrieval_metadata": {
+    "retrieval_strategy": "hybrid",
+    "max_chunks": 45,
+    "selected_chunk_count": 8,
+    "embedding_model": "...",
+    "collection_name": "..."
+  },
+  "can_save": true
+}
+```
+
+Megjegyzesek:
+
+- `used_sources` backend altal osszeallitott lista, nem LLM output,
+- `quote_preview` nem feltetlenul source-reference quote, hanem a retrieval
+  alapjat ado szovegresz roviditett/olvashato elonezete,
+- elso korben nem kell karakterpontos quote-validacio ugy, mint
+  `research_finding` eseten,
+- a valasz forraskotott, de nem allitja magarol, hogy formalizalt bizonyitek.
+
+#### 10.2.3 Mentett valasz letrehozasa
+
+```text
+POST /api/v1/cases/{case_id}/rag/runs/{run_id}/save-answer
+```
+
+Cel:
+
+- egy korabbi `rag_query` analysis run ideiglenes valaszabol tartos
+  `rag_answers` rekord letrehozasa.
+
+Javasolt request:
+
+```json
+{
+  "title": "Rovid sajat cim",
+  "note": "Opcionális felhasznaloi megjegyzes"
+}
+```
+
+Javasolt response:
+
+```json
+{
+  "answer_id": "...",
+  "run_id": "...",
+  "saved": true
+}
+```
+
+Validacio:
+
+- a `run_id` a megadott ugyhoz tartozzon,
+- a run type `rag_query` legyen,
+- a run sikeres vagy reszlegesen hasznalhato allapotban legyen,
+- ugyanarra a runra elso korben vagy csak egy mentett valasz legyen
+  engedelyezett, vagy a backend idempotensen adja vissza a mar letezot.
+
+Javaslat:
+
+```text
+Egy rag_query run -> legfeljebb egy rag_answer.
+```
+
+Ez egyszerubb UX-et ad, es megelozi, hogy ugyanaz a valasz tobbszor mentodjon.
+
+#### 10.2.4 Mentett valaszok listazasa
+
+```text
+GET /api/v1/cases/{case_id}/rag/answers
+```
+
+Javasolt query parameterek kesobb:
+
+- `q`,
+- `source_mode`,
+- `created_from`,
+- `created_to`.
+
+Elso korben eleg lehet egyszeru idorendi lista.
+
+Javasolt listaelem:
+
+```json
+{
+  "id": "...",
+  "title": "...",
+  "question": "...",
+  "answer_mode": "detailed",
+  "source_mode": "collection",
+  "source_label": "Gyujtemeny neve",
+  "created_at": "...",
+  "used_source_count": 8
+}
+```
+
+#### 10.2.5 Mentett valasz reszletei
+
+```text
+GET /api/v1/cases/{case_id}/rag/answers/{answer_id}
+```
+
+Javasolt response:
+
+```json
+{
+  "id": "...",
+  "case_id": "...",
+  "analysis_run_id": "...",
+  "title": "...",
+  "question": "...",
+  "answer_text": "...",
+  "answer_mode": "detailed",
+  "source_scope": {},
+  "used_sources": [],
+  "retrieval_metadata": {},
+  "model_name": "...",
+  "created_at": "..."
+}
+```
+
+#### 10.2.6 Mentett valasz torlese
+
+```text
+DELETE /api/v1/cases/{case_id}/rag/answers/{answer_id}
+```
+
+Elso korben soft delete nem feltetlenul szukseges, de audit esemeny igen.
+
+Javasolt audit event:
+
+```text
+rag_answer_deleted
+```
+
+#### 10.2.7 `rag_answers` tabla v1
+
+Javasolt tabla:
+
+```text
+rag_answers
+```
+
+Javasolt oszlopok:
+
+```text
+id uuid primary key
+case_id uuid not null references cases(id)
+analysis_run_id uuid not null references analysis_runs(id)
+title text null
+question text not null
+answer_text text not null
+answer_mode text not null
+source_scope_json jsonb not null
+used_sources_json jsonb not null
+retrieval_metadata_json jsonb not null
+model_name text null
+created_at timestamptz not null
+created_by_user_id uuid null
+```
+
+Javasolt constraint:
+
+```text
+unique (analysis_run_id)
+```
+
+Indok: ugyanazt az ideiglenes RAG futast ne lehessen tobbszor menteni.
+
+Kesobbi opcionális mezok:
+
+- `note`,
+- `updated_at`,
+- `deleted_at`,
+- `tags_json`.
+
+#### 10.2.8 Analysis run input/output szerkezet
+
+`analysis_runs.input_parameters` tartalmazza:
+
+```json
+{
+  "question": "...",
+  "source_mode": "collection",
+  "document_id": null,
+  "collection_id": "...",
+  "answer_mode": "detailed",
+  "retrieval_strategy": "hybrid",
+  "max_chunks": 45,
+  "resolved_document_ids": ["..."]
+}
+```
+
+`analysis_runs.output_summary_json` tartalmazza:
+
+```json
+{
+  "answer_text": "...",
+  "source_summary": "...",
+  "insufficient_source": false,
+  "used_source_count": 8,
+  "saved_answer_id": null
+}
+```
+
+Ha kesobb a valaszt mentik, a save endpoint frissitheti:
+
+```json
+{
+  "saved_answer_id": "..."
+}
+```
+
+#### 10.2.9 Validacios alapelvek
+
+- ures vagy tul rovid `question` ne induljon,
+- nem letezo dokumentum vagy gyujtemeny 404,
+- mas ugyhoz tartozo dokumentum/gyujtemeny 404,
+- inaktiv dokumentumok ne keruljenek uj RAG retrieval bemenetbe,
+- semantic/hybrid mod csak akkor induljon, ha a valasztott forraskor indexelt,
+- ha nincs talalat vagy nincs eleg forras, az endpoint sikeres lehet, de
+  `insufficient_source=true` valasszal terjen vissza,
+- LLM hibanal a run `failed` legyen, es ne lehessen mentett valaszt letrehozni.
+
+#### 10.2.10 Minimal elso backend szelet
+
+Az elso implementacios szelet tartalmazza:
+
+1. `rag_answers` migration/model/schema.
+2. `rag_query` analysis run type.
+3. `POST /rag/query` endpoint retrieval nelkuli vagy egyszeru retrieval
+   stubbal csak contract smoke-ra, ha szukseges.
+4. Valodi retrieval bekotese a mar letezo source-scope resolverrel.
+5. LLM valasz generalasa minimal JSON outputtal.
+6. `save-answer` endpoint.
+7. Mentett valasz lista/reszlet API.
+8. Backend tesztek:
+   - source scope validacio,
+   - successful query creates analysis_run but no rag_answer,
+   - save creates one rag_answer,
+   - duplicate save idempotens vagy tiltott,
+   - inactive/wrong-case sources rejected,
+   - insufficient source answer is not treated as failure.
+
+#### Retrieval es prompt irany
+
+Elso korben:
+
+- default retrieval: hybrid,
+- nincs kulon bonyolult rerank,
+- a forraskor a mar letezo case/document/collection resolverre epuljon,
+- a modell csak a backend altal beadott forrasreszekbol dolgozhat,
+- a modellnek adott forrasokat a backend tarolja az analysis run input/output
+  metadata reszekent,
+- a forraslistat ne az LLM talalja ki, hanem a backend kapcsolja a valaszhoz.
+
+Prompt oldalon a cel nem munkalista JSON, hanem forrashu valasz. Megis erdemes
+minimalis JSON valaszt kerni, hogy a backend stabilan tudja megjeleniteni:
+
+```json
+{
+  "answer_text": "...",
+  "source_summary": "...",
+  "insufficient_source": false
+}
+```
+
+A konkret forrasok listaja backend oldali adat legyen, mert a backend tudja,
+mely dokumentum/chunk reszeket kuldte a modellnek.
+
+### 10.3 Retrieval es prompt contract v1
+
+Ez a szakasz azt rogziti, hogyan lesz egy felhasznaloi kerdesbol:
+
+```text
+source scope -> retrieval candidate set -> LLM source packet -> strukturalt RAG valasz
+```
+
+Az elso cel nem maximalisan okos RAG pipeline, hanem stabil, forrashu es
+auditálhato valaszado workflow.
+
+#### 10.3.1 Source scope feloldas
+
+A `rag/query` endpoint elso lepesben forraskort old fel.
+
+Tamogatott elso source mode-ok:
+
+- `case`: minden aktiv, elemzesre kesz dokumentum az ugyben,
+- `document`: egy aktiv, elemzesre kesz dokumentum,
+- `collection`: egy iratgyujtemeny deduplikalt aktiv dokumentumhalmaza.
+
+Feloldas utan a backend tarolja:
+
+- kert source mode,
+- kert `document_id` vagy `collection_id`,
+- feloldott aktiv dokumentum id-k,
+- kihagyott inaktiv dokumentumok szama, ha relevans,
+- deduplikalt dokumentumszam,
+- index-ready allapot semantic/hybrid modhoz.
+
+Fontos:
+
+```text
+A gyujtemeny nem forras, csak source-selection layer.
+```
+
+A valodi forras tovabbra is:
+
+```text
+document -> page -> chunk
+```
+
+#### 10.3.2 Retrieval strategia
+
+Elso implementacios alap:
+
+```text
+hybrid
+```
+
+Indok:
+
+- mar letezik keyword/semantic/hybrid retrieval alap,
+- a hybrid jobban toleralja a pontos neves/azonositos kerdeseket es a
+  szemantikusabb kerdeseket is,
+- nem kell rogton uj rerank reteget epiteni.
+
+Tamogatott modok:
+
+- `keyword`: ha nincs vagy nem kell embedding index,
+- `semantic`: ha a forraskor teljesen indexelt,
+- `hybrid`: default, ha a forraskor teljesen indexelt.
+
+Semantic/hybrid feltetel:
+
+```text
+semantic vagy hybrid mod csak akkor indulhat, ha a valasztott forraskor a
+konfiguralt embedding modellel index-ready.
+```
+
+Ha nem indexelt:
+
+- UI oldalon blokkolhato,
+- backend oldalon 409 vagy validacios hiba,
+- vagy kesobb ajanlott `indexeles inditasa` workflow.
+
+Elso korben ne legyen automatikus indexeles a kerdezes kozben.
+
+#### 10.3.3 Kivalasztott forrasok mennyisege
+
+Javasolt elso backend default:
+
+```text
+max_chunks = 45
+```
+
+Javasolt backend cap:
+
+```text
+max_chunks <= 90
+```
+
+Indok:
+
+- a jelenlegi lokalis chat modell hosszu kontextust kezel, de a valaszminoseg
+  romolhat, ha tul sok zajos chunk kerul be,
+- az altalanos iratkerdezo nem batch-es munkalista-gyarto, hanem egyetlen
+  valaszhoz gyujt forrasokat,
+- a UI kesobb adhat `Forrasreszlet plafon` jellegu beallitast, de elso korben
+  eleg lehet egy halado beallitas vagy fix default.
+
+Javasolt chunk rendezesi elv:
+
+1. hybrid vegso pontszam,
+2. pontos kifejezes/nev egyezes bonusz, ha van,
+3. dokumentumon beluli sorrend csak azonos pontszam kornyeken.
+
+#### 10.3.4 LLM source packet
+
+Az LLM ne kapjon nyers belso objektumokat vagy adatbazis ID-ket, csak
+olvashato, cimezett forrasblokkokat.
+
+Javasolt prompt SOURCE forma:
+
+```text
+SOURCE:
+[source_1]
+document: RejtoJ_a_boszorkanymester.pdf
+page: 9
+chunk: 17
+text:
+...
+
+[source_2]
+document: ...
+page: ...
+chunk: ...
+text:
+...
+```
+
+A `source_1`, `source_2` csak LLM-bemeneti cimke.
+
+Backend oldali mapping:
+
+```text
+source_1 -> document_id/page_id/chunk_id/retrieval metadata
+```
+
+Az LLM valaszban nem kell forrasazonositokat kotelezoen visszakerdezni. A
+forraslista backend oldalon mar ismert.
+
+#### 10.3.5 System prompt v1
+
+Javasolt magyar system prompt:
+
+```text
+Forrashu iratkerdezo komponens vagy.
+A SOURCE az egyetlen igazsagforras.
+A QUERY a felhasznalo kerdese vagy utasitasa.
+Csak a SOURCE alapjan valaszolhatsz.
+Ne hasznalj kulso tudast, ne potolj hianyzo adatot, ne feltetelezz.
+Ha a SOURCE nem ad eleg alapot a valaszhoz, mondd ki roviden.
+Ne allapits meg bunosseget, felelosseget, jogi minositest vagy szemelyes hibaztatast.
+Csak ervenyes JSON objektumot adj vissza.
+Ne irj magyarazatot, markdown blokkot vagy JSON-on kivuli szoveget.
+```
+
+#### 10.3.6 User prompt v1
+
+Javasolt user prompt szerkezet:
+
+```text
+QUERY:
+{question}
+
+ANSWER_MODE:
+{answer_mode}
+
+SOURCE:
+{source_blocks}
+
+FELADAT:
+Valaszolj a QUERY-re kizarolag a SOURCE alapjan.
+Ha nincs eleg forras, ne talalj ki valaszt.
+A valasz legyen magyar nyelvu.
+A valaszmodot vedd figyelembe:
+- short: rovid, lenyegre toro valasz
+- detailed: reszletesebb, de tovabbra is forrashu valasz
+```
+
+#### 10.3.7 LLM JSON output v1
+
+Minimalis, stabil valaszforma:
+
+```json
+{
+  "answer_text": "...",
+  "source_summary": "...",
+  "insufficient_source": false
+}
+```
+
+Mezok:
+
+- `answer_text`: a felhasznalonak megjelenitendo valasz,
+- `source_summary`: rovid magyar osszefoglalo arrol, milyen forrasalapbol
+  szuletett a valasz,
+- `insufficient_source`: `true`, ha a SOURCE alapjan nincs eleg biztos valasz.
+
+Javasolt kesobbi bovites, nem elso kor:
+
+```json
+{
+  "answer_text": "...",
+  "source_summary": "...",
+  "insufficient_source": false,
+  "follow_up_questions": ["..."],
+  "limitations": ["..."]
+}
+```
+
+Elso korben a `follow_up_questions` es `limitations` ne legyen kotelezo, mert
+feleslegesen noveli a modell JSON-hibazas es valaszszemeteles eselyet.
+
+#### 10.3.8 `insufficient_source` gyakorlati jelentese
+
+`insufficient_source=true`, ha:
+
+- nincs retrieval talalat,
+- a talalatok csak tematikusan lazán kapcsolodnak,
+- a forrasok nem tartalmazzak a kerdes megvalaszolasahoz szukseges lenyeget,
+- a valasz csak kulso tudassal vagy kovetkeztetessel lenne megadhato.
+
+Ilyenkor az `answer_text` ne legyen ures. Mondjon valami ilyesmit:
+
+```text
+A kijelolt forrasok alapjan erre nem talalhato elegendo valasz.
+```
+
+Es ha lehet, tegye hozza roviden, mit talalt:
+
+```text
+A forrasok csak ... temat erintik, de ... kerdesre nem adnak kozvetlen alapot.
+```
+
+Backend oldali szabaly:
+
+- `insufficient_source=true` nem backend hiba,
+- az analysis run lehet `succeeded` vagy `completed_with_warning`,
+- ilyen valaszt elso korben lehet menteni, mert a "nincs eleg forras" is
+  hasznos kutatasi eredmeny lehet.
+
+#### 10.3.9 Forrasmegjelenites
+
+A UI forrasmegjelenitese backend `used_sources` listabol dolgozzon.
+
+Elso megjelenites:
+
+- dokumentumnev,
+- oldalszam,
+- szovegresz sorszama,
+- rovid elonezet,
+- lenyithato teljes chunk text.
+
+Nem kell elso korben:
+
+- karakterpontos quote span,
+- source-reference objektum,
+- claim/finding konverzio,
+- kulon forrasvalidacios workflow.
+
+Indok:
+
+Az altalanos iratkerdezo nem munkalista-objektumot gyart, hanem valaszt ad. A
+forrasok ellenorizhetoseget meg kell adni, de nem kell ugyanazt a szigoru
+forrasvalidacios feluletet raeroltetni, mint a `research_finding` workflow-ra.
+
+#### 10.3.10 Rerank es tomorites
+
+Elso korben:
+
+```text
+nincs kulon rerank es nincs elozetes LLM-tomorites
+```
+
+Indok:
+
+- a rendszerben mar van mukodo hybrid retrieval,
+- a lokalis LLM plusz rerank/tomorites lepesek lassithatjak a kerdezot,
+- eloszor a vegpont, adatmodell, menthetoseg es UX stabilitasa a fontos.
+
+Kesobbi bovites:
+
+- lightweight rerank pontos nevek/azonositok alapjan,
+- dokumentumon beluli szomszedos chunkok osszefuzese, ha ugyanabbol a
+  kontextusbol jonnek,
+- LLM elotti extractive context compression,
+- jogszabalyi korpusznal kulon hatalyossagi/szakasz-szintu retrieval.
+
+#### 10.3.11 Minimal tesztelheto retrieval/prompt slice
+
+Elso backend tesztek:
+
+1. `case` scope keyword query visszaad source packetet.
+2. `document` scope csak a kijelolt dokumentumbol valaszt forrast.
+3. `collection` scope deduplikalt aktiv dokumentumokbol valaszt forrast.
+4. semantic/hybrid nem indul index-ready nelkul.
+5. LLM JSON parse hiba failed run.
+6. `insufficient_source=true` sikeres, mentheto valasz.
+7. `used_sources` backend mapping nem az LLM valaszbol szarmazik.
+
+### 10.4 Minimal backend implementacios checklist v1
+
+Ez a lista mar a konkret elso backend szeletet bontja fajlokra es lepesekre.
+Celja, hogy a kovetkezo implementacios kor kontrollalt legyen, es ne keverje
+ossze az altalanos RAG kerdezot a meglevo `search_findings` workflow-val.
+
+> **Implementacios allapot, 2026-06-07:** az elso backend/frontend foundation
+> szelet elkeszult: `0044_rag_answers`, `0045_limit_rag_answer_modes`,
+> `RagAnswerModel`, `app/schemas/rag.py`, `app/services/rag.py`,
+> `app/api/v1/rag.py`, router regisztracio, kulon frontend munkafelület es
+> `tests/test_rag.py`. A jelenlegi `/rag/query` feloldja a
+> case/document/collection forraskort, ujrahasznalja a meglevo chunk retrieval
+> reteget, analysis-run inputkent rogziti a kivalasztott chunkokat,
+> backend-owned `used_sources` listat ad vissza, cimkezett source packetet kuld
+> az LM Studio chat modellnek, es a minimalis RAG JSON valaszt
+> (`answer_text`, `source_summary`, `insufficient_source`) validalja. A
+> tobbdokumentumos generaltas dokumentumonkenti reszvalasz + vegso szintezis
+> szerkezetet hasznal.
+
+#### 10.4.1 Migracio
+
+Uj Alembic migracio:
+
+```text
+0044_rag_answers
+0045_limit_rag_answer_modes
+```
+
+Tartalma:
+
+- `rag_answers` tabla letrehozasa,
+- `analysis_run_id` egyedi constraint,
+- index `case_id`,
+- index `analysis_run_id`,
+- opcionális index `created_at`.
+
+Javasolt constraint-ek:
+
+- `question` ne legyen ures,
+- `answer_text` ne legyen ures,
+- `answer_mode` csak `short | detailed`,
+- `source_scope_json`, `used_sources_json`, `retrieval_metadata_json` legyen
+  not null.
+
+Ha a jelenlegi migration-konvencio nem szereti a JSONB constraintet, eleg a
+not null es service-szintu validacio.
+
+#### 10.4.2 SQLAlchemy model
+
+Uj fajl:
+
+```text
+app/models/rag_answer.py
+```
+
+Model:
+
+```text
+RagAnswerModel
+```
+
+Kapcsolatok:
+
+- `case`,
+- `analysis_run`,
+- opcionálisan `created_by_user`.
+
+Frissitendo:
+
+```text
+app/models/__init__.py
+```
+
+#### 10.4.3 Pydantic schemak
+
+Uj fajl:
+
+```text
+app/schemas/rag.py
+```
+
+Javasolt request schemak:
+
+- `RagQueryRequest`,
+- `RagSaveAnswerRequest`.
+
+Javasolt response schemak:
+
+- `RagUsedSource`,
+- `RagSourceScopeSummary`,
+- `RagRetrievalMetadata`,
+- `RagAnswerPayload`,
+- `RagQueryResponse`,
+- `RagSavedAnswerListItem`,
+- `RagSavedAnswerDetail`,
+- `RagSaveAnswerResponse`.
+
+Javasolt enumok:
+
+- `RagSourceMode`,
+- `RagAnswerMode`,
+- `RagRetrievalStrategy`.
+
+Fontos:
+
+```text
+Az enum/internal ertekek lehetnek angolok, de a frontend lathato szovege magyar legyen.
+```
+
+#### 10.4.4 Service reteg
+
+Uj fajl:
+
+```text
+app/services/rag.py
+```
+
+Javasolt fuggvenyek:
+
+```text
+run_rag_query(db, case_id, request) -> RagQueryResponse
+save_rag_answer(db, case_id, run_id, request) -> RagSaveAnswerResponse
+list_rag_answers(db, case_id) -> list[RagSavedAnswerListItem]
+get_rag_answer(db, case_id, answer_id) -> RagSavedAnswerDetail
+delete_rag_answer(db, case_id, answer_id) -> None
+```
+
+Belső helper fuggvenyek:
+
+```text
+resolve_rag_source_scope(...)
+select_rag_source_chunks(...)
+build_rag_source_packet(...)
+call_rag_llm(...)
+parse_rag_llm_response(...)
+build_used_sources(...)
+```
+
+Ujrafelhasznalando meglevo reteg:
+
+- `app/services/analysis_runs.py`,
+- `app/services/document_collections.py` source-scope resolver,
+- keyword/semantic/hybrid retrieval helper a `search_findings` workflow-bol,
+- `app/services/llm.py`,
+- `app/services/text_store.py`.
+
+Service-szintu dontes:
+
+- `run_rag_query` mindig indit `analysis_run` rekordot,
+- sikeres vagy insufficient-source valasz nem hoz letre `rag_answers` rekordot,
+- `save_rag_answer` csak korabbi `rag_query` runbol menthet,
+- duplicate save elso korben legyen idempotens: ha mar van mentett valasz az
+  adott runhoz, adja vissza a letezot.
+
+#### 10.4.5 API router
+
+Uj fajl:
+
+```text
+app/api/v1/rag.py
+```
+
+Endpointok:
+
+```text
+POST   /cases/{case_id}/rag/query
+POST   /cases/{case_id}/rag/runs/{run_id}/save-answer
+GET    /cases/{case_id}/rag/answers
+GET    /cases/{case_id}/rag/answers/{answer_id}
+DELETE /cases/{case_id}/rag/answers/{answer_id}
+```
+
+Frissitendo:
+
+```text
+app/api/v1/router.py
+```
+
+Elso korben nem kell:
+
+- update saved answer,
+- tageles,
+- export,
+- valaszbol finding/claim inditasa.
+
+#### 10.4.6 Analysis run integracio
+
+Javasolt `analysis_runs` ertekek:
+
+```text
+run_type = "rag_query"
+model_name = aktualis chat modell
+status = succeeded | failed
+validation_status = passed | warning | failed
+```
+
+`input_parameters` tartalmazza:
+
+- question,
+- source mode,
+- requested document/collection id,
+- answer mode,
+- retrieval strategy,
+- max chunks,
+- resolved document ids.
+
+Run inputok:
+
+- `query_text` vagy `rag_question`,
+- `chunk` inputok a felhasznalt chunkokra.
+
+Run output:
+
+- elso korben eleg lehet output summary JSON,
+- kesobb lehet `rag_answer` output csak mentett valasz eseten.
+
+#### 10.4.7 Audit eventek
+
+Javasolt audit eventek:
+
+```text
+rag_query_run
+rag_answer_saved
+rag_answer_deleted
+```
+
+Elso korben a `rag_query_run` lehet implicit az analysis runbol, de a mentett
+es torolt valaszrol legyen audit esemeny.
+
+Audit payload ne tartalmazzon teljes valaszszoveget, csak azonositokat es
+rovid metadata-t:
+
+- `case_id`,
+- `analysis_run_id`,
+- `answer_id`,
+- `source_mode`,
+- `used_source_count`.
+
+#### 10.4.8 Tesztek
+
+Uj fajl:
+
+```text
+tests/test_rag.py
+```
+
+Elso backend tesztek:
+
+1. `POST /rag/query` ervenytelen ures kerdest elutasit.
+2. `POST /rag/query` wrong-case document/collection eseten 404.
+3. `POST /rag/query` sikeres futasnal letrehoz `analysis_run` rekordot.
+4. Sikeres query nem hoz letre `rag_answers` rekordot.
+5. `insufficient_source=true` valasz nem failure es mentheto.
+6. `save-answer` letrehozza a `rag_answers` rekordot.
+7. `save-answer` ugyanarra a runra idempotensen a meglevo valaszt adja vissza.
+8. Nem `rag_query` run nem mentheto RAG valaszkent.
+9. Failed run nem mentheto RAG valaszkent.
+10. List/detail/delete endpointok csak sajat ugy valaszait kezelik.
+11. `used_sources` a backend source mappingbol jon, nem az LLM JSON-bol.
+12. semantic/hybrid index-ready hiany validacios hibat ad.
+
+Ha az elso implementacios korben a teljes LLM hivas mockolva van, az elfogadhato.
+A cel az adatmodell, API contract es provenance stabilizalasa.
+
+#### 10.4.9 Nem cel az elso backend szeletben
+
+- frontend modul,
+- streaming valasz,
+- tobb gyujtemeny egyszerre,
+- rerank,
+- context compression,
+- jogszabalyi corpus,
+- valaszbol automatikus research finding / claim / event,
+- karakterpontos source-reference quote validacio,
+- saved answer szerkesztes vagy tageles.
+
+#### 10.4.10 Elso implementacios sorrend
+
+Javasolt sorrend:
+
+1. migration + model + schema,
+2. router skeleton + service skeleton,
+3. `save/list/detail/delete` a megadott/fake output nelkul meg nem hasznalhato
+   query runokra,
+4. `run_rag_query` analysis-run scaffold mockolt LLM outputtal,
+5. source-scope resolver bekotese,
+6. retrieval helper bekotese,
+7. LLM prompt/parser bekotese,
+8. teljes backend tesztcsomag,
+9. csak ezutan minimal frontend modul.
+
 ## 11. Javasolt implementacios sorrend
 
 Elso nagy szelet ne implementacioval, hanem tervezessel induljon:
 
 1. Iratgyujtemeny / forraskor-kijeloles konkret terve.
+   - **Implementalva, 2026-06-02 utan:** az elso backend/frontend
+     iratgyujtemeny-szelet kesz, es az analysis/indexing workflow mar tud
+     collection scope-pal dolgozni.
 2. Atfogo termek- es UX-terv az altalanos RAG kerdezohoz.
+   - **Aktualis dontes:** kulon oldalsavos modul legyen, nagy valaszpanellel
+     es explicit `Valasz mentese` muvelettel.
 3. Backend contract terv:
    - API,
    - request/response schema,
@@ -1220,3 +2454,30 @@ A RAG valaszbol kesobb lehessen-e egy gombbal kutatasi talalatot, allitast vagy 
 ```
 
 Ez hasznos lehet, de nem az elso szelet resze.
+
+## 13. Kesobbi specializalt jogszabalyi kereso
+
+Az altalanos iratkerdezo technikailag alkalmas lehet jogszabalyi szovegek
+alap RAG-kerdezesere, de egy komoly jogszabalyi kereso ne legyen egyszeruen
+ugyanennek a modulnak egy feliratozott valtozata.
+
+Ha a rendszer kesobb valodi joganyag-korpusszal dolgozik, kulon modult vagy
+legalabb kulon specializalt munkamodot erdemes tervezni.
+
+Indok:
+
+- jogszabalyhely-modell kellhet: jogszabaly, cim, fejezet, paragrafus,
+  bekezdes, pont, alpont,
+- hatalyossagi datum szerinti kereses es valaszadas kellhet,
+- norma, kivetel, atmeneti rendelkezes es modositas elkulonitese kellhet,
+- a forrasok nem egyszeru dokumentumchunkok, hanem jogszabalyhelyek,
+- a valaszban a jogszabalyhelyek elsorangu objektumok legyenek, ne csak
+  altalanos forrasidezetek.
+
+Elso dontes:
+
+```text
+Az altalanos iratkerdezo marad szabad kerdes-valasz felulet ugyiratokhoz es
+iratgyujtemenyekhez. A komoly jogszabalyi kereso kesobbi, kulon tervezesi
+szelet legyen.
+```

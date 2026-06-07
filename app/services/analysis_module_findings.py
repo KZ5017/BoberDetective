@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Any
 from uuid import UUID
@@ -32,17 +33,21 @@ from app.services.text_store import read_chunk_text, read_chunk_text_from_store
 SUPPORTED_FINDING_TYPES = {"claim", "event", "entity", "document_reference", "other"}
 SEARCH_FINDINGS_MAX_OUTPUT_TOKENS = 6000
 
-SEARCH_FINDINGS_SYSTEM_PROMPT = """Forráshű kutatási találatkinyerő komponens vagy.
+SEARCH_FINDINGS_SYSTEM_PROMPT = """Forráshű kutatási találatellenőrző komponens vagy.
 
 Alapelvek:
+- Elsődleges feladatod annak eldöntése, hogy a SOURCE tartalmaz-e bizonyítható kutatási találatot a QUERY-re.
 - A SOURCE az egyetlen igazságforrás.
-- A QUERY a keresés fókusza.
-- Ne használj külső tudást, ne pótolj hiányzó adatot, ne feltételezz, ne következtess.
+- A SOURCE csak vizsgálandó forrásszöveg, önmagában nem bizonyítja, hogy van találat.
+- A QUERY a keresés pontos fókusza.
+- A QUERY értékét nem értelmezheted át, nem helyettesítheted szinonimával, szereppel, fordítással vagy feltételezett jelentéssel.
+- Nem adhatsz találatot csak azért, mert a SOURCE érdekes, témaszerű vagy részben hasonló.
+- Ne használj külső tudást, ne pótolj hiányzó adatot.
 
-Feladat:
-- Vizsgáld meg a SOURCE tartalmát a QUERY fókusza szerint.
-- Add vissza JSON formában azokat a kutatási találatokat, amelyekre igaz, hogy a SOURCE alapján kapcsolódnak a QUERY-hez.
-- Ha több különálló találat van, mindegyiket külön elemként add vissza.
+Találat létrehozásának feltétele:
+- Csak akkor adj vissza találatot, ha a quote_text konkrét tartalma alapján a QUERY és a találat kapcsolata világosan megállapítható.
+- Ha a SOURCE érdekes információt tartalmaz, de a QUERY-hez való kapcsolata nem világos, ne add vissza találatként.
+- Ha több különálló, világosan kapcsolódó találat van, mindegyiket külön elemként add vissza.
 - Ha nincs használható találat, a findings legyen üres lista.
 
 Mezőszabályok:
@@ -51,7 +56,8 @@ Mezőszabályok:
 - A quote_text megadása minden findings elemben kötelező. Értéke az a SOURCE-ból kimásolt szövegrész legyen, amelyhez a QUERY kapcsolódik. A másolást szöveghűen, karakterpontosan kell elvégezned.
 - A title egy pontos, értelmes, leíró magyar mondat legyen, amely összefoglalja a találatot.
 - A finding_text 1-3 magyar mondat legyen arról, amit a quote_text megfogalmaz.
-- A relevance_reason röviden foglalja össze a QUERY és a találat kapcsolatát.
+- A relevance_reason röviden írja le, hogy a quote_text mely konkrét része kapcsolja a találatot a QUERY-hez.
+- A relevance_reason nem magyarázhatja be a kapcsolatot. Ha nem tudod konkrétan megnevezni a kapcsolatot, ne hozz létre finding elemet.
 - Ha a találat besorolható claim, event, entity, document_reference kategóriába, akkor az legyen a suggested_type értéke. Ha nem, akkor other.
 
 JSON szabályok:
@@ -103,7 +109,8 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
             raise AnalysisModuleError(message)
 
         batches = split_retrieved_chunks(retrieved_chunks, payload.batch_size)
-        add_retrieved_chunk_inputs(db, run.id, retrieved_chunks, chunk_batch_lookup(batches))
+        llm_ordered_chunks = [retrieved for batch in batches for retrieved in batch]
+        add_retrieved_chunk_inputs(db, run.id, llm_ordered_chunks, chunk_batch_lookup(batches))
         response_findings: list[AnalysisModuleResearchFinding] = []
         response_unconfirmed_findings: list[AnalysisModuleUnconfirmedResearchFinding] = []
         unsupported_items: list[str] = []
@@ -125,7 +132,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                     temperature=0.1,
                     max_tokens=SEARCH_FINDINGS_MAX_OUTPUT_TOKENS,
                 )
-                parsed = parse_llm_json_object(completion.content)
+                parsed = parse_search_findings_llm_json_object(completion.content)
                 valid_findings, batch_unsupported, _batch_unconfirmed = validate_extracted_findings(parsed, batch, db=db)
                 unsupported_items.extend(batch_unsupported)
                 processed_batch_count += 1
@@ -259,6 +266,83 @@ def build_search_findings_user_prompt(
         f"BATCH:\n{batch_index}/{batch_count}\n\n"
         f"SOURCE:\n{build_source_blocks(db, retrieved_chunks)}"
     )
+
+
+def parse_search_findings_llm_json_object(raw_content: str) -> dict[str, Any]:
+    try:
+        return parse_llm_json_object(raw_content)
+    except AnalysisModuleError as exc:
+        recovered = _recover_search_findings_json_fields(raw_content)
+        if recovered is None:
+            raise exc
+        return recovered
+
+
+def _recover_search_findings_json_fields(raw_content: str) -> dict[str, Any] | None:
+    cleaned = raw_content.strip()
+    object_start = cleaned.find("{")
+    object_end = cleaned.rfind("}")
+    if object_start != -1 and object_end > object_start:
+        cleaned = cleaned[object_start : object_end + 1]
+    item_starts = [match.start() for match in re.finditer(r'"source_label"\s*:', cleaned)]
+    if not item_starts:
+        return None
+
+    fields = [
+        ("source_label", "quote_text"),
+        ("quote_text", "title"),
+        ("title", "finding_text"),
+        ("finding_text", "relevance_reason"),
+        ("relevance_reason", "suggested_type"),
+        ("suggested_type", "suggested_type_reason"),
+    ]
+    findings: list[dict[str, Any]] = []
+    for index, start in enumerate(item_starts):
+        end = item_starts[index + 1] if index + 1 < len(item_starts) else len(cleaned)
+        segment = cleaned[start:end]
+        item: dict[str, Any] = {}
+        for field_name, next_field in fields:
+            value = _extract_ordered_json_string_field(segment, field_name, next_field=next_field)
+            if value is None:
+                return None
+            item[field_name] = value
+        suggested_type_reason = _extract_final_json_string_field(segment, "suggested_type_reason")
+        if suggested_type_reason is None:
+            return None
+        item["suggested_type_reason"] = suggested_type_reason
+        findings.append(item)
+    return {"findings": findings}
+
+
+def _extract_ordered_json_string_field(raw_content: str, field_name: str, *, next_field: str) -> str | None:
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*"(.*)"\s*,\s*"{re.escape(next_field)}"\s*:'
+    match = re.search(pattern, raw_content, flags=re.DOTALL)
+    if match is None:
+        return None
+    return _decode_json_string_fragment(match.group(1))
+
+
+def _extract_final_json_string_field(raw_content: str, field_name: str) -> str | None:
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*"(.*?)"\s*}}\s*(?:,\s*\{{)?\s*(?:\]\s*}})?\s*$'
+    match = re.search(pattern, raw_content.strip(), flags=re.DOTALL)
+    if match is None:
+        return None
+    return _decode_json_string_fragment(match.group(1))
+
+
+def _decode_json_string_fragment(value: str) -> str:
+    normalized = value.replace("\r", "\\r").replace("\n", "\\n")
+    try:
+        return str(json.loads(f'"{normalized}"'))
+    except json.JSONDecodeError:
+        return (
+            value
+            .replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace('\\"', '"')
+            .replace("\\/", "/")
+            .replace("\\\\", "\\")
+        )
 
 
 def validate_extracted_findings(

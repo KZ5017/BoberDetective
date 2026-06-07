@@ -44,6 +44,12 @@ import {
   ManualObjectFromSourcePayload,
   ManualContradictionCandidatePayload,
   MissingItemCandidateRead,
+  RagAnswerMode,
+  RagQueryResponse,
+  RagSavedAnswerDetail,
+  RagSavedAnswerListItem,
+  RagSourceMode,
+  RagUsedSource,
   ResearchFindingLatestRunSummary,
   ResearchFindingRead,
   ReviewReport,
@@ -66,6 +72,7 @@ import {
   createManualObjectFromDetachedSource,
   deleteCase,
   deleteDocumentCollection,
+  deleteRagAnswer,
   detachObjectSource,
   discardDocument,
   deleteDetachedSourceItem,
@@ -73,6 +80,7 @@ import {
   getAnalysisRun,
   getChunkIndexStatus,
   getLatestResearchFindingRunSummary,
+  getRagAnswer,
   getReviewReport,
   importDocument,
   getLlmSmoke,
@@ -91,6 +99,7 @@ import {
   listExports,
   listFullDocumentProcessingProfiles,
   listMissingItemCandidates,
+  listRagAnswers,
   listResearchFindings,
   loadChatModel,
   loadEmbeddingModel,
@@ -106,6 +115,8 @@ import {
   runAnalysis,
   runFullDocumentProcessing,
   runDocumentOcr,
+  runRagQuery,
+  saveRagAnswer,
   setAsideResearchFinding,
   startChunkIndexJob,
   unloadChatModel,
@@ -131,7 +142,8 @@ const sourceValidationStatuses = ["", "source_valid", "source_invalid", "pending
 const analysisSourceModes: AnalysisSourceMode[] = ["case", "document", "collection"];
 const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
 const retrievalStrategies: RetrievalStrategy[] = ["keyword", "semantic", "hybrid"];
-const workSurfaces = ["document_organizer", "case_workbench", "full_document_processing", "audit_log"] as const;
+const ragAnswerModes: RagAnswerMode[] = ["short", "detailed"];
+const workSurfaces = ["document_organizer", "case_workbench", "full_document_processing", "general_rag", "audit_log"] as const;
 
 type WorkSurface = (typeof workSurfaces)[number];
 
@@ -145,6 +157,7 @@ const workSurfaceLabels: Record<WorkSurface, string> = {
   document_organizer: "Irat rendező",
   case_workbench: "Ügy munkapad",
   full_document_processing: "Teljes iratfeldolgozás",
+  general_rag: "Általános iratkérdező",
   audit_log: "Audit napló"
 };
 
@@ -201,6 +214,10 @@ const busyLabels: Record<string, string> = {
   "manual-source-attach": "Kézi forráshivatkozás csatolása",
   "manual-contradiction": "Kézi ellentmondásjelölt rögzítése",
   "finding-convert": "Kutatási találat átalakítása",
+  "rag-query": "Általános iratkérdező futtatása",
+  "rag-save": "Iratkérdező válasz mentése",
+  "rag-answers": "Mentett iratkérdező válaszok betöltése",
+  "rag-answer-delete": "Mentett iratkérdező válasz törlése",
   "full-document-profiles": "Teljes iratfeldolgozási profilok betöltése",
   "full-document-items": "Teljes iratfeldolgozási munkalista betöltése",
   "full-document-run": "Teljes iratfeldolgozás futtatása",
@@ -216,6 +233,7 @@ const busyLabels: Record<string, string> = {
 const aiOperationLabels = new Set([
   "analysis",
   "full-document-run",
+  "rag-query",
   "chunk-index",
   "chat-load",
   "embedding-load",
@@ -245,6 +263,11 @@ const retrievalStrategyLabels: Record<RetrievalStrategy, string> = {
   keyword: "Kulcsszavas",
   semantic: "Szemantikus",
   hybrid: "Hybrid"
+};
+
+const ragAnswerModeLabels: Record<RagAnswerMode, string> = {
+  short: "Rövid válasz",
+  detailed: "Részletes válasz"
 };
 
 const objectTypeLabels: Record<string, string> = {
@@ -383,16 +406,29 @@ export function App() {
   const [fullDocumentPageEnd, setFullDocumentPageEnd] = useState("1");
   const [moduleKey, setModuleKey] = useState("search_findings");
   const [query, setQuery] = useState("");
+  const [ragQuestion, setRagQuestion] = useState("");
+  const [ragSourceMode, setRagSourceMode] = useState<RagSourceMode>("case");
+  const [ragDocumentId, setRagDocumentId] = useState("");
+  const [ragCollectionId, setRagCollectionId] = useState("");
+  const [ragAnswerMode, setRagAnswerMode] = useState<RagAnswerMode>("detailed");
+  const [ragRetrievalStrategy, setRagRetrievalStrategy] = useState<RetrievalStrategy>("hybrid");
+  const [ragMaxChunks, setRagMaxChunks] = useState(45);
+  const [ragCurrentResponse, setRagCurrentResponse] = useState<RagQueryResponse | null>(null);
+  const [ragSaveTitle, setRagSaveTitle] = useState("");
+  const [ragSaveNote, setRagSaveNote] = useState("");
+  const [ragSavedAnswers, setRagSavedAnswers] = useState<RagSavedAnswerListItem[]>([]);
+  const [selectedRagAnswerId, setSelectedRagAnswerId] = useState("");
+  const [selectedRagAnswer, setSelectedRagAnswer] = useState<RagSavedAnswerDetail | null>(null);
   const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("case");
   const [analysisDocumentId, setAnalysisDocumentId] = useState("");
   const [analysisDocumentIds, setAnalysisDocumentIds] = useState<string[]>([]);
   const [analysisCollectionId, setAnalysisCollectionId] = useState("");
   const [analysisDocumentSearch, setAnalysisDocumentSearch] = useState("");
-  const [maxChunks, setMaxChunks] = useState(30);
-  const [batchSize, setBatchSize] = useState(1);
+  const [maxChunks, setMaxChunks] = useState(45);
+  const [batchSize, setBatchSize] = useState(3);
   const [claimReviewScope, setClaimReviewScope] = useState<ClaimReviewScope>("reviewable");
   const [contradictionCandidateLimit, setContradictionCandidateLimit] = useState(5);
-  const [retrievalStrategy, setRetrievalStrategy] = useState<RetrievalStrategy>("keyword");
+  const [retrievalStrategy, setRetrievalStrategy] = useState<RetrievalStrategy>("hybrid");
   const [forceReindex, setForceReindex] = useState(false);
   const [activeIndexJobId, setActiveIndexJobId] = useState<string | null>(null);
   const [llmSmoke, setLlmSmoke] = useState<LlmSmokeResponse | null>(null);
@@ -470,6 +506,14 @@ export function App() {
   const analysisDocumentCollection = useMemo(
     () => documentCollections.find((collection) => collection.id === analysisCollectionId) ?? null,
     [documentCollections, analysisCollectionId]
+  );
+  const ragDocument = useMemo(
+    () => analysisReadyDocuments.find((document) => document.id === ragDocumentId) ?? null,
+    [analysisReadyDocuments, ragDocumentId]
+  );
+  const ragCollection = useMemo(
+    () => documentCollections.find((collection) => collection.id === ragCollectionId) ?? null,
+    [documentCollections, ragCollectionId]
   );
   const targetCollectionDocumentIds = useMemo(
     () => new Set(documentCollectionTargetDocuments.map((document) => document.id)),
@@ -585,6 +629,13 @@ export function App() {
     (!requiresFocusText || query.trim().length > 0) &&
     hasAnalysisSource &&
     semanticIndexReady;
+  const ragHasSource =
+    ragSourceMode === "document"
+      ? Boolean(ragDocumentId)
+      : ragSourceMode === "collection"
+        ? Boolean(ragCollectionId) && Boolean(ragCollection?.active_document_count)
+        : analysisReadyDocuments.length > 0;
+  const canRunRagQuery = Boolean(selectedCaseId) && !busy && ragQuestion.trim().length > 0 && ragHasSource;
   const reportFilters = useMemo<ReviewReportFilterValues>(
     () => ({
       objectType: objectType || undefined,
@@ -682,6 +733,12 @@ export function App() {
       setDocumentProcessingItemsMarkedForDeletion([]);
       setLastFullDocumentRun(null);
       setLastResearchFindingRun(null);
+      setRagCurrentResponse(null);
+      setRagSavedAnswers([]);
+      setSelectedRagAnswerId("");
+      setSelectedRagAnswer(null);
+      setRagSaveTitle("");
+      setRagSaveNote("");
     }
   }, [selectedCaseId]);
 
@@ -793,6 +850,25 @@ export function App() {
       setAnalysisDocumentId("");
     }
   }, [analysisReadyDocuments, analysisDocumentId]);
+
+  useEffect(() => {
+    if (ragDocumentId && !analysisReadyDocuments.some((item) => item.id === ragDocumentId)) {
+      setRagDocumentId("");
+    }
+  }, [analysisReadyDocuments, ragDocumentId]);
+
+  useEffect(() => {
+    if (ragCollectionId && !documentCollections.some((item) => item.id === ragCollectionId)) {
+      setRagCollectionId("");
+    }
+  }, [documentCollections, ragCollectionId]);
+
+  useEffect(() => {
+    if (selectedRagAnswerId && !ragSavedAnswers.some((item) => item.id === selectedRagAnswerId)) {
+      setSelectedRagAnswerId("");
+      setSelectedRagAnswer(null);
+    }
+  }, [ragSavedAnswers, selectedRagAnswerId]);
 
   useEffect(() => {
     const allowedIds = new Set(analysisReadyDocuments.map((document) => document.id));
@@ -918,6 +994,27 @@ export function App() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Teljes iratfeldolgozási profilok betöltése sikertelen.");
+    }
+  }
+
+  async function refreshRagAnswers(showNotice = false) {
+    if (!selectedCaseId) return;
+    const action = async () => {
+      const response = await listRagAnswers(selectedCaseId);
+      setRagSavedAnswers(response.data);
+      if (showNotice) {
+        setNotice("Mentett iratkérdező válaszok frissítve.");
+        setLastActionSummary(`${response.data.length} mentett válasz.`);
+      }
+    };
+    if (showNotice) {
+      await perform("rag-answers", action);
+    } else {
+      try {
+        await action();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Mentett iratkérdező válaszok betöltése sikertelen.");
+      }
     }
   }
 
@@ -1200,6 +1297,7 @@ export function App() {
         missingItemsResponse,
         researchFindingsResponse,
         researchFindingRunSummaryResponse,
+        ragAnswersResponse,
         detachedSourcesResponse
       ] = await Promise.all([
         listDocuments(selectedCaseId),
@@ -1214,6 +1312,7 @@ export function App() {
         listMissingItemCandidates(selectedCaseId),
         listResearchFindings(selectedCaseId),
         getLatestResearchFindingRunSummary(selectedCaseId),
+        listRagAnswers(selectedCaseId),
         listDetachedSourceItems(selectedCaseId)
       ]);
       setDocuments(documentsResponse.data);
@@ -1226,6 +1325,7 @@ export function App() {
       setMissingItemCandidates(missingItemsResponse.data);
       setResearchFindings(researchFindingsResponse.data);
       setLastResearchFindingRun(researchFindingRunSummaryResponse.latest_run);
+      setRagSavedAnswers(ragAnswersResponse.data);
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       setReport(reportResponse);
@@ -1608,6 +1708,78 @@ export function App() {
           analysisDocumentCollection?.name
         )}, ${labelValidationStatus(response.validation_status)}, ${analysisSourceMetric(response)}, ${analysisOutputCount(response)} kimenet`
       );
+    });
+  }
+
+  async function handleRunRagQuery() {
+    if (!selectedCaseId) return;
+    await perform("rag-query", async () => {
+      const response = await runRagQuery(selectedCaseId, {
+        question: ragQuestion.trim(),
+        source_mode: ragSourceMode,
+        document_id: ragSourceMode === "document" ? ragDocumentId : null,
+        collection_id: ragSourceMode === "collection" ? ragCollectionId : null,
+        answer_mode: ragAnswerMode,
+        retrieval_strategy: ragRetrievalStrategy,
+        max_chunks: ragMaxChunks,
+        include_sources: true
+      });
+      const runsResponse = await listAnalysisRuns(selectedCaseId);
+      setAnalysisRuns(runsResponse.data);
+      setRagCurrentResponse(response);
+      setRagSaveTitle(ragQuestion.trim().slice(0, 120));
+      setRagSaveNote("");
+      setNotice("Iratkérdező válasz elkészült.");
+      setLastActionSummary(
+        `${labelRagAnswerMode(response.answer.answer_mode)} | ${response.used_sources.length} forrás | ${response.source_scope.resolved_document_count} irat`
+      );
+    });
+  }
+
+  async function handleSaveRagAnswer() {
+    if (!selectedCaseId || !ragCurrentResponse?.can_save) return;
+    await perform("rag-save", async () => {
+      const saved = await saveRagAnswer(selectedCaseId, ragCurrentResponse.run_id, {
+        title: ragSaveTitle.trim() || null,
+        note: ragSaveNote.trim() || null
+      });
+      const [answersResponse, detail] = await Promise.all([
+        listRagAnswers(selectedCaseId),
+        getRagAnswer(selectedCaseId, saved.answer_id)
+      ]);
+      setRagSavedAnswers(answersResponse.data);
+      setSelectedRagAnswerId(saved.answer_id);
+      setSelectedRagAnswer(detail);
+      setRagCurrentResponse((current) => current ? { ...current, can_save: false } : current);
+      setNotice("Iratkérdező válasz mentve.");
+      setLastActionSummary(detail.title || detail.question);
+    });
+  }
+
+  async function handleLoadRagAnswer(answerId: string) {
+    if (!selectedCaseId) return;
+    await perform("rag-answers", async () => {
+      const detail = await getRagAnswer(selectedCaseId, answerId);
+      setSelectedRagAnswerId(answerId);
+      setSelectedRagAnswer(detail);
+      setNotice("Mentett iratkérdező válasz betöltve.");
+      setLastActionSummary(detail.title || detail.question);
+    });
+  }
+
+  async function handleDeleteRagAnswer(answer: RagSavedAnswerListItem) {
+    if (!selectedCaseId) return;
+    if (!window.confirm(`Törlöd ezt a mentett iratkérdező választ?\n\n${answer.title || answer.question}`)) return;
+    await perform("rag-answer-delete", async () => {
+      await deleteRagAnswer(selectedCaseId, answer.id);
+      const response = await listRagAnswers(selectedCaseId);
+      setRagSavedAnswers(response.data);
+      if (selectedRagAnswerId === answer.id) {
+        setSelectedRagAnswerId("");
+        setSelectedRagAnswer(null);
+      }
+      setNotice("Mentett iratkérdező válasz törölve.");
+      setLastActionSummary(answer.title || answer.question);
     });
   }
 
@@ -3370,7 +3542,7 @@ export function App() {
           <span>{lastResearchFindingRun.selected_chunk_count} szövegrész</span>
           {lastResearchFindingRun.retrieval_strategy && <span>{labelRetrievalStrategy(lastResearchFindingRun.retrieval_strategy as RetrievalStrategy)}</span>}
           {lastResearchFindingRun.max_chunks !== null && <span>Plafon: {lastResearchFindingRun.max_chunks}</span>}
-          {lastResearchFindingRun.batch_size !== null && <span>Batch: {lastResearchFindingRun.batch_size}</span>}
+          {lastResearchFindingRun.batch_size !== null && <span>Max. batch: {lastResearchFindingRun.batch_size}</span>}
           <span>{formatDateTime(lastResearchFindingRun.started_at)}</span>
         </div>
         <div className="metrics">
@@ -3393,6 +3565,250 @@ export function App() {
             </ul>
           </div>
         )}
+      </section>
+    );
+  }
+
+  function renderRagUsedSources(sources: RagUsedSource[]) {
+    if (sources.length === 0) {
+      return <p className="muted">A válaszhoz nem tartozik megjeleníthető forrásszövegrész.</p>;
+    }
+    return (
+      <div className="rag-source-list">
+        {sources.map((source, index) => (
+          <article key={`${source.chunk_id}-${index}`} className="compact-item rag-source-card">
+            <div className="item-card-header">
+              <div>
+                <strong>{source.document_filename}</strong>
+                <div className="metrics">
+                  <span>{source.page_number ? `${source.page_number}. oldal` : "oldal nélkül"}</span>
+                  <span>{source.chunk_index}. szövegrész</span>
+                  {source.retrieval_match_type && <span>{labelRetrievalStrategy(source.retrieval_match_type as RetrievalStrategy)}</span>}
+                  {source.retrieval_score !== null && <span>relevancia {source.retrieval_score.toFixed(3)}</span>}
+                </div>
+              </div>
+            </div>
+            <blockquote>{source.quote_preview}</blockquote>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
+  function renderGeneralRagSurface() {
+    return (
+      <section className="surface-placeholder general-rag-surface">
+        {renderSurfaceHeader("general_rag")}
+        <section className="general-rag-grid">
+          <section className="panel rag-query-panel">
+            <div className="section-heading">
+              <h2>Kérdés az iratállományhoz</h2>
+              <MessageSquare size={20} />
+            </div>
+            <div className="surface-form">
+              <label>
+                Forráskör
+                <select value={ragSourceMode} onChange={(event) => setRagSourceMode(event.target.value as RagSourceMode)}>
+                  <option value="case">{labelRagSourceMode("case")}</option>
+                  <option value="document">{labelRagSourceMode("document")}</option>
+                  <option value="collection">{labelRagSourceMode("collection")}</option>
+                </select>
+              </label>
+              {ragSourceMode === "document" && (
+                <div className="form-field">
+                  <span className="field-label">Irat</span>
+                  {renderSearchableSelect({
+                    queryKey: "rag-document",
+                    value: ragDocumentId,
+                    onChange: setRagDocumentId,
+                    options: analysisReadyDocuments.map((document) => ({
+                      id: document.id,
+                      label: `${document.original_filename} (${document.current_chunk_count} szövegrész)`,
+                      searchText: `${document.original_filename} ${document.sha256_hash}`
+                    })),
+                    placeholder: "Válassz iratot",
+                    searchPlaceholder: "Keresés az elemzésre kész iratok között",
+                    ariaLabel: "Iratkérdező forrásirat kiválasztása"
+                  })}
+                  {analysisReadyDocuments.length === 0 && <p className="muted">Nincs elemzésre kész aktív irat.</p>}
+                </div>
+              )}
+              {ragSourceMode === "collection" && (
+                <div className="form-field">
+                  <span className="field-label">Iratgyűjtemény</span>
+                  {renderSearchableSelect({
+                    queryKey: "rag-collection",
+                    value: ragCollectionId,
+                    onChange: setRagCollectionId,
+                    options: documentCollectionTargetOptions,
+                    placeholder: "Válassz iratgyűjteményt",
+                    searchPlaceholder: "Keresés az iratgyűjtemények között",
+                    ariaLabel: "Iratkérdező iratgyűjtemény kiválasztása"
+                  })}
+                  {documentCollections.length === 0 && <p className="muted">Még nincs iratgyűjtemény.</p>}
+                </div>
+              )}
+              <div className="form-row">
+                <label>
+                  Válasz típusa
+                  <select value={ragAnswerMode} onChange={(event) => setRagAnswerMode(event.target.value as RagAnswerMode)}>
+                    {ragAnswerModes.map((mode) => (
+                      <option key={mode} value={mode}>{ragAnswerModeLabels[mode]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Forráskeresés
+                  <select value={ragRetrievalStrategy} onChange={(event) => setRagRetrievalStrategy(event.target.value as RetrievalStrategy)}>
+                    {retrievalStrategies.map((item) => <option key={item} value={item}>{labelRetrievalStrategy(item)}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Szövegrész plafon
+                  <input
+                    type="number"
+                    min={1}
+                    max={90}
+                    value={ragMaxChunks}
+                    onChange={(event) => setRagMaxChunks(clampNumberInput(event.target.value, 1, 90, 45))}
+                  />
+                </label>
+              </div>
+              <label>
+                Kérdés
+                <textarea
+                  value={ragQuestion}
+                  onChange={(event) => setRagQuestion(event.target.value)}
+                  rows={6}
+                  placeholder="Írd be, mire szeretnél választ kapni kizárólag az ügy iratai alapján."
+                />
+              </label>
+              <p className="field-hint">
+                A válasz ideiglenes: a következő kérdés felülírja. Csak akkor kerül mentésre, ha külön rányomsz a válasz mentésére.
+              </p>
+              {!ragHasSource && <p className="error-text">A kiválasztott forráskörben nincs használható, elemzésre kész aktív irat.</p>}
+              <button onClick={handleRunRagQuery} disabled={!canRunRagQuery}>
+                <Play size={18} /> Kérdezés indítása
+              </button>
+            </div>
+          </section>
+
+          <section className="panel rag-saved-panel">
+            <div className="section-heading">
+              <h2>Mentett válaszok</h2>
+              <button className="icon-button" onClick={() => refreshRagAnswers(true)} title="Mentett válaszok frissítése" disabled={!selectedCaseId || Boolean(busy)}>
+                <RefreshCw size={18} />
+              </button>
+            </div>
+            <div className="compact-list">
+              {ragSavedAnswers.length === 0 && <p className="muted">Még nincs mentett iratkérdező válasz.</p>}
+              {ragSavedAnswers.map((answer) => (
+                <article key={answer.id} className={`compact-item ${selectedRagAnswerId === answer.id ? "is-selected" : ""}`}>
+                  <strong>{answer.title || truncateText(answer.question, 110)}</strong>
+                  <span>{labelRagSourceMode(answer.source_mode as RagSourceMode)} | {labelRagAnswerMode(answer.answer_mode as RagAnswerMode)} | {answer.used_source_count} forrás</span>
+                  <span>{formatDateTime(answer.created_at)}</span>
+                  <div className="button-row">
+                    <button className="secondary-button" onClick={() => handleLoadRagAnswer(answer.id)} disabled={Boolean(busy)}>
+                      Megnyitás
+                    </button>
+                    <button className="danger-button" onClick={() => handleDeleteRagAnswer(answer)} disabled={Boolean(busy)}>
+                      Törlés
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        </section>
+
+        <section className="panel rag-answer-panel">
+          <div className="section-heading">
+            <h2>Aktuális válasz</h2>
+            <MessageSquare size={20} />
+          </div>
+          {!ragCurrentResponse && <p className="muted">Itt jelenik meg a legutóbbi iratkérdező válasz.</p>}
+          {ragCurrentResponse && (
+            <div className="rag-answer-layout">
+              <article className={`rag-answer-card ${ragCurrentResponse.answer.insufficient_source ? "is-unconfirmed" : ""}`}>
+                <div className="metrics">
+                  <span>{labelRagAnswerMode(ragCurrentResponse.answer.answer_mode)}</span>
+                  <span>{labelRagSourceMode(ragCurrentResponse.source_scope.source_mode)}</span>
+                  <span>{ragCurrentResponse.source_scope.resolved_document_count} irat</span>
+                  <span>{ragCurrentResponse.retrieval_metadata.selected_chunk_count} szövegrész</span>
+                  {ragCurrentResponse.retrieval_metadata.document_answer_count > 1 && (
+                    <span>{ragCurrentResponse.retrieval_metadata.document_answer_count} részválasz</span>
+                  )}
+                  {ragCurrentResponse.answer.insufficient_source && <span>Nincs elég forrás</span>}
+                </div>
+                <p className="rag-answer-text">{ragCurrentResponse.answer.answer_text}</p>
+                {ragCurrentResponse.answer.source_summary && (
+                  <div className="module-note">
+                    Forrásalap: <strong>{ragCurrentResponse.answer.source_summary}</strong>
+                  </div>
+                )}
+                {ragCurrentResponse.source_scope.warnings.length > 0 && (
+                  <div className="module-note module-note-warning">
+                    <strong>Forráskör figyelmeztetések</strong>
+                    <ul>
+                      {ragCurrentResponse.source_scope.warnings.map((warning, index) => <li key={`${index}-${warning}`}>{warning}</li>)}
+                    </ul>
+                  </div>
+                )}
+                <div className="rag-save-panel">
+                  <label>
+                    Mentési cím
+                    <input value={ragSaveTitle} onChange={(event) => setRagSaveTitle(event.target.value)} />
+                  </label>
+                  <label>
+                    Megjegyzés
+                    <textarea value={ragSaveNote} onChange={(event) => setRagSaveNote(event.target.value)} rows={2} />
+                  </label>
+                  <button onClick={handleSaveRagAnswer} disabled={Boolean(busy) || !ragCurrentResponse.can_save}>
+                    Válasz mentése
+                  </button>
+                </div>
+              </article>
+              <section className="rag-sources-panel">
+                <div className="section-heading">
+                  <h3>Felhasznált források</h3>
+                  <span className="status-pill">{ragCurrentResponse.used_sources.length}</span>
+                </div>
+                {renderRagUsedSources(ragCurrentResponse.used_sources)}
+              </section>
+            </div>
+          )}
+        </section>
+
+        <section className="panel rag-saved-detail-panel">
+          <div className="section-heading">
+            <h2>Mentett válasz részletei</h2>
+            <Archive size={20} />
+          </div>
+          {!selectedRagAnswer && <p className="muted">Válassz mentett választ a részletekhez.</p>}
+          {selectedRagAnswer && (
+            <div className="rag-answer-layout">
+              <article className="rag-answer-card">
+                <div className="metrics">
+                  <span>{labelRagAnswerMode(selectedRagAnswer.answer_mode as RagAnswerMode)}</span>
+                  <span>{labelRagSourceMode(selectedRagAnswer.source_scope.source_mode as RagSourceMode)}</span>
+                  <span>{selectedRagAnswer.used_sources.length} forrás</span>
+                  {selectedRagAnswer.model_name && <span>{selectedRagAnswer.model_name}</span>}
+                </div>
+                <strong>{selectedRagAnswer.title || selectedRagAnswer.question}</strong>
+                <p className="field-hint">{selectedRagAnswer.question}</p>
+                <p className="rag-answer-text">{selectedRagAnswer.answer_text}</p>
+                {selectedRagAnswer.note && <div className="module-note">{selectedRagAnswer.note}</div>}
+              </article>
+              <section className="rag-sources-panel">
+                <div className="section-heading">
+                  <h3>Mentett források</h3>
+                  <span className="status-pill">{selectedRagAnswer.used_sources.length}</span>
+                </div>
+                {renderRagUsedSources(selectedRagAnswer.used_sources)}
+              </section>
+            </div>
+          )}
+        </section>
       </section>
     );
   }
@@ -3427,6 +3843,7 @@ export function App() {
                   {surface === "document_organizer" && <FolderPlus size={18} />}
                   {surface === "case_workbench" && <Database size={18} />}
                   {surface === "full_document_processing" && <FilePlus2 size={18} />}
+                  {surface === "general_rag" && <MessageSquare size={18} />}
                   {surface === "audit_log" && <Archive size={18} />}
                   <span>{workSurfaceLabels[surface]}</span>
                 </button>
@@ -4186,19 +4603,19 @@ export function App() {
                   <input
                     type="number"
                     min={1}
-                    max={50}
+                    max={90}
                     value={maxChunks}
-                    onChange={(event) => setMaxChunks(clampNumberInput(event.target.value, 1, 50, 30))}
+                    onChange={(event) => setMaxChunks(clampNumberInput(event.target.value, 1, 90, 45))}
                   />
                 </label>
                 <label>
-                  Batch meret
+                  Maximális batch méret
                   <input
                     type="number"
                     min={1}
                     max={15}
                     value={batchSize}
-                    onChange={(event) => setBatchSize(clampNumberInput(event.target.value, 1, 15, 10))}
+                    onChange={(event) => setBatchSize(clampNumberInput(event.target.value, 1, 15, 3))}
                   />
                 </label>
                 <label>
@@ -4948,6 +5365,8 @@ export function App() {
         </section>
         )}
 
+        {activeSurface === "general_rag" && renderGeneralRagSurface()}
+
         {activeSurface === "full_document_processing" && (
           <section className="surface-placeholder">
             {renderSurfaceHeader("full_document_processing")}
@@ -5395,6 +5814,16 @@ function labelClaimReviewScope(value: ClaimReviewScope) {
 
 function labelRetrievalStrategy(value: RetrievalStrategy) {
   return retrievalStrategyLabels[value] ?? value;
+}
+
+function labelRagSourceMode(value: RagSourceMode) {
+  if (value === "document") return "Kiválasztott irat";
+  if (value === "collection") return "Iratgyűjtemény";
+  return "Teljes ügy";
+}
+
+function labelRagAnswerMode(value: RagAnswerMode) {
+  return ragAnswerModeLabels[value] ?? value;
 }
 
 function labelModelLoadState(value: boolean | null) {

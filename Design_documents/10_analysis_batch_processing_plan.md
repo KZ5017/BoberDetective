@@ -1,6 +1,6 @@
 # 10. Analysis Batch Processing Plan
 
-> **Aktualis megjegyzes, 2026-05-17:** ez a dokumentum a batch-esites torteneti tervet es tobb lepesben bovult allapotat tartalmazza. A szoveg egyes korabbi reszei mar tudatosan elavultak: nincs `focused_query` source mode, nincs legacy analysis `limit`, a raw-chunk modulok `source_mode = case | document`, kotelezo fokuszszoveg, `max_chunks`, `batch_size`, `retrieval_strategy`, es selected-document `page_start/page_end` mezokkel dolgoznak. Az ellentmondas modul claim-par alapu, `contradiction_candidate_limit` mezovel. A kovetkezo source-filtering irany a strukturalt dokumentumtaxonomia: `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`.
+> **Aktualis megjegyzes, 2026-06-07:** ez a dokumentum a batch-esites torteneti tervet es tobb lepesben bovult allapotat tartalmazza. A szoveg egyes korabbi reszei mar tudatosan elavultak: nincs `focused_query` source mode, nincs legacy analysis `limit`, es a legacy raw-chunk modulok ki lettek vezetve. Az aktiv nyers forrasszoveges workflow a `search_findings`, amely `source_mode = case | document | collection`, kotelezo fokuszszoveg, `max_chunks`, `batch_size`, es `retrieval_strategy` mezokkel dolgozik. `max_chunks` jelenlegi alapertelmezes/cap: `45/90`; a frontend label `Szovegresz plafon`. `batch_size` jelenlegi alapertelmezes `3`, frontend labelje `Maximalis batch meret`, es csak a legnagyobb LLM-hivasra kuldheto chunk darabszamot jelenti. Retrieval utan a kivalasztott chunkok dokumentum/page/chunk sorrendbe rendezodnek, es egy LLM batch nem keverhet kulonbozo dokumentumokbol szarmazo chunkokat. Az ellentmondas modul claim-par alapu, `contradiction_candidate_limit` mezovel. Az altalanos RAG kerdezo kulon dokumentumonkenti reszvalasz + vegso szintezis mintat hasznal: `Design_documents/20_general_rag_question_answering_plan.md`.
 
 ## 1. Cel
 
@@ -165,6 +165,8 @@ Mukodes:
 - dokumentum import ideje + chunk index sorrend
 
 ## 5. Batch logika
+
+> **Aktualis implementacio, 2026-06-07:** a `search_findings` batch logika mar dokumentumonkent izolalt. A retrieval tovabbra is relevancia szerint valasztja ki a `max_chunks` plafonig a chunkokat, de LLM-hivas elott a kivalasztott halmaz dokumentum/page/chunk sorrendbe rendezodik. A batcher dokumentumhataron vag, tehat ha `batch_size=3`, de egy dokumentumbol csak 1 relevans chunk van, az egy onallo 1 chunkos batch lehet. Ez tudatos minosegi dontes: egymas utani forrasreszek egyutt maradhatnak, kulonbozo iratok pedig nem keverednek egyetlen promptban.
 
 Az elso verzio legyen konzervativ:
 

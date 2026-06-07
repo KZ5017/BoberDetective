@@ -31,7 +31,9 @@ Minden MVP LLM promptban szerepeljen:
 7. Minden output idézetének szó szerint vagy ellenőrizhetően szerepelnie kell valamelyik input chunkban.
 8. Csak a kért JSON formátumot adhatja vissza, magyarázó szöveg nélkül.
 
-> **Aktuális implementációs megjegyzés, 2026-06-02:** az aktív `search_findings` workflow promptja magyar system prompt + dinamikus user prompt szerkezetet használ. A system prompt tartalmazza a feladatot, a forráshűségi szabályokat, a kimeneti mezők jelentését, a `quote_text` / `source_label` követelményeket és a valid JSON elvárást. A user prompt csak a futás változó adatait adja (`QUERY`, `BATCH`, `SOURCE`). Az elvárt JSON alakban minden finding objektum első mezője `source_label`, mert a helyi modell így megbízhatóbban adja vissza.
+> **Aktuális implementációs megjegyzés, 2026-06-07:** az aktív `search_findings`, `Teljes iratfeldolgozás` személyprofil és `Általános iratkérdező` promptok a jelenlegi promptfegyelmet követik: a system prompt tartalmazza a feladatot, forráshűségi szabályokat, mezőszabályokat és valid JSON elvárást; a user prompt csak a futás változó adatait adja (`QUERY`, `BATCH`, `SOURCE`, illetve a dokumentum/profil/oldal adatok). A `search_findings` elvárt JSON alakban minden finding objektum első mezője `source_label`, mert a helyi modell így megbízhatóbban adja vissza. A full-document person profile minimális `items` alakot vár: `item_kind`, `display_label`, `recommended_search_focus`, `source_label`.
+
+> **JSON-hibatűrés, 2026-06-07:** a helyi modell időnként érvénytelen JSON-t ad, ha forráshűen másol belső dupla idézőjelet, de azt nem escape-eli. Ezért `search_findings` és `Teljes iratfeldolgozás` alatt sémaspecifikus fallback parser létezik a saját, mezősorrendhez kötött JSON alakra. Ez nem általános "LLM-javító" réteg és nem kerülheti meg a normál backend validációt: a recovered objektumok ugyanúgy source-label, quote/source-evidence, source-valid/source-invalid és munkalista-validáció alá esnek.
 
 ## 3. Közös input contract
 

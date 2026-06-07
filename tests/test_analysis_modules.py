@@ -27,7 +27,11 @@ from app.services.analysis_modules import (
     validate_extracted_contradiction_candidates,
     validate_extracted_findings,
 )
-from app.services.analysis_module_findings import SEARCH_FINDINGS_SYSTEM_PROMPT, build_search_findings_user_prompt
+from app.services.analysis_module_findings import (
+    SEARCH_FINDINGS_SYSTEM_PROMPT,
+    build_search_findings_user_prompt,
+    parse_search_findings_llm_json_object,
+)
 from app.services.search import KeywordSearchHit
 
 
@@ -39,10 +43,11 @@ def test_analysis_module_request_rejects_legacy_limit_field() -> None:
 def test_analysis_module_request_uses_updated_chunk_cap_defaults() -> None:
     request = AnalysisModuleRunRequest(query="fokusz")
 
-    assert request.max_chunks == 30
-    assert AnalysisModuleRunRequest(query="fokusz", max_chunks=50).max_chunks == 50
+    assert request.max_chunks == 45
+    assert request.batch_size == 3
+    assert AnalysisModuleRunRequest(query="fokusz", max_chunks=90).max_chunks == 90
     with pytest.raises(ValidationError):
-        AnalysisModuleRunRequest(query="fokusz", max_chunks=51)
+        AnalysisModuleRunRequest(query="fokusz", max_chunks=91)
 
 
 @pytest.mark.parametrize(
@@ -64,14 +69,22 @@ def test_analysis_module_request_rejects_page_range_in_case_mode() -> None:
         AnalysisModuleRunRequest(source_mode="case", query="fokusz", page_start=2, page_end=4)
 
 
-def _retrieved_chunk(label: str, text: str) -> RetrievedChunk:
+def _retrieved_chunk(
+    label: str,
+    text: str,
+    *,
+    document_id=None,
+    document_name: str = "irat.txt",
+    page_start: int = 1,
+    chunk_index: int = 0,
+) -> RetrievedChunk:
     chunk = DocumentChunkModel(
         id=uuid4(),
         case_id=uuid4(),
-        document_id=uuid4(),
-        page_start=1,
-        page_end=1,
-        chunk_index=0,
+        document_id=document_id or uuid4(),
+        page_start=page_start,
+        page_end=page_start,
+        chunk_index=chunk_index,
         char_start=0,
         char_end=len(text),
         token_count=10,
@@ -83,7 +96,7 @@ def _retrieved_chunk(label: str, text: str) -> RetrievedChunk:
     chunk._text_store_text = text
     return RetrievedChunk(
         label=label,
-        document_name="irat.txt",
+        document_name=document_name,
         chunk=chunk,
         retrieval_score=1.0,
     )
@@ -129,6 +142,24 @@ def test_parse_llm_json_object_accepts_extra_text_around_json_object() -> None:
 def test_parse_llm_json_object_rejects_array() -> None:
     with pytest.raises(AnalysisModuleError):
         parse_llm_json_object("[]")
+
+
+def test_parse_search_findings_llm_json_object_recovers_unescaped_quote_in_quote_text() -> None:
+    raw = (
+        '{"findings":[{"source_label":"chunk_40",'
+        '"quote_text":"Madame LEspanaye és leánya, Mademoiselle Camilla L"Espanaye lakik.",'
+        '"title":"A Morgue utcában történt kettős gyilkosság első jelentése",'
+        '"finding_text":"A szöveg az áldozatok lakóhelyét írja le.",'
+        '"relevance_reason":"A quote_text megnevezi az áldozatokat.",'
+        '"suggested_type":"event",'
+        '"suggested_type_reason":"Egy konkrét esemény leírása."}]}'
+    )
+
+    payload = parse_search_findings_llm_json_object(raw)
+
+    assert payload["findings"][0]["source_label"] == "chunk_40"
+    assert payload["findings"][0]["quote_text"] == 'Madame LEspanaye és leánya, Mademoiselle Camilla L"Espanaye lakik.'
+    assert payload["findings"][0]["suggested_type"] == "event"
 
 
 def test_analysis_retrieval_queries_extracts_source_like_keywords_from_hungarian_prompt() -> None:
@@ -479,7 +510,17 @@ def test_select_source_chunks_requires_document_id_for_document_mode() -> None:
 
 
 def test_split_retrieved_chunks_and_batch_metadata_are_deterministic() -> None:
-    chunks = [_retrieved_chunk(f"chunk_{index + 1}", f"A forras {index + 1}. allitasa.") for index in range(7)]
+    document_id = uuid4()
+    chunks = [
+        _retrieved_chunk(
+            f"chunk_{index + 1}",
+            f"A forras {index + 1}. allitasa.",
+            document_id=document_id,
+            page_start=1,
+            chunk_index=index,
+        )
+        for index in range(7)
+    ]
 
     batches = analysis_module_common.split_retrieved_chunks(chunks, batch_size=3)
     lookup = analysis_module_common.chunk_batch_lookup(batches)
@@ -490,6 +531,42 @@ def test_split_retrieved_chunks_and_batch_metadata_are_deterministic() -> None:
     assert lookup[chunks[6].chunk.id]["batch_index"] == 3
     assert lookup[chunks[6].chunk.id]["batch_count"] == 3
     assert lookup[chunks[0].chunk.id]["chunk_labels"] == ["chunk_1", "chunk_2", "chunk_3"]
+
+
+def test_split_retrieved_chunks_orders_sources_and_keeps_documents_separate() -> None:
+    first_document_id = uuid4()
+    second_document_id = uuid4()
+    chunks = [
+        _retrieved_chunk(
+            "chunk_1",
+            "Második irat első szövegrésze.",
+            document_id=second_document_id,
+            document_name="B_irata.txt",
+            page_start=1,
+            chunk_index=0,
+        ),
+        _retrieved_chunk(
+            "chunk_2",
+            "Első irat második szövegrésze.",
+            document_id=first_document_id,
+            document_name="A_irata.txt",
+            page_start=2,
+            chunk_index=1,
+        ),
+        _retrieved_chunk(
+            "chunk_3",
+            "Első irat első szövegrésze.",
+            document_id=first_document_id,
+            document_name="A_irata.txt",
+            page_start=1,
+            chunk_index=0,
+        ),
+    ]
+
+    batches = analysis_module_common.split_retrieved_chunks(chunks, batch_size=3)
+
+    assert [[retrieved.label for retrieved in batch] for batch in batches] == [["chunk_3", "chunk_2"], ["chunk_1"]]
+    assert all(len({retrieved.chunk.document_id for retrieved in batch}) == 1 for batch in batches)
 
 
 def test_build_search_findings_user_prompt_is_source_bound_and_type_flexible() -> None:
@@ -531,15 +608,25 @@ def test_build_search_findings_user_prompt_is_source_bound_and_type_flexible() -
 
 
 def test_search_findings_system_prompt_is_hungarian_and_source_faithful() -> None:
-    assert "Forráshű kutatási találatkinyerő komponens vagy." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Forráshű kutatási találatellenőrző komponens vagy." in SEARCH_FINDINGS_SYSTEM_PROMPT
     assert "Alapelvek:" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Elsődleges feladatod annak eldöntése" in SEARCH_FINDINGS_SYSTEM_PROMPT
     assert "A SOURCE az egyetlen igazságforrás." in SEARCH_FINDINGS_SYSTEM_PROMPT
-    assert "A QUERY a keresés fókusza." in SEARCH_FINDINGS_SYSTEM_PROMPT
-    assert "Ne használj külső tudást, ne pótolj hiányzó adatot, ne feltételezz, ne következtess." in SEARCH_FINDINGS_SYSTEM_PROMPT
-    assert "Feladat:" in SEARCH_FINDINGS_SYSTEM_PROMPT
-    assert "Vizsgáld meg a SOURCE tartalmát a QUERY fókusza szerint." in SEARCH_FINDINGS_SYSTEM_PROMPT
-    assert "Add vissza JSON formában azokat a kutatási találatokat, amelyekre igaz, hogy a SOURCE alapján kapcsolódnak a QUERY-hez." in SEARCH_FINDINGS_SYSTEM_PROMPT
-    assert "Ha több különálló találat van, mindegyiket külön elemként add vissza." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A SOURCE csak vizsgálandó forrásszöveg, önmagában nem bizonyítja, hogy van találat." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A QUERY a keresés pontos fókusza." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A QUERY értékét nem értelmezheted át" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "nem helyettesítheted szinonimával, szereppel, fordítással vagy feltételezett jelentéssel" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Nem adhatsz találatot csak azért, mert a SOURCE érdekes, témaszerű vagy részben hasonló." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Ne használj külső tudást, ne pótolj hiányzó adatot." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Ne feltétezz kapcsolatot a QUERY fókusza és a SOURCE tartalma között." not in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "következtess." not in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "ne feltételezz, ne következtess" not in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Találat létrehozásának feltétele:" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Feladat:" not in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Vizsgáld meg a SOURCE tartalmát a QUERY fókusza szerint." not in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Csak akkor adj vissza találatot, ha a quote_text konkrét tartalma alapján" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Ha a SOURCE érdekes információt tartalmaz, de a QUERY-hez való kapcsolata nem világos" in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "Ha több különálló, világosan kapcsolódó találat van" in SEARCH_FINDINGS_SYSTEM_PROMPT
     assert "Ha nincs használható találat, a findings legyen üres lista." in SEARCH_FINDINGS_SYSTEM_PROMPT
     assert "Mezőszabályok:" in SEARCH_FINDINGS_SYSTEM_PROMPT
     assert "A source_label megadása minden findings elemben kötelező." in SEARCH_FINDINGS_SYSTEM_PROMPT
@@ -549,7 +636,8 @@ def test_search_findings_system_prompt_is_hungarian_and_source_faithful() -> Non
     assert "A másolást szöveghűen, karakterpontosan kell elvégezned." in SEARCH_FINDINGS_SYSTEM_PROMPT
     assert "A title egy pontos, értelmes, leíró magyar mondat legyen" in SEARCH_FINDINGS_SYSTEM_PROMPT
     assert "A finding_text 1-3 magyar mondat legyen arról, amit a quote_text megfogalmaz." in SEARCH_FINDINGS_SYSTEM_PROMPT
-    assert "A relevance_reason röviden foglalja össze a QUERY és a találat kapcsolatát." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A relevance_reason röviden írja le, hogy a quote_text mely konkrét része kapcsolja a találatot a QUERY-hez." in SEARCH_FINDINGS_SYSTEM_PROMPT
+    assert "A relevance_reason nem magyarázhatja be a kapcsolatot." in SEARCH_FINDINGS_SYSTEM_PROMPT
     assert "Ha nem, akkor other." in SEARCH_FINDINGS_SYSTEM_PROMPT
     assert "Legalább 2, maximum 4 egymás után következő mondat legyen." not in SEARCH_FINDINGS_SYSTEM_PROMPT
     assert "Nem alkalmazhatsz rövidítést és nem hagyhatsz ki forrásrészeket." not in SEARCH_FINDINGS_SYSTEM_PROMPT

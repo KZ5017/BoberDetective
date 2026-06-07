@@ -338,6 +338,21 @@ Valasz:
 
 Elso implementalt szeletben a futas szinkron. A service a kivalasztott oldaltartomany aktualis oldalait egyetlen LLM-keresben kuldi ki. Az aktualis prompt nem ker karakterpontos idezetet az LLM-tol: a modell `display_label`, `recommended_search_focus` es `source_label` mezot ad, a backend pedig a megadott vagy kivalasztott oldalakon megkeresi a `display_label` forrasbeli alakjat, es ebbol epiti a mentett `source_evidence` mezot. Ha a nevalak nem validalhato, az elem nem veszik el, hanem nem megerositett munkalista-elemkent marad kezelheto.
 
+Aktualis JSON feldolgozasi megjegyzes, 2026-06-07:
+
+- az LLM valasz eloszor a kozos JSON parseren megy at,
+- ha ez elhasal belso, nem escape-elt dupla idezojel miatt, a teljes iratfeldolgozas sajat, sémaspecifikus fallback parsert hasznal,
+- ez a fallback csak az aktualis minimalis items alakot probalja visszanyerni: `item_kind`, `display_label`, `recommended_search_focus`, `source_label`,
+- a recovered elemek nem kerulik meg a forrasvalidaciot; ugyanugy lefut rajtuk a page/source-label korrekcio, display-label keresese es nem megerositett munkalista-logika.
+
+Pelda kezelt hibatipus:
+
+```json
+{"items":[{"item_kind":"person","display_label":"Mademoiselle Camilla L"Espanaye","recommended_search_focus":"Mademoiselle Camilla L"Espanaye áldozat","source_label":"page_6"}]}
+```
+
+Ez JSON-kent hibas, de a mezosorrendhez kotott fallback vissza tudja nyerni a jeloltet, majd a backend validacio donti el, hogy a forrasban igazolhato-e.
+
 Kesobbi nagyobb iratokhoz jobb lehet a hatterjob-szeru modell:
 
 ```text

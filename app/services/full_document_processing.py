@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import json
 import re
 from typing import Any
 from uuid import UUID
@@ -175,7 +176,7 @@ def run_full_document_processing(
                 temperature=0.1,
                 max_tokens=FULL_DOCUMENT_PROCESSING_MAX_OUTPUT_TOKENS,
             )
-            parsed = parse_llm_json_object(completion.content)
+            parsed = parse_full_document_processing_llm_json_object(completion.content)
             valid_items, unsupported_items = validate_full_document_processing_payload(parsed, profile, page_sources)
         except Exception as exc:
             unsupported_items.append(f"LLM válasz feldolgozási hiba: {exc}")
@@ -356,6 +357,80 @@ PROFILE:
 
 SOURCE:
 {source_pages}"""
+
+
+def parse_full_document_processing_llm_json_object(raw_content: str) -> dict[str, Any]:
+    try:
+        return parse_llm_json_object(raw_content)
+    except Exception as exc:
+        recovered = _recover_full_document_processing_json_fields(raw_content)
+        if recovered is None:
+            raise exc
+        return recovered
+
+
+def _recover_full_document_processing_json_fields(raw_content: str) -> dict[str, Any] | None:
+    cleaned = raw_content.strip()
+    object_start = cleaned.find("{")
+    object_end = cleaned.rfind("}")
+    if object_start != -1 and object_end > object_start:
+        cleaned = cleaned[object_start : object_end + 1]
+    item_starts = [match.start() for match in re.finditer(r'"item_kind"\s*:', cleaned)]
+    if not item_starts:
+        return None
+
+    fields = [
+        ("item_kind", "display_label"),
+        ("display_label", "recommended_search_focus"),
+        ("recommended_search_focus", "source_label"),
+    ]
+    items: list[dict[str, Any]] = []
+    for index, start in enumerate(item_starts):
+        end = item_starts[index + 1] if index + 1 < len(item_starts) else len(cleaned)
+        segment = cleaned[start:end]
+        item: dict[str, Any] = {}
+        for field_name, next_field in fields:
+            value = _extract_ordered_json_string_field(segment, field_name, next_field=next_field)
+            if value is None:
+                return None
+            item[field_name] = value
+        source_label = _extract_final_json_string_field(segment, "source_label")
+        if source_label is None:
+            return None
+        item["source_label"] = source_label
+        items.append(item)
+    return {"items": items}
+
+
+def _extract_ordered_json_string_field(raw_content: str, field_name: str, *, next_field: str) -> str | None:
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*"(.*)"\s*,\s*"{re.escape(next_field)}"\s*:'
+    match = re.search(pattern, raw_content, flags=re.DOTALL)
+    if match is None:
+        return None
+    return _decode_json_string_fragment(match.group(1))
+
+
+def _extract_final_json_string_field(raw_content: str, field_name: str) -> str | None:
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*"(.*?)"\s*}}\s*(?:,\s*\{{)?\s*(?:\]\s*}})?\s*$'
+    match = re.search(pattern, raw_content.strip(), flags=re.DOTALL)
+    if match is None:
+        return None
+    return _decode_json_string_fragment(match.group(1))
+
+
+def _decode_json_string_fragment(value: str) -> str:
+    normalized = value.replace("\r", "\\r").replace("\n", "\\n")
+    try:
+        return str(json.loads(f'"{normalized}"'))
+    except json.JSONDecodeError:
+        return (
+            value
+            .replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace('\\"', '"')
+            .replace("\\/", "/")
+            .replace("\\\\", "\\")
+        )
 
 
 def validate_full_document_processing_payload(

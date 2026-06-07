@@ -33,8 +33,9 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest: 278 passed
-alembic: 0043_document_collections (head)
+pytest: 304 passed
+alembic: 0045_limit_rag_answer_modes (head)
+npm --prefix frontend run build: passed
 ```
 
 ## What Works Now
@@ -43,7 +44,7 @@ alembic: 0043_document_collections (head)
 - Minimal React/Vite frontend workbench scaffold under `frontend/`.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0043_document_collections`.
+- Alembic migrations through `0045_limit_rag_answer_modes`.
 - Immutable TXT import with page/chunk persistence plus first physical text-store writes.
 - Explicit imported-document processing validation run flow.
 - Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile, page persistence, and `parse_document` analysis run provenance.
@@ -83,6 +84,8 @@ alembic: 0043_document_collections (head)
 - A targeted Full HD / 1080p media query is active. It overrides the same token system for denser 1080p use: smaller typography/spacing/control heights, compact sidebar/model controls, unified 1080p button sizing, source/detail quote sizing, searchable-select clear-button alignment, and compact object-fact cards. Keep future 1080p tuning inside this media query and prefer token or role-level overrides over broad per-component fixes.
 - Iratgyujtemeny source-scope integration is implemented for the active research workflow: `search_findings` accepts `source_mode=collection` with `collection_id`, resolves the collection to a deduplicated active document set, records `collection_id` in analysis run input parameters, and uses the resolved document set for keyword/semantic/hybrid source selection.
 - Chunk indexing and index readiness now support selected collection scopes: `ChunkIndexRequest` and `GET /api/v1/cases/{case_id}/indexes/chunks/status` accept `collection_id`, resolve it through the backend source-scope resolver, and the frontend `Elemzés` panel exposes `Iratgyűjtemény` as a searchable source-scope selector with matching index status and background indexing behavior.
+- The separate `Általános iratkérdező` work surface is implemented as a local RAG question-answering module over selected case/document/collection source scopes. Design decisions and current contract notes are recorded in `Design_documents/20_general_rag_question_answering_plan.md`: temporary answers are overwritten by the next query, only explicit `Válasz mentése` creates a durable `rag_answers` record, every query keeps `rag_query` `analysis_run` provenance, and the module must not replace strict workbench workflows such as `search_findings` or full-document person seeds. The backend foundation is implemented through migrations `0044_rag_answers` and `0045_limit_rag_answer_modes`, `RagAnswerModel`, `app/schemas/rag.py`, `app/services/rag.py`, `app/api/v1/rag.py`, router registration, and `tests/test_rag.py`. Current `/rag/query` resolves the selected case/document/collection source scope, reuses the existing retrieval foundation, records selected chunks as analysis-run inputs, returns backend-owned `used_sources`, sends labeled source packets to LM Studio, parses the minimal RAG JSON answer, and persists the response summary for explicit `save-answer`. RAG answer modes are intentionally limited to `short` and `detailed`; the experimental `source_focused` / `strict_source` modes were removed from frontend/backend/schema/DB after live tests showed worse hallucinated role attribution under stricter wording.
+- Current RAG answer generation defaults to `hybrid` retrieval, `max_chunks=45`, max `90`, and document-isolated generation when multiple documents contribute selected chunks: retrieval still selects chunks by relevance, selected chunks are reordered by document/page/chunk, each contributing document gets a separate document-level LLM partial answer, and a final synthesis LLM call answers from those partial answers. Single-document RAG still uses one direct LLM call. Responses expose `retrieval_metadata.document_answer_count` so the UI can show how many document partial answers contributed.
 - Full case deletion is available through `DELETE /api/v1/cases/{case_id}` and the frontend `Ügy végleges törlése` action. It deletes case-owned DB rows, requests Qdrant point deletion by `case_id`, removes the case data-root directory, and writes a surviving global `case_deleted` audit event.
 - Latest full workflow/delete smoke: user completed two-file import, OCR on both files, chunk creation, indexing, keyword search, hybrid search, and conversion of one finding from each path into structured objects without errors. Frontend full-case delete then removed the case. Post-delete checks found no case-owned DB rows, no case data-root directory, and zero Qdrant points for the deleted case; only intended `audit_events` and the dev user remained.
 - First full-document processing backend foundation exists through migration `0039_doc_proc_items`: `document_processing_items` table, `full_document_processing` analysis run type, `document_processing_item` analysis output type, SQLAlchemy model, schemas, profile registry, read/list/status API skeleton, and a first run-start API/service slice.
@@ -91,7 +94,7 @@ alembic: 0043_document_collections (head)
 - Full-document processing currently has exactly one active profile: `person_search_seeds`. The earlier planned non-person/entity search profile was removed until it can be redesigned separately with its own prompt and validation contract.
 - Full-document source evidence is built by the backend from the returned `display_label` plus `source_label`: the label must be found on the selected source page, matching is tolerant of OCR spacing such as `Pistabá` vs `Pista bá`, and the stored evidence uses the exact original source substring and character span. Repeated exact labels are preserved as worklist candidates and list responses expose `occurrence_status` (`unique` / `repeated`) for the frontend label.
 - Full-document person-profile fields are intentionally minimal: the LLM returns `display_label`, `recommended_search_focus`, and `source_label`. The prompt does not ask for `short_description` or model-provided `unsupported_items`; backend validation still records its own `unsupported_items` diagnostics. The backend uses the LLM `recommended_search_focus` when present and falls back to the validated `display_label` only when missing.
-- Full-document source-label validation is tolerant of LLM page-label mistakes: the claimed `source_label` is tried first, but if the validated person label is not found there, the backend searches the selected page range and stores the actual page where the label is found. If the label is not present anywhere in the selected source pages, the item is still saved as a normal worklist item with empty `source_evidence_json`, a `Nem megerősített` frontend label/style, and validation metadata recording the LLM-proposed page label and reason.
+- Full-document source-label validation is tolerant of LLM page-label mistakes: the claimed `source_label` is tried first, but if the validated person label is not found there, the backend searches the selected page range and stores the actual page where the label is found. If the label is not present anywhere in the selected source pages, the item is still saved as a normal worklist item with empty `source_evidence_json`, a `Nem megerősített` frontend label/style, and validation metadata recording the LLM-proposed page label and reason. Full-document person processing also has a schema-specific JSON fallback parser for local-model responses where internal double quotes in names/focus text were not escaped; recovered items still pass the normal backend source validation.
 - The `Teljes iratfeldolgozás` frontend surface is connected to backend profiles, selected-document page-range run-start execution, active/set-aside item list loading, inline source-evidence display, set-aside/restore item status changes, deletion marking, "összes látható törlésre jelölése", bulk soft-delete, display-label search within the worklist, and one-click focus handoff back to the `Ügy munkapad` `search_findings` workflow.
 - Runtime reads for source text now go through physical text-store helpers: analysis run previews, review report source excerpts, research finding source excerpts, `search_findings` SOURCE block construction, LLM quote validation, source-reference quote/span validation, source-cited smoke analysis, embedding input, explicit chunk creation, and page/chunk detail API responses no longer depend on DB-stored full text.
 - Source references with quote validation.
@@ -117,7 +120,7 @@ alembic: 0043_document_collections (head)
 - Latest background indexing smoke succeeded against the Morgue PDF: a 16-chunk forced reindex returned immediately with run `603f6b0b-1337-4048-a1c4-139a8f9a049d`, status polling showed `0/16 -> 8/16 -> 16/16`, and the run finished `succeeded` / `passed`.
 - Historical focused analysis smokes with the removed raw modules remain useful as test history, but they no longer describe active workflows.
 - Regression smoke for the query `elkövető személye` now passes with both `hybrid` and `semantic` retrieval after adding strict JSON repair for claim extraction responses with unescaped quote characters.
-- Claim extraction also has deterministic lenient field recovery for malformed `quote_text` values with internal quotes when both the original model response and JSON-repair response are invalid JSON; recovered candidates still require exact quote text in the selected source chunk.
+- `search_findings` has deterministic schema-specific field recovery for malformed JSON caused by internal quotes in ordered finding fields. Recovered candidates still go through source-label, quote repair, source-valid/source-invalid classification, and normal persistence validation.
 - User-side semantic/hybrid retrieval smoke after switching to the lighter local model profile found the selected sources broadly consistent with the current retrieval design, with no obvious quality regression observed yet. Remaining gaps are expected to be addressed by ranking calibration, broader source-mode integration, and clearer source-selection visibility.
 - First hybrid ranking calibration slice is implemented: hybrid source retrieval gives explicit scoring weight to keyword score, semantic score, exact phrase evidence, and keyword/semantic overlap. Source selection now collects candidates across every query variant before applying the final chunk cap, so later keyword/normalized query hits are not starved by the first semantic result set.
 - Document and case source modes use retrieval-aware source selection from the required focus text. In document mode, retrieval is constrained to the selected document; in case mode, it can search the whole case.
@@ -128,7 +131,7 @@ alembic: 0043_document_collections (head)
 - Document taxonomy/source-filtering planning exists historically in `Design_documents/11_document_taxonomy_and_source_filtering_plan.md`, but the large-case import/retrieval direction has changed. `Design_documents/19_document_taxonomy_retirement_plan.md` is now the active cleanup record for removing import-time document group/type workflows. Frontend taxonomy workflow cleanup, backend API/filter cleanup, and DB/model/search-entry column removal are implemented. Migration `0037_remove_doc_taxonomy` removes `documents.document_group_code`, `documents.document_type_code`, `document_search_entries.document_group_code`, `document_search_entries.document_type_code`, and the related taxonomy indexes/constraints. Do not build new behavior on document group/type filters.
 - Document lifecycle/parking foundation is implemented through migration `0020_document_lifecycle_status`. Documents have `lifecycle_status` values `active`, `excluded`, and `archived`, with status-change metadata and audit events. Active documents are the only source material for new indexing, retrieval, raw-chunk analysis, source-reference creation, manual source-bound object creation, detached-source reattachment, source move/detach/merge operations, and contradiction candidate creation/claim selection. Existing findings from inactive documents remain visible for historical review, and review report sources show the source document lifecycle status.
 - Early document discard/delete is available only for safely discardable documents before they become analysis/source material. Once chunks, source references, analysis inputs, or review consequences exist, documents are parked through `excluded` or `archived` instead of being physically removed.
-- Frontend source-search strategy selection is available for document/case finding search. `Szovegresz plafon` defaults to 30 and is capped at 50; the same cap is enforced by the backend. `Batch meret` defaults to 1, is backend-validated between 1 and 15, and controls how the selected source chunks are split into LLM calls. Semantic/hybrid index readiness is required before semantic/hybrid retrieval can run. User-side smoke testing confirmed that short concrete focus terms may lose recall in larger batches even when retrieval selected the correct chunk, so the frontend focus helper recommends trying `1-3` for short, concrete focus values. Selected-document page-range controls have been removed from the frontend.
+- Frontend source-search strategy selection is available for document/case/collection finding search. `Szovegresz plafon` defaults to 45 and is capped at 90; the same cap is enforced by the backend. `Maximalis batch meret` defaults to 3, is backend-validated between 1 and 15, and controls the largest per-call chunk count. Retrieval still selects chunks by relevance, but before LLM calls the selected chunks are reordered by document/page/chunk and split so a single LLM batch never mixes chunks from different documents. Semantic/hybrid index readiness is required before semantic/hybrid retrieval can run. Selected-document page-range controls have been removed from the frontend. A previous attempt to add backend keyword-anchor gating was intentionally reverted; relevance remains the LLM's task after retrieval.
 - Analysis batch processing is captured in `Design_documents/10_analysis_batch_processing_plan.md`, but the active raw-source analysis path is now `search_findings`.
 - Strategic analysis-model change is captured in `Design_documents/12_source_bound_findings_model_plan.md` and `Design_documents/13_legacy_analysis_module_retirement_plan.md`: the raw chunk-based automatic extraction modules have been retired from active code paths in favor of a source-bound `research_finding` workflow.
 - First `research_finding` backend foundation exists through migration `0021_research_findings`: `research_findings` table, SQLAlchemy model, schemas, internal create/list/get service, read-only list/detail API, and analysis-run output summary support.
@@ -218,6 +221,7 @@ exports, export_items,
 contradiction_candidates, contradiction_candidate_sources,
 missing_item_candidates, missing_item_candidate_sources,
 research_findings, document_processing_items, detached_source_items,
+rag_answers,
 alembic_version
 ```
 
@@ -270,6 +274,14 @@ Full-document processing:
 - `GET /api/v1/cases/{case_id}/documents/{document_id}/full-document-processing/items`
 - `POST /api/v1/cases/{case_id}/full-document-processing/items/bulk-delete`
 - `PATCH /api/v1/cases/{case_id}/full-document-processing/items/{item_id}`
+
+General RAG question answering:
+
+- `POST /api/v1/cases/{case_id}/rag/query`
+- `POST /api/v1/cases/{case_id}/rag/runs/{analysis_run_id}/save-answer`
+- `GET /api/v1/cases/{case_id}/rag/answers`
+- `GET /api/v1/cases/{case_id}/rag/answers/{answer_id}`
+- `DELETE /api/v1/cases/{case_id}/rag/answers/{answer_id}`
 
 Reviewable objects:
 

@@ -15,6 +15,7 @@ from app.api.v1.exports import router as exports_router
 from app.api.v1.full_document_processing import router as full_document_processing_router
 from app.api.v1.manual_entries import router as manual_entries_router
 from app.api.v1.missing_items import router as missing_items_router
+from app.api.v1.rag import router as rag_router
 from app.api.v1.review_report import router as review_report_router
 from app.api.v1.research_findings import router as research_findings_router
 from app.api.v1.search import router as search_router
@@ -37,6 +38,7 @@ api_router.include_router(exports_router, tags=["exports"])
 api_router.include_router(full_document_processing_router, tags=["full-document-processing"])
 api_router.include_router(manual_entries_router, tags=["manual-entries"])
 api_router.include_router(missing_items_router, tags=["missing-items"])
+api_router.include_router(rag_router, tags=["rag"])
 api_router.include_router(review_report_router, tags=["review-report"])
 api_router.include_router(research_findings_router, tags=["research-findings"])
 api_router.include_router(search_router, tags=["search"])

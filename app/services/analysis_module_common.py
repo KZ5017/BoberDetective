@@ -415,10 +415,36 @@ def _document_is_active(db: Session, case_id: UUID, document_id: UUID) -> bool:
     ).scalar_one_or_none() is not None
 
 
+def order_retrieved_chunks_for_llm(retrieved_chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+    return sorted(
+        retrieved_chunks,
+        key=lambda retrieved: (
+            retrieved.document_name.casefold(),
+            retrieved.chunk.document_id,
+            retrieved.chunk.page_start or 0,
+            retrieved.chunk.chunk_index,
+            retrieved.chunk.id,
+        ),
+    )
+
+
 def split_retrieved_chunks(retrieved_chunks: list[RetrievedChunk], batch_size: int) -> list[list[RetrievedChunk]]:
     if batch_size < 1:
         raise AnalysisModuleError("batch_size must be at least 1")
-    return [retrieved_chunks[index : index + batch_size] for index in range(0, len(retrieved_chunks), batch_size)]
+    ordered_chunks = order_retrieved_chunks_for_llm(retrieved_chunks)
+    batches: list[list[RetrievedChunk]] = []
+    current_batch: list[RetrievedChunk] = []
+    current_document_id: UUID | None = None
+    for retrieved in ordered_chunks:
+        document_id = retrieved.chunk.document_id
+        if current_batch and (document_id != current_document_id or len(current_batch) >= batch_size):
+            batches.append(current_batch)
+            current_batch = []
+        current_batch.append(retrieved)
+        current_document_id = document_id
+    if current_batch:
+        batches.append(current_batch)
+    return batches
 
 
 def chunk_batch_lookup(batches: list[list[RetrievedChunk]]) -> dict[UUID, dict[str, Any]]:
