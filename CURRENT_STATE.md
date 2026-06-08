@@ -410,11 +410,13 @@ Latest document-processing/PDF smoke:
 
 Recommended order:
 
-1. Continue live-testing and hardening the implemented `Általános iratkérdező` work surface, especially multi-document synthesis quality, saved-answer ergonomics, and source-scope/index-readiness behavior.
-2. Keep `search_findings`, full-document person seeds, source validation, research-finding conversion, and contradiction detection strict and auditable beside the freer RAG question layer.
-3. Add multi-collection source-scope selection only where an analysis/RAG workflow genuinely needs it; the current first implementation intentionally supports one selected collection at a time.
-4. Treat a serious `Jogszabályi kereső` as a later specialized module with law/section/paragraph/effective-date semantics, not as a small mode inside generic RAG.
-5. Expand the new `Audit napló` work surface into the dedicated full audit-log workflow/API/panel backed by `audit_events` after the RAG/source-scope layer remains stable under live use.
+1. Implement the first global `Tudásbázis` backend slice from `Design_documents/21_markdown_knowledge_base_module_plan.md`: `knowledge_documents` migration/model/schema, deterministic Markdown parser/chunker, data-root/text-store backed `.md` import, and `/api/v1/knowledge/documents` import/list/detail endpoints.
+2. After that backend import/chunking slice is stable, add knowledge indexing and knowledge-only RAG over the separate knowledge Qdrant collection.
+3. Keep `search_findings`, full-document person seeds, source validation, research-finding conversion, RAG question answering, and contradiction detection strict/stable while the knowledge-base module is planned and implemented.
+4. Keep the dedicated `Audit napló` backend/API/panel backed by `audit_events` as the following larger work surface after the knowledge-base slice; it should remain separate from `Elemzési előzmények`, which is based on `analysis_runs`.
+5. Add multi-collection source-scope selection only where an analysis/RAG/knowledge-base workflow genuinely needs it; the current first implementation intentionally supports one selected collection at a time.
+6. Treat a serious `Jogszabályi kereső` as a later specialized module with law/section/paragraph/effective-date semantics, not as a small mode inside generic RAG.
+7. Continue live-test driven fixes for the implemented RAG/full-document/UI layers, but do not treat them as the main planned slice unless a concrete bug or quality issue appears.
 
 Rationale:
 
@@ -424,7 +426,7 @@ Rationale:
 - Document lifecycle is now an active-source gate. Inactive documents must remain historically visible where already cited, but must not become new source material unless restored to `active`.
 - The former raw-chunk automatic extraction modules have already been retired from active code paths. Keep cleanup/documentation focused on the current source-bound `search_findings` workflow and the downstream claim-pair contradiction workflow.
 - Contradiction detection is downstream of source-cited claims, so it should remain claim-pair based and preserve `no source -> no claim` through claim/source-reference provenance.
-- The next major system direction is an `Általános iratkérdező` / local RAG question-answering layer. It should not replace the strict worklist workflows; it should reuse the existing text-store, retrieval, embedding, source-scope, LM Studio, and analysis-run foundations to answer free-form questions over a selected local corpus, while still preserving internal source provenance.
+- The previous major system direction, the `Általános iratkérdező` / local RAG question-answering layer, now has a stable first implementation baseline. It should remain beside the strict worklist workflows, not replace them. The next larger planned direction is now a dedicated `Tudásbázis` module for Markdown-based structured knowledge material, planned in `Design_documents/21_markdown_knowledge_base_module_plan.md`. That plan now includes DB/API contract v1, Markdown parser/chunker contract v1, and backend implementation plan v1. The dedicated `Audit napló` backend/API/panel over `audit_events` remains the next larger work surface after that.
 - UI work-surface architecture and the current CSS token/role baseline are captured in `Design_documents/14_work_surface_ui_architecture_plan.md`. The first shell/navigation slice is implemented: the current workbench is available as `Ügy munkapad`, with surfaces for `Teljes iratfeldolgozás` and `Audit napló`.
 - The `Teljes iratfeldolgozás` surface is backend-connected: active-document search/selection, processing profile selection, selected-document summary, page-range run-start, last-run validation summary, active/set-aside worklist views, inline source evidence display, restore, repeated-label tags, worklist name search, deletion marking with all-visible selection plus bulk delete, and focus handoff are implemented.
 - Full-document processing backend contract is captured in `Design_documents/15_full_document_processing_plan.md`. `document_processing_item` is a separate preparatory work item, not a `research_finding` and not a structured review object. The current backend/frontend slice exposes profile listing, selected page-range run-start execution, item list/status APIs, active/set-aside worklist views, repeated-label occurrence tags, worklist name search, deletion marking with all-visible selection plus bulk delete, and focus handoff into the `Ügy munkapad`.

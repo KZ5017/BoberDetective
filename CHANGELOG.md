@@ -4,12 +4,14 @@
 
 ### Added
 
+- Added `Design_documents/21_markdown_knowledge_base_module_plan.md` as the first design foundation for the next larger `Tudásbázis` slice: Markdown import, `knowledge_base` / `markdown_note` separation, knowledge-base-only RAG, explicit non-goals around not mixing these documents into investigative workflows, a DB/API contract v1 direction around global `knowledge_documents`, `/api/v1/knowledge/*`, separate knowledge-vector indexing, a Markdown parser/chunker contract v1 covering UTF-8, frontmatter, heading paths, code-block-safe chunking, Obsidian wikilinks/tags, source display, quality flags, and a backend implementation plan v1 for the first import/chunking slice.
 - Added `GET /api/v1/cases/{case_id}/rag/latest-run-summary` so the `Általános iratkérdező` work surface can show the last RAG query persistently after refresh.
 - Added case-scope selected-document filtering to RAG queries through `document_ids`, matching the selected-document checkbox/radio source-scope behavior already used in the analysis workflow.
 - Saved RAG answers now preserve `source_summary` in retrieval metadata and show it again in saved-answer details.
 
 ### Changed
 
+- Reframed the next larger development slice around a dedicated `Tudásbázis` module: Markdown (`.md`) material should be handled as structured knowledge-base content through a separate `knowledge_base` / `markdown_note` path, not mixed into investigative case-file workflows. The dedicated `Audit napló` surface remains the following larger work item.
 - Polished the `Általános iratkérdező` frontend into the same visual rhythm as `Ügy munkapad`: top semantic-index/latest-query status row, aligned query controls, richer source selectors, balanced answer/source columns, improved saved-answer empty state, and detail-panel scroll behavior.
 - Full-document processing focus handoff now fills the `Ügy munkapad` focus field and scrolls directly to the `Elemzés` panel.
 - Refreshed WSL/Codex startup documentation with the robust `setsid -f` backend/frontend launch pattern and verification commands.

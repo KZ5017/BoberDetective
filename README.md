@@ -136,11 +136,13 @@ PDF/OCR sample checks:
 
 Next:
 
-- Continue live-testing and hardening the implemented `Általános iratkérdező` / local RAG question-answering layer, including multi-document synthesis quality, saved-answer ergonomics, and source-scope/index-readiness behavior
-- Add multi-collection source scopes only where analysis/RAG workflows need them; the current first analysis/indexing integration uses one selected collection at a time
+- Plan the dedicated `Tudásbázis` module as the next larger development slice: Markdown (`.md`) documents should be imported and queried as structured knowledge-base material, not as investigative case files (`Design_documents/21_markdown_knowledge_base_module_plan.md`)
+- Introduce a clean `knowledge_base` / `markdown_note` document kind for that module, with Markdown-aware parsing/chunking and a separate RAG workflow limited to knowledge-base documents
+- Keep the dedicated `Audit naplo` API/panel backed by `audit_events` as the following larger work surface after the knowledge-base slice
+- Add multi-collection source scopes only where analysis/RAG/knowledge-base workflows need them; the current first analysis/indexing integration uses one selected collection at a time
 - Keep `search_findings`, full-document person seeds, source validation, and contradiction detection as strict auditable workbench workflows beside the freer RAG question-answering layer
 - Treat a serious `Jogszabályi kereső` as a later specialized module with law/section/paragraph/effective-date semantics, not as a small mode inside generic RAG
-- Revisit the full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history, after the RAG/source-scope layer remains stable under live use
+- Continue live-test driven hardening for the implemented `Általános iratkérdező`, full-document person profile, and responsive UI layers as concrete issues appear
 - Keep documentation cleanup around retired raw modules opportunistic; active capability lists should continue to point to `search_findings`
 - Consider durable job supervision if indexing grows beyond FastAPI background tasks
 
