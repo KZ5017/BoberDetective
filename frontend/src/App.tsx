@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import {
   Archive,
   CheckCircle2,
@@ -44,6 +44,7 @@ import {
   ManualObjectFromSourcePayload,
   ManualContradictionCandidatePayload,
   MissingItemCandidateRead,
+  RagLatestRunSummary,
   RagAnswerMode,
   RagQueryResponse,
   RagSavedAnswerDetail,
@@ -80,6 +81,7 @@ import {
   getAnalysisRun,
   getChunkIndexStatus,
   getLatestResearchFindingRunSummary,
+  getLatestRagRunSummary,
   getRagAnswer,
   getReviewReport,
   importDocument,
@@ -409,16 +411,22 @@ export function App() {
   const [ragQuestion, setRagQuestion] = useState("");
   const [ragSourceMode, setRagSourceMode] = useState<RagSourceMode>("case");
   const [ragDocumentId, setRagDocumentId] = useState("");
+  const [ragDocumentIds, setRagDocumentIds] = useState<string[]>([]);
+  const [ragDocumentSearch, setRagDocumentSearch] = useState("");
   const [ragCollectionId, setRagCollectionId] = useState("");
   const [ragAnswerMode, setRagAnswerMode] = useState<RagAnswerMode>("detailed");
   const [ragRetrievalStrategy, setRagRetrievalStrategy] = useState<RetrievalStrategy>("hybrid");
   const [ragMaxChunks, setRagMaxChunks] = useState(45);
   const [ragCurrentResponse, setRagCurrentResponse] = useState<RagQueryResponse | null>(null);
+  const [lastRagRun, setLastRagRun] = useState<RagLatestRunSummary | null>(null);
   const [ragSaveTitle, setRagSaveTitle] = useState("");
   const [ragSaveNote, setRagSaveNote] = useState("");
   const [ragSavedAnswers, setRagSavedAnswers] = useState<RagSavedAnswerListItem[]>([]);
   const [selectedRagAnswerId, setSelectedRagAnswerId] = useState("");
   const [selectedRagAnswer, setSelectedRagAnswer] = useState<RagSavedAnswerDetail | null>(null);
+  const [ragForceReindex, setRagForceReindex] = useState(false);
+  const [ragActiveIndexJobId, setRagActiveIndexJobId] = useState<string | null>(null);
+  const [ragChunkIndexStatus, setRagChunkIndexStatus] = useState<ChunkIndexStatusResponse | null>(null);
   const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("case");
   const [analysisDocumentId, setAnalysisDocumentId] = useState("");
   const [analysisDocumentIds, setAnalysisDocumentIds] = useState<string[]>([]);
@@ -440,7 +448,11 @@ export function App() {
   const [report, setReport] = useState<ReviewReport | null>(null);
   const [selectedReportItem, setSelectedReportItem] = useState<ReviewReportItem | null>(null);
   const objectDetailPanelRef = useRef<HTMLElement | null>(null);
+  const analysisPanelRef = useRef<HTMLElement | null>(null);
   const researchFindingsPanelRef = useRef<HTMLElement | null>(null);
+  const ragSavedDetailPanelRef = useRef<HTMLElement | null>(null);
+  const ragCurrentAnswerCardRef = useRef<HTMLElement | null>(null);
+  const [ragCurrentAnswerHeight, setRagCurrentAnswerHeight] = useState(0);
   const [lastExport, setLastExport] = useState<ExportDetail | null>(null);
   const [reviewComments, setReviewComments] = useState<Record<string, string>>({});
   const [objectTextEdit, setObjectTextEdit] = useState({ title: "", description: "" });
@@ -514,6 +526,10 @@ export function App() {
   const ragCollection = useMemo(
     () => documentCollections.find((collection) => collection.id === ragCollectionId) ?? null,
     [documentCollections, ragCollectionId]
+  );
+  const filteredRagCaseDocuments = useMemo(
+    () => filterDocumentsByName(analysisReadyDocuments, ragDocumentSearch),
+    [analysisReadyDocuments, ragDocumentSearch]
   );
   const targetCollectionDocumentIds = useMemo(
     () => new Set(documentCollectionTargetDocuments.map((document) => document.id)),
@@ -635,6 +651,8 @@ export function App() {
       : ragSourceMode === "collection"
         ? Boolean(ragCollectionId) && Boolean(ragCollection?.active_document_count)
         : analysisReadyDocuments.length > 0;
+  const ragUsesSemanticIndex = ragRetrievalStrategy !== "keyword" && ragQuestion.trim().length > 0;
+  const ragIndexJobIsRunning = ragChunkIndexStatus?.latest_run_status === "running";
   const canRunRagQuery = Boolean(selectedCaseId) && !busy && ragQuestion.trim().length > 0 && ragHasSource;
   const reportFilters = useMemo<ReviewReportFilterValues>(
     () => ({
@@ -855,6 +873,8 @@ export function App() {
     if (ragDocumentId && !analysisReadyDocuments.some((item) => item.id === ragDocumentId)) {
       setRagDocumentId("");
     }
+    const validDocumentIds = new Set(analysisReadyDocuments.map((item) => item.id));
+    setRagDocumentIds((current) => current.filter((documentId) => validDocumentIds.has(documentId)));
   }, [analysisReadyDocuments, ragDocumentId]);
 
   useEffect(() => {
@@ -901,6 +921,22 @@ export function App() {
   }, [selectedCaseId, canUseBatchScope, effectiveAnalysisSourceMode, analysisDocumentId, analysisDocumentIds, analysisCollectionId, retrievalStrategy, query]);
 
   useEffect(() => {
+    if (!selectedCaseId) {
+      setRagChunkIndexStatus(null);
+      return;
+    }
+    if (ragSourceMode === "document" && !ragDocumentId) {
+      setRagChunkIndexStatus(null);
+      return;
+    }
+    if (ragSourceMode === "collection" && !ragCollectionId) {
+      setRagChunkIndexStatus(null);
+      return;
+    }
+    void refreshRagChunkIndexStatus().catch(() => setRagChunkIndexStatus(null));
+  }, [selectedCaseId, ragSourceMode, ragDocumentId, ragDocumentIds, ragCollectionId]);
+
+  useEffect(() => {
     if (!selectedCaseId || !activeIndexJobId) {
       return;
     }
@@ -933,6 +969,38 @@ export function App() {
   }, [selectedCaseId, activeIndexJobId, effectiveAnalysisSourceMode, analysisDocumentId, analysisDocumentIds, analysisCollectionId]);
 
   useEffect(() => {
+    if (!selectedCaseId || !ragActiveIndexJobId) {
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await refreshRagChunkIndexStatus();
+        const runsResponse = await listAnalysisRuns(selectedCaseId);
+        if (cancelled) return;
+        setAnalysisRuns(runsResponse.data);
+        if (response?.latest_run_id === ragActiveIndexJobId && response.latest_run_status && response.latest_run_status !== "running") {
+          setRagActiveIndexJobId(null);
+          setNotice(response.latest_run_status === "succeeded" ? "Iratkérdező indexelés befejeződött." : "Iratkérdező indexelés hibával leállt.");
+          setLastActionSummary(
+            `Iratkerdezo indexeles: ${labelRunStatus(response.latest_run_status)}, ${response.latest_run_output_count}/${response.latest_run_input_count} szovegresz`
+          );
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Iratkérdező indexállapot lekérdezése sikertelen.");
+        }
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedCaseId, ragActiveIndexJobId, ragSourceMode, ragDocumentId, ragCollectionId]);
+
+  useEffect(() => {
     if (busyStartedAt === null) {
       setElapsedSeconds(0);
       return;
@@ -943,6 +1011,19 @@ export function App() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [busyStartedAt]);
+
+  useEffect(() => {
+    if (!ragCurrentResponse || !ragCurrentAnswerCardRef.current) {
+      setRagCurrentAnswerHeight(0);
+      return;
+    }
+    const element = ragCurrentAnswerCardRef.current;
+    const updateHeight = () => setRagCurrentAnswerHeight(element.getBoundingClientRect().height);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ragCurrentResponse]);
 
   async function perform(label: string, action: () => Promise<void>) {
     const startedAt = Date.now();
@@ -1298,6 +1379,7 @@ export function App() {
         researchFindingsResponse,
         researchFindingRunSummaryResponse,
         ragAnswersResponse,
+        ragLatestRunResponse,
         detachedSourcesResponse
       ] = await Promise.all([
         listDocuments(selectedCaseId),
@@ -1313,6 +1395,7 @@ export function App() {
         listResearchFindings(selectedCaseId),
         getLatestResearchFindingRunSummary(selectedCaseId),
         listRagAnswers(selectedCaseId),
+        getLatestRagRunSummary(selectedCaseId),
         listDetachedSourceItems(selectedCaseId)
       ]);
       setDocuments(documentsResponse.data);
@@ -1326,6 +1409,7 @@ export function App() {
       setResearchFindings(researchFindingsResponse.data);
       setLastResearchFindingRun(researchFindingRunSummaryResponse.latest_run);
       setRagSavedAnswers(ragAnswersResponse.data);
+      setLastRagRun(ragLatestRunResponse.latest_run);
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       setReport(reportResponse);
@@ -1718,14 +1802,19 @@ export function App() {
         question: ragQuestion.trim(),
         source_mode: ragSourceMode,
         document_id: ragSourceMode === "document" ? ragDocumentId : null,
+        document_ids: ragSourceMode === "case" ? ragDocumentIds : [],
         collection_id: ragSourceMode === "collection" ? ragCollectionId : null,
         answer_mode: ragAnswerMode,
         retrieval_strategy: ragRetrievalStrategy,
         max_chunks: ragMaxChunks,
         include_sources: true
       });
-      const runsResponse = await listAnalysisRuns(selectedCaseId);
+      const [runsResponse, latestRagResponse] = await Promise.all([
+        listAnalysisRuns(selectedCaseId),
+        getLatestRagRunSummary(selectedCaseId)
+      ]);
       setAnalysisRuns(runsResponse.data);
+      setLastRagRun(latestRagResponse.latest_run);
       setRagCurrentResponse(response);
       setRagSaveTitle(ragQuestion.trim().slice(0, 120));
       setRagSaveNote("");
@@ -1743,16 +1832,19 @@ export function App() {
         title: ragSaveTitle.trim() || null,
         note: ragSaveNote.trim() || null
       });
-      const [answersResponse, detail] = await Promise.all([
+      const [answersResponse, detail, latestRagResponse] = await Promise.all([
         listRagAnswers(selectedCaseId),
-        getRagAnswer(selectedCaseId, saved.answer_id)
+        getRagAnswer(selectedCaseId, saved.answer_id),
+        getLatestRagRunSummary(selectedCaseId)
       ]);
       setRagSavedAnswers(answersResponse.data);
+      setLastRagRun(latestRagResponse.latest_run);
       setSelectedRagAnswerId(saved.answer_id);
       setSelectedRagAnswer(detail);
       setRagCurrentResponse((current) => current ? { ...current, can_save: false } : current);
       setNotice("Iratkérdező válasz mentve.");
       setLastActionSummary(detail.title || detail.question);
+      scrollToRagSavedDetailPanel();
     });
   }
 
@@ -1764,6 +1856,7 @@ export function App() {
       setSelectedRagAnswer(detail);
       setNotice("Mentett iratkérdező válasz betöltve.");
       setLastActionSummary(detail.title || detail.question);
+      scrollToRagSavedDetailPanel();
     });
   }
 
@@ -1781,6 +1874,18 @@ export function App() {
       setNotice("Mentett iratkérdező válasz törölve.");
       setLastActionSummary(answer.title || answer.question);
     });
+  }
+
+  function scrollToRagSavedDetailPanel() {
+    window.setTimeout(() => {
+      ragSavedDetailPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
+  function scrollToAnalysisPanel() {
+    window.setTimeout(() => {
+      analysisPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }
 
   function toggleAnalysisDocumentFilter(documentId: string) {
@@ -1804,6 +1909,27 @@ export function App() {
     };
   }
 
+  function ragChunkIndexScopePayload() {
+    if (ragSourceMode === "document") {
+      return { document_id: ragDocumentId || null };
+    }
+    if (ragSourceMode === "collection") {
+      return { document_id: null, collection_id: ragCollectionId || null };
+    }
+    return {
+      document_id: null,
+      ...(ragDocumentIds.length > 0 ? { document_ids: ragDocumentIds } : {})
+    };
+  }
+
+  function toggleRagDocumentFilter(documentId: string) {
+    setRagDocumentIds((current) =>
+      current.includes(documentId)
+        ? current.filter((item) => item !== documentId)
+        : [...current, documentId]
+    );
+  }
+
   async function refreshChunkIndexStatus(documentIdOverride?: string | null): Promise<ChunkIndexStatusResponse | null> {
     if (!selectedCaseId) return null;
     const response = await getChunkIndexStatus(
@@ -1811,6 +1937,13 @@ export function App() {
       documentIdOverride !== undefined ? { document_id: documentIdOverride || null } : chunkIndexScopePayload()
     );
     setChunkIndexStatus(response);
+    return response;
+  }
+
+  async function refreshRagChunkIndexStatus(): Promise<ChunkIndexStatusResponse | null> {
+    if (!selectedCaseId) return null;
+    const response = await getChunkIndexStatus(selectedCaseId, ragChunkIndexScopePayload());
+    setRagChunkIndexStatus(response);
     return response;
   }
 
@@ -1833,6 +1966,29 @@ export function App() {
       setNotice("Szovegresz-indexeles elindult, az allapot automatikusan frissul.");
       setLastActionSummary(
         `Indexeles inditva: ${labelRunStatus(response.status)}, gyujtemeny: ${response.collection_name}`
+      );
+    });
+  }
+
+  async function handleIndexRagChunks() {
+    if (!selectedCaseId) return;
+    await perform("chunk-index", async () => {
+      const response = await startChunkIndexJob(selectedCaseId, {
+        ...ragChunkIndexScopePayload(),
+        limit: 1000,
+        force_reindex: ragForceReindex
+      });
+      const [runsResponse, documentsResponse] = await Promise.all([
+        listAnalysisRuns(selectedCaseId),
+        listDocuments(selectedCaseId)
+      ]);
+      setAnalysisRuns(runsResponse.data);
+      setDocuments(documentsResponse.data);
+      await refreshRagChunkIndexStatus();
+      setRagActiveIndexJobId(response.analysis_run_id);
+      setNotice("Iratkérdező indexelés elindult, az állapot automatikusan frissül.");
+      setLastActionSummary(
+        `Iratkerdezo indexeles inditva: ${labelRunStatus(response.status)}, gyujtemeny: ${response.collection_name}`
       );
     });
   }
@@ -3569,6 +3725,114 @@ export function App() {
     );
   }
 
+  function renderRagIndexStatusStrip() {
+    const hasIndexStatus = Boolean(ragChunkIndexStatus);
+    return (
+      <section className={`analysis-readiness-strip ${hasIndexStatus ? "" : "is-empty"}`}>
+        <div className="analysis-readiness-main">
+          <div>
+            <strong>Szemantikus index állapot</strong>
+            {ragChunkIndexStatus ? (
+              <span>
+                {[labelChunkIndexScope(ragChunkIndexStatus), ragChunkIndexStatus.embedding_model, ragChunkIndexStatus.collection_name]
+                  .filter(Boolean)
+                  .join(" | ")}
+              </span>
+            ) : (
+              <span>Az iratkérdező aktuális forráskörének indexelési készültsége itt jelenik meg.</span>
+            )}
+          </div>
+          {ragChunkIndexStatus ? (
+            <div className="metrics">
+              <span>{labelChunkIndexStatus(ragChunkIndexStatus)}</span>
+              <span>Indexelve: {ragChunkIndexStatus.indexed_chunk_count}/{ragChunkIndexStatus.current_chunk_count}</span>
+              <span>Hiányzik: {ragChunkIndexStatus.missing_chunk_count}</span>
+              {ragChunkIndexStatus.latest_run_id && (
+                <span>
+                  Utolsó: {ragChunkIndexStatus.latest_run_status ? labelRunStatus(ragChunkIndexStatus.latest_run_status) : "ismeretlen"}
+                  {ragChunkIndexStatus.latest_run_finished_at ? ` | ${new Date(ragChunkIndexStatus.latest_run_finished_at).toLocaleString()}` : ""}
+                </span>
+              )}
+              {ragChunkIndexStatus.latest_run_input_count > 0 && (
+                <span>
+                  Folyamat: {ragChunkIndexStatus.latest_run_output_count}/{ragChunkIndexStatus.latest_run_input_count}
+                  {ragChunkIndexStatus.latest_run_progress_percent !== null ? ` | ${ragChunkIndexStatus.latest_run_progress_percent}%` : ""}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="metrics">
+              <span>Nincs betöltött indexállapot</span>
+              <span>Forráskör váltásakor vagy frissítéskor töltődik</span>
+            </div>
+          )}
+          {ragIndexJobIsRunning && <p className="field-hint">Indexeles folyamatban, az allapot automatikusan frissul.</p>}
+          {ragUsesSemanticIndex && ragChunkIndexStatus && !ragChunkIndexStatus.is_ready && (
+            <p className="error-text">Szemantikus vagy hybrid kérdezéshez előbb indexelni kell az aktuális forráskört.</p>
+          )}
+        </div>
+        <div className="analysis-readiness-actions">
+          <button
+            className="secondary-button"
+            onClick={handleIndexRagChunks}
+            disabled={!selectedCaseId || Boolean(busy) || ragIndexJobIsRunning || !ragHasSource}
+            title="Lokális embedding és Qdrant index készítése az iratkérdező aktuális forrásköréhez"
+          >
+            {ragIndexJobIsRunning ? "Indexeles folyamatban" : "Szovegreszek indexelese"}
+          </button>
+          <label className="checkbox-label">
+            <input type="checkbox" checked={ragForceReindex} onChange={(event) => setRagForceReindex(event.target.checked)} />
+            Ujraindexeles
+          </label>
+        </div>
+      </section>
+    );
+  }
+
+  function renderRagRunSummaryStrip() {
+    if (!lastRagRun) {
+      return (
+        <section className="research-run-summary is-empty">
+          <div className="research-run-summary-heading">
+            <div>
+              <span>Utolsó iratkérdező keresés</span>
+              <strong>Még nincs iratkérdező futás ebben az ügyben.</strong>
+            </div>
+          </div>
+          <div className="metrics">
+            <span>A legutóbbi kérdés és válaszállapot itt jelenik meg</span>
+          </div>
+        </section>
+      );
+    }
+    return (
+      <section className="research-run-summary">
+        <div className="research-run-summary-heading">
+          <div>
+            <strong>Utolsó iratkérdező keresés - {lastRagRun.question || "Nincs megadott kérdés"}</strong>
+          </div>
+          <span className={`status-pill ${lastRagRun.status === "failed" || lastRagRun.insufficient_source ? "is-warning" : ""}`}>
+            {labelRagRunOutcome(lastRagRun)}
+          </span>
+        </div>
+        <div className="metrics">
+          <span>{labelRagSourceMode((lastRagRun.source_mode ?? "case") as RagSourceMode)}</span>
+          <span>{lastRagRun.selected_chunk_count} szövegrész</span>
+          {lastRagRun.retrieval_strategy && <span>{labelRetrievalStrategy(lastRagRun.retrieval_strategy)}</span>}
+          {lastRagRun.max_chunks !== null && <span>Plafon: {lastRagRun.max_chunks}</span>}
+          <span>{formatDateTime(lastRagRun.started_at)}</span>
+        </div>
+        <div className="metrics">
+          {lastRagRun.answer_mode && <span>{labelRagAnswerMode(lastRagRun.answer_mode)}</span>}
+          {lastRagRun.document_answer_count > 1 && <span>{lastRagRun.document_answer_count} részválasz</span>}
+          <span>{lastRagRun.used_source_count} forrás</span>
+          <span>{lastRagRun.saved_answer_id ? "Mentve" : "Nincs mentve"}</span>
+        </div>
+        {lastRagRun.error_message && <p className="error-text">{lastRagRun.error_message}</p>}
+      </section>
+    );
+  }
+
   function renderRagUsedSources(sources: RagUsedSource[]) {
     if (sources.length === 0) {
       return <p className="muted">A válaszhoz nem tartozik megjeleníthető forrásszövegrész.</p>;
@@ -3599,6 +3863,10 @@ export function App() {
     return (
       <section className="surface-placeholder general-rag-surface">
         {renderSurfaceHeader("general_rag")}
+        <section className="workbench-status-row rag-status-row">
+          {renderRagIndexStatusStrip()}
+          {renderRagRunSummaryStrip()}
+        </section>
         <section className="general-rag-grid">
           <section className="panel rag-query-panel">
             <div className="section-heading">
@@ -3606,48 +3874,6 @@ export function App() {
               <MessageSquare size={20} />
             </div>
             <div className="surface-form">
-              <label>
-                Forráskör
-                <select value={ragSourceMode} onChange={(event) => setRagSourceMode(event.target.value as RagSourceMode)}>
-                  <option value="case">{labelRagSourceMode("case")}</option>
-                  <option value="document">{labelRagSourceMode("document")}</option>
-                  <option value="collection">{labelRagSourceMode("collection")}</option>
-                </select>
-              </label>
-              {ragSourceMode === "document" && (
-                <div className="form-field">
-                  <span className="field-label">Irat</span>
-                  {renderSearchableSelect({
-                    queryKey: "rag-document",
-                    value: ragDocumentId,
-                    onChange: setRagDocumentId,
-                    options: analysisReadyDocuments.map((document) => ({
-                      id: document.id,
-                      label: `${document.original_filename} (${document.current_chunk_count} szövegrész)`,
-                      searchText: `${document.original_filename} ${document.sha256_hash}`
-                    })),
-                    placeholder: "Válassz iratot",
-                    searchPlaceholder: "Keresés az elemzésre kész iratok között",
-                    ariaLabel: "Iratkérdező forrásirat kiválasztása"
-                  })}
-                  {analysisReadyDocuments.length === 0 && <p className="muted">Nincs elemzésre kész aktív irat.</p>}
-                </div>
-              )}
-              {ragSourceMode === "collection" && (
-                <div className="form-field">
-                  <span className="field-label">Iratgyűjtemény</span>
-                  {renderSearchableSelect({
-                    queryKey: "rag-collection",
-                    value: ragCollectionId,
-                    onChange: setRagCollectionId,
-                    options: documentCollectionTargetOptions,
-                    placeholder: "Válassz iratgyűjteményt",
-                    searchPlaceholder: "Keresés az iratgyűjtemények között",
-                    ariaLabel: "Iratkérdező iratgyűjtemény kiválasztása"
-                  })}
-                  {documentCollections.length === 0 && <p className="muted">Még nincs iratgyűjtemény.</p>}
-                </div>
-              )}
               <div className="form-row">
                 <label>
                   Válasz típusa
@@ -3658,11 +3884,126 @@ export function App() {
                   </select>
                 </label>
                 <label>
-                  Forráskeresés
-                  <select value={ragRetrievalStrategy} onChange={(event) => setRagRetrievalStrategy(event.target.value as RetrievalStrategy)}>
-                    {retrievalStrategies.map((item) => <option key={item} value={item}>{labelRetrievalStrategy(item)}</option>)}
+                  Forráskör
+                  <select value={ragSourceMode} onChange={(event) => setRagSourceMode(event.target.value as RagSourceMode)}>
+                    <option value="case">{labelRagSourceMode("case")}</option>
+                    <option value="document">{labelRagSourceMode("document")}</option>
+                    <option value="collection">{labelRagSourceMode("collection")}</option>
                   </select>
                 </label>
+              </div>
+              {ragSourceMode === "case" && (
+                <div className="source-filter-panel">
+                  <p className="field-hint source-filter-hint">
+                    Ha nem jelölsz ki konkrét iratot, az iratkérdező az összes elemzésre kész aktív iratban keres.
+                  </p>
+                  <div className="source-filter-list">
+                    <div className="source-filter-list-heading">
+                      <button
+                        className="secondary-button"
+                        onClick={() => setRagDocumentIds([])}
+                        disabled={ragDocumentIds.length === 0 || Boolean(busy)}
+                      >
+                        Kijeloles torlese
+                      </button>
+                      <input
+                        className="source-filter-search"
+                        value={ragDocumentSearch}
+                        onChange={(event) => setRagDocumentSearch(event.target.value)}
+                        placeholder="Iratnev keresese"
+                        disabled={analysisReadyDocuments.length === 0}
+                      />
+                    </div>
+                    {activeDocuments.length === 0 && <p className="muted">Nincs aktív irat.</p>}
+                    {activeDocuments.length > 0 && analysisReadyDocuments.length === 0 && (
+                      <p className="muted">Nincs elemzésre kész irat. PDF esetén előbb hozd létre a szövegrészeket.</p>
+                    )}
+                    {analysisReadyDocuments.length > 0 && filteredRagCaseDocuments.length === 0 && <p className="muted">Nincs a keresésnek megfelelő elemzésre kész irat.</p>}
+                    {filteredRagCaseDocuments.map((document) => (
+                      <label key={document.id} className="checkbox-label source-document-option">
+                        <input
+                          type="checkbox"
+                          checked={ragDocumentIds.includes(document.id)}
+                          onChange={() => toggleRagDocumentFilter(document.id)}
+                        />
+                        <span>
+                          {document.original_filename}
+                          <small>{labelProcessingStatus(document.processing_status)} | {document.current_chunk_count} szövegrész</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {ragSourceMode === "document" && (
+                <div className="source-filter-panel">
+                  <p className="field-hint source-filter-hint">
+                    Válassz ki egy elemzésre kész iratot. Az iratkérdező a kijelölt irat teljes szöveganyagában keres.
+                  </p>
+                  <div className="source-filter-list">
+                    <div className="source-filter-list-heading">
+                      <button
+                        className="secondary-button"
+                        onClick={() => setRagDocumentId("")}
+                        disabled={!ragDocumentId || Boolean(busy)}
+                      >
+                        Kijeloles torlese
+                      </button>
+                      <input
+                        className="source-filter-search"
+                        value={ragDocumentSearch}
+                        onChange={(event) => setRagDocumentSearch(event.target.value)}
+                        placeholder="Iratnev keresese"
+                        disabled={analysisReadyDocuments.length === 0}
+                      />
+                    </div>
+                    {activeDocuments.length === 0 && <p className="muted">Nincs aktív irat.</p>}
+                    {activeDocuments.length > 0 && analysisReadyDocuments.length === 0 && (
+                      <p className="muted">Nincs elemzésre kész irat. PDF esetén előbb hozd létre a szövegrészeket.</p>
+                    )}
+                    {analysisReadyDocuments.length > 0 && filteredRagCaseDocuments.length === 0 && <p className="muted">Nincs a keresésnek megfelelő elemzésre kész irat.</p>}
+                    {filteredRagCaseDocuments.map((document) => (
+                      <label key={document.id} className="checkbox-label source-document-option">
+                        <input
+                          type="radio"
+                          name="rag-document-source"
+                          checked={ragDocumentId === document.id}
+                          onChange={() => setRagDocumentId(document.id)}
+                        />
+                        <span>
+                          {document.original_filename}
+                          <small>{labelProcessingStatus(document.processing_status)} | {document.current_chunk_count} szövegrész</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {ragSourceMode === "collection" && (
+                <div className="source-filter-panel">
+                  <label>
+                    Iratgyűjtemény
+                    {renderSearchableSelect({
+                      queryKey: "rag-collection",
+                      value: ragCollectionId,
+                      onChange: setRagCollectionId,
+                      options: documentCollectionTargetOptions,
+                      placeholder: "Válassz iratgyűjteményt",
+                      searchPlaceholder: "Keresés az iratgyűjtemények között",
+                      ariaLabel: "Iratkérdező iratgyűjtemény kiválasztása"
+                    })}
+                  </label>
+                  {documentCollections.length === 0 && <p className="muted">Még nincs iratgyűjtemény.</p>}
+                  {ragCollection && (
+                    <div className="collection-scope-preview">
+                      <strong>{ragCollection.name}</strong>
+                      <span>{ragCollection.document_count} irat</span>
+                      <span>{ragCollection.active_document_count} aktív irat</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="analysis-settings-row rag-settings-row">
                 <label>
                   Szövegrész plafon
                   <input
@@ -3673,6 +4014,15 @@ export function App() {
                     onChange={(event) => setRagMaxChunks(clampNumberInput(event.target.value, 1, 90, 45))}
                   />
                 </label>
+                <label>
+                  Forráskeresés
+                  <select value={ragRetrievalStrategy} onChange={(event) => setRagRetrievalStrategy(event.target.value as RetrievalStrategy)}>
+                    {retrievalStrategies.map((item) => <option key={item} value={item}>{labelRetrievalStrategy(item)}</option>)}
+                  </select>
+                </label>
+                <span className="field-hint analysis-settings-hint">
+                  A keresési mód a kérdés alapján választja ki a feldolgozandó szövegrészeket. Szemantikus vagy hybrid módhoz előbb indexeld a szövegrészeket.
+                </span>
               </div>
               <label>
                 Kérdés
@@ -3701,7 +4051,14 @@ export function App() {
               </button>
             </div>
             <div className="compact-list">
-              {ragSavedAnswers.length === 0 && <p className="muted">Még nincs mentett iratkérdező válasz.</p>}
+              {ragSavedAnswers.length === 0 && (
+                <div className="research-empty-state rag-empty-state">
+                  <strong>Nincs mentett iratkérdező válasz</strong>
+                  <p>
+                    A mentett válaszok akkor jelennek meg itt, ha egy aktuális iratkérdező választ külön elmentesz.
+                  </p>
+                </div>
+              )}
               {ragSavedAnswers.map((answer) => (
                 <article key={answer.id} className={`compact-item ${selectedRagAnswerId === answer.id ? "is-selected" : ""}`}>
                   <strong>{answer.title || truncateText(answer.question, 110)}</strong>
@@ -3721,15 +4078,28 @@ export function App() {
           </section>
         </section>
 
-        <section className="panel rag-answer-panel">
+        <section className={`panel rag-answer-panel ${ragCurrentResponse ? "has-current-answer" : ""}`}>
           <div className="section-heading">
             <h2>Aktuális válasz</h2>
             <MessageSquare size={20} />
           </div>
-          {!ragCurrentResponse && <p className="muted">Itt jelenik meg a legutóbbi iratkérdező válasz.</p>}
+          {!ragCurrentResponse && (
+            <div className="research-empty-state rag-empty-state">
+              <strong>Nincs aktuális iratkérdező válasz</strong>
+              <p>
+                Itt jelenik meg a legutóbbi kérdésre adott válasz. A következő kérdés ezt a nézetet felülírja, a fontos válaszokat külön lehet menteni.
+              </p>
+            </div>
+          )}
           {ragCurrentResponse && (
-            <div className="rag-answer-layout">
-              <article className={`rag-answer-card ${ragCurrentResponse.answer.insufficient_source ? "is-unconfirmed" : ""}`}>
+            <div
+              className="rag-answer-layout rag-current-answer-layout"
+              style={{ "--rag-source-panel-height": ragCurrentAnswerHeight > 0 ? `${ragCurrentAnswerHeight}px` : "50rem" } as CSSProperties}
+            >
+              <article
+                ref={ragCurrentAnswerCardRef}
+                className={`rag-answer-card ${ragCurrentResponse.answer.insufficient_source ? "is-unconfirmed" : ""}`}
+              >
                 <div className="metrics">
                   <span>{labelRagAnswerMode(ragCurrentResponse.answer.answer_mode)}</span>
                   <span>{labelRagSourceMode(ragCurrentResponse.source_scope.source_mode)}</span>
@@ -3770,7 +4140,7 @@ export function App() {
               </article>
               <section className="rag-sources-panel">
                 <div className="section-heading">
-                  <h3>Felhasznált források</h3>
+                  <strong>Felhasznált források</strong>
                   <span className="status-pill">{ragCurrentResponse.used_sources.length}</span>
                 </div>
                 {renderRagUsedSources(ragCurrentResponse.used_sources)}
@@ -3779,7 +4149,7 @@ export function App() {
           )}
         </section>
 
-        <section className="panel rag-saved-detail-panel">
+        <section className="panel rag-saved-detail-panel" ref={ragSavedDetailPanelRef}>
           <div className="section-heading">
             <h2>Mentett válasz részletei</h2>
             <Archive size={20} />
@@ -3797,11 +4167,16 @@ export function App() {
                 <strong>{selectedRagAnswer.title || selectedRagAnswer.question}</strong>
                 <p className="field-hint">{selectedRagAnswer.question}</p>
                 <p className="rag-answer-text">{selectedRagAnswer.answer_text}</p>
+                {selectedRagAnswer.source_summary && (
+                  <div className="module-note">
+                    Forrásalap: <strong>{selectedRagAnswer.source_summary}</strong>
+                  </div>
+                )}
                 {selectedRagAnswer.note && <div className="module-note">{selectedRagAnswer.note}</div>}
               </article>
               <section className="rag-sources-panel">
                 <div className="section-heading">
-                  <h3>Mentett források</h3>
+                  <strong>Mentett források</strong>
                   <span className="status-pill">{selectedRagAnswer.used_sources.length}</span>
                 </div>
                 {renderRagUsedSources(selectedRagAnswer.used_sources)}
@@ -4462,7 +4837,7 @@ export function App() {
 
           {activeSurface === "case_workbench" && (
           <>
-          <section className="panel analysis-panel">
+          <section className="panel analysis-panel" ref={analysisPanelRef}>
             <div className="section-heading">
               <h2>Elemzes</h2>
               <Search size={20} />
@@ -5620,6 +5995,7 @@ export function App() {
                                     setQuery(item.recommended_search_focus ?? item.display_label);
                                     setModuleKey("search_findings");
                                     setActiveSurface("case_workbench");
+                                    scrollToAnalysisPanel();
                                   }}
                                   disabled={Boolean(busy)}
                                 >
@@ -5903,6 +6279,15 @@ function labelResearchFindingRunOutcome(run: ResearchFindingLatestRunSummary) {
   if (run.validation_status === "warning") return "Sikeres, figyelmeztetéssel";
   if (run.validation_status === "passed") return "Sikeres keresés";
   if (run.validation_status === "failed") return "Sikertelen keresés";
+  return labelRunStatus(run.status);
+}
+
+function labelRagRunOutcome(run: RagLatestRunSummary) {
+  if (run.status === "failed") return "Sikertelen kérdezés";
+  if (run.status === "running") return "Folyamatban";
+  if (run.insufficient_source) return "Nincs elég forrás";
+  if (run.saved_answer_id) return "Mentett válasz";
+  if (run.status === "succeeded") return "Sikeres válasz";
   return labelRunStatus(run.status);
 }
 

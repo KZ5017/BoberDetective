@@ -297,6 +297,31 @@ export type RagQueryResponse = {
   can_save: boolean;
 };
 
+export type RagLatestRunSummary = {
+  analysis_run_id: string;
+  status: string;
+  validation_status: string | null;
+  started_at: string;
+  finished_at: string | null;
+  question: string | null;
+  source_mode: RagSourceMode | null;
+  document_id: string | null;
+  collection_id: string | null;
+  answer_mode: RagAnswerMode | null;
+  retrieval_strategy: RetrievalStrategy | null;
+  max_chunks: number | null;
+  selected_chunk_count: number;
+  document_answer_count: number;
+  used_source_count: number;
+  insufficient_source: boolean | null;
+  saved_answer_id: string | null;
+  error_message: string | null;
+};
+
+export type RagLatestRunSummaryResponse = {
+  latest_run: RagLatestRunSummary | null;
+};
+
 export type RagSavedAnswerListItem = {
   id: string;
   title: string | null;
@@ -315,6 +340,7 @@ export type RagSavedAnswerDetail = {
   title: string | null;
   question: string;
   answer_text: string;
+  source_summary: string;
   answer_mode: RagAnswerMode | string;
   source_scope: Record<string, unknown>;
   used_sources: RagUsedSource[];
@@ -1067,6 +1093,7 @@ export function runRagQuery(
     question: string;
     source_mode: RagSourceMode;
     document_id?: string | null;
+    document_ids?: string[];
     collection_id?: string | null;
     answer_mode: RagAnswerMode;
     retrieval_strategy: RetrievalStrategy;
@@ -1079,6 +1106,10 @@ export function runRagQuery(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+}
+
+export function getLatestRagRunSummary(caseId: string): Promise<RagLatestRunSummaryResponse> {
+  return request(`/cases/${caseId}/rag/latest-run-summary`);
 }
 
 export function saveRagAnswer(

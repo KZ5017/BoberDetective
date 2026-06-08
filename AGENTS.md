@@ -253,7 +253,7 @@ Current implementation caveats:
 - Frontend shows export history; review report filtering is handled through object/review/source dropdown filters.
 - Frontend visible labels are localized to Hungarian; keep future UI text Hungarian and map backend enum/internal values before displaying them.
 - Latest frontend verification: `npm run build` passed.
-- Frontend runtime caveat for Codex sessions: when starting Vite from a non-interactive WSL command, use `setsid sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1" < /dev/null &`. Plain background/nohup starts have produced `Hangup` after Vite printed `ready`, leaving no `5173` listener. Verify with `ss -ltnp | grep 5173` and Windows `curl.exe -I http://localhost:5173`.
+- Runtime startup caveat for Codex sessions: after machine restart, run `docker compose up -d` from the repo root, then start backend/frontend with `setsid -f` from WSL so non-interactive shell cleanup does not kill them. Backend: `setsid -f sh -c ".venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/boberdetective-backend.log 2>&1 < /dev/null"`. Frontend: `setsid -f sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1 < /dev/null"`. Verify with `ss -ltnp | grep -E ":(8000|5173)"`, backend health, and `curl -I http://127.0.0.1:5173`.
 
 Strategic next direction:
 

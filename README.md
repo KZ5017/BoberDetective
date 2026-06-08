@@ -136,23 +136,24 @@ PDF/OCR sample checks:
 
 Next:
 
-- Close the current full-document person-profile tuning loop from live output quality
-- Continue with broad UX/product/backend design for the `Általános iratkérdező` / local RAG question-answering layer now that `iratgyujtemeny` is usable as a management, `search_findings`, and indexing source-scope layer
+- Continue live-testing and hardening the implemented `Általános iratkérdező` / local RAG question-answering layer, including multi-document synthesis quality, saved-answer ergonomics, and source-scope/index-readiness behavior
 - Add multi-collection source scopes only where analysis/RAG workflows need them; the current first analysis/indexing integration uses one selected collection at a time
-- Then continue with detailed API/retrieval/prompt planning and incremental implementation for the general RAG question-answering workflow
 - Keep `search_findings`, full-document person seeds, source validation, and contradiction detection as strict auditable workbench workflows beside the freer RAG question-answering layer
-- After the general RAG direction is settled, revisit the full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history
+- Treat a serious `Jogszabályi kereső` as a later specialized module with law/section/paragraph/effective-date semantics, not as a small mode inside generic RAG
+- Revisit the full `Audit naplo` API/panel backed by `audit_events`, separate from the current `analysis_runs`-based processing/run history, after the RAG/source-scope layer remains stable under live use
 - Keep documentation cleanup around retired raw modules opportunistic; active capability lists should continue to point to `search_findings`
 - Consider durable job supervision if indexing grows beyond FastAPI background tasks
 
 Frontend dev URL:
 
-- Start backend from the repo root: `.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000`
-- Start frontend from `frontend/`: `npm run dev`
+- Start infrastructure from the repo root: `docker compose up -d`
+- For an interactive terminal, start backend from the repo root: `.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000`
+- For an interactive terminal, start frontend from `frontend/`: `npm run dev`
 - When running, open `http://localhost:5173`; Vite proxies `/api` to `http://127.0.0.1:8000`.
-- When Codex starts the frontend as a background process from a non-interactive WSL command, use `setsid` so Vite survives shell cleanup:
-  `setsid sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1" < /dev/null &`
-  If `localhost:5173` is unreachable, first check inside WSL with `ss -ltnp | grep 5173`; a previous failure mode was Vite logging `ready`, then exiting with `Hangup`.
+- When Codex starts backend/frontend from a non-interactive WSL command, use `setsid -f` so the processes survive shell cleanup:
+  - backend: `setsid -f sh -c ".venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/boberdetective-backend.log 2>&1 < /dev/null"`
+  - frontend: `setsid -f sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1 < /dev/null"`
+  Verify with `ss -ltnp | grep -E ":(8000|5173)"`, `curl -fsS http://127.0.0.1:8000/api/v1/system/health`, and `curl -I http://127.0.0.1:5173`.
 
 ## Design documents
 

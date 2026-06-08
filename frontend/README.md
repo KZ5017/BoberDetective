@@ -7,7 +7,7 @@ Minimal React/Vite workbench for the local backend.
 Start the backend from the repository root:
 
 ```bash
-.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Start the frontend from this directory:
@@ -23,6 +23,27 @@ http://localhost:5173
 ```
 
 The Vite dev server listens on port `5173` and proxies `/api` to `http://127.0.0.1:8000`.
+
+For Codex/non-interactive WSL background startup, start the infrastructure first:
+
+```bash
+docker compose up -d
+```
+
+Then detach backend and frontend with `setsid -f` from the repository root:
+
+```bash
+setsid -f sh -c ".venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/boberdetective-backend.log 2>&1 < /dev/null"
+setsid -f sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1 < /dev/null"
+```
+
+Verify:
+
+```bash
+ss -ltnp | grep -E ":(8000|5173)"
+curl -fsS http://127.0.0.1:8000/api/v1/system/health
+curl -I http://127.0.0.1:5173
+```
 
 Current workflows:
 
@@ -40,6 +61,7 @@ Current workflows:
 - analysis run history,
 - analysis run input/output detail,
 - elapsed-time feedback for long operations,
+- `Általános iratkérdező` with case/document/collection source scopes, case-mode selected document subsets, semantic index status, latest-query summary, temporary answer display, explicit answer saving, saved-answer list/detail/delete, and source-summary display,
 - review report filtering by object type, review status, and source validation status,
 - focused review queue shortcuts,
 - object detail inspection,

@@ -3,15 +3,16 @@ import json
 import re
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.analysis import AnalysisRunModel
+from app.models.analysis import AnalysisRunInputModel, AnalysisRunModel
 from app.models.audit import AuditEventModel
 from app.models.rag_answer import RagAnswerModel
 from app.schemas.rag import (
     RagAnswerPayload,
+    RagLatestRunSummary,
     RagQueryRequest,
     RagQueryResponse,
     RagRetrievalMetadata,
@@ -151,6 +152,7 @@ def run_rag_query(db: Session, case_id: UUID, payload: RagQueryRequest) -> RagQu
             "question": question,
             "source_mode": payload.source_mode,
             "document_id": str(payload.document_id) if payload.document_id is not None else None,
+            "document_ids": [str(document_id) for document_id in payload.document_ids],
             "collection_id": str(payload.collection_id) if payload.collection_id is not None else None,
             "answer_mode": payload.answer_mode,
             "retrieval_strategy": payload.retrieval_strategy,
@@ -504,6 +506,10 @@ def save_rag_answer(
     source_scope = summary.get("source_scope") if isinstance(summary.get("source_scope"), dict) else {}
     used_sources = summary.get("used_sources") if isinstance(summary.get("used_sources"), list) else []
     retrieval_metadata = summary.get("retrieval_metadata") if isinstance(summary.get("retrieval_metadata"), dict) else {}
+    retrieval_metadata = {
+        **retrieval_metadata,
+        "source_summary": str(answer_payload.get("source_summary") or "").strip(),
+    }
     question = str((run.input_parameters or {}).get("question") or "").strip()
     answer_mode = str(answer_payload.get("answer_mode") or (run.input_parameters or {}).get("answer_mode") or "detailed")
     user = get_or_create_dev_user(db)
@@ -578,9 +584,80 @@ def delete_rag_answer(db: Session, case_id: UUID, answer_id: UUID) -> None:
     db.commit()
 
 
+def get_latest_rag_run_summary(db: Session, case_id: UUID) -> RagLatestRunSummary | None:
+    run = (
+        db.execute(
+            select(AnalysisRunModel)
+            .where(AnalysisRunModel.case_id == case_id, AnalysisRunModel.run_type == "rag_query")
+            .order_by(AnalysisRunModel.started_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+    if run is None:
+        return None
+
+    input_parameters = run.input_parameters if isinstance(run.input_parameters, dict) else {}
+    output_summary: dict = {}
+    if run.status == "succeeded":
+        try:
+            output_summary = _require_rag_run_summary(db, run)
+        except RagValidationError:
+            output_summary = {}
+
+    answer = output_summary.get("answer") if isinstance(output_summary.get("answer"), dict) else {}
+    source_scope = output_summary.get("source_scope") if isinstance(output_summary.get("source_scope"), dict) else {}
+    retrieval_metadata = (
+        output_summary.get("retrieval_metadata")
+        if isinstance(output_summary.get("retrieval_metadata"), dict)
+        else {}
+    )
+    used_sources = output_summary.get("used_sources") if isinstance(output_summary.get("used_sources"), list) else []
+    saved_answer = _answer_for_run(db, run.id)
+    input_chunk_count = (
+        db.execute(
+            select(func.count())
+            .select_from(AnalysisRunInputModel)
+            .where(AnalysisRunInputModel.analysis_run_id == run.id, AnalysisRunInputModel.input_type == "chunk")
+        ).scalar_one()
+        or 0
+    )
+
+    source_mode = source_scope.get("source_mode") or input_parameters.get("source_mode")
+    answer_mode = answer.get("answer_mode") or input_parameters.get("answer_mode")
+    retrieval_strategy = retrieval_metadata.get("retrieval_strategy") or input_parameters.get("retrieval_strategy")
+
+    return RagLatestRunSummary(
+        analysis_run_id=run.id,
+        status=run.status,
+        validation_status=run.validation_status,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
+        question=str(input_parameters.get("question") or "") or None,
+        source_mode=source_mode if source_mode in {"case", "document", "collection"} else None,
+        document_id=source_scope.get("document_id") or input_parameters.get("document_id"),
+        collection_id=source_scope.get("collection_id") or input_parameters.get("collection_id"),
+        answer_mode=answer_mode if answer_mode in {"short", "detailed"} else None,
+        retrieval_strategy=retrieval_strategy if retrieval_strategy in {"keyword", "semantic", "hybrid"} else None,
+        max_chunks=_optional_int(retrieval_metadata.get("max_chunks") or input_parameters.get("max_chunks")),
+        selected_chunk_count=_optional_int(retrieval_metadata.get("selected_chunk_count")) or int(input_chunk_count),
+        document_answer_count=_optional_int(retrieval_metadata.get("document_answer_count")) or 0,
+        used_source_count=len(used_sources),
+        insufficient_source=answer.get("insufficient_source") if isinstance(answer.get("insufficient_source"), bool) else None,
+        saved_answer_id=saved_answer.id if saved_answer is not None else None,
+        error_message=run.error_message,
+    )
+
+
 def _resolve_rag_source_scope(db: Session, case_id: UUID, payload: RagQueryRequest) -> ScopeResolution:
     if payload.source_mode == "case":
-        return resolve_document_scope(db, case_id, "case")
+        return resolve_document_scope(
+            db,
+            case_id,
+            "documents" if payload.document_ids else "case",
+            document_ids=payload.document_ids or None,
+        )
     if payload.source_mode == "document":
         return resolve_document_scope(db, case_id, "documents", document_ids=[payload.document_id])
     if payload.source_mode == "collection":
@@ -667,6 +744,7 @@ def _list_item(answer: RagAnswerModel) -> RagSavedAnswerListItem:
 
 
 def _detail(answer: RagAnswerModel) -> RagSavedAnswerDetail:
+    retrieval_metadata = answer.retrieval_metadata_json or {}
     return RagSavedAnswerDetail(
         id=answer.id,
         case_id=answer.case_id,
@@ -674,10 +752,11 @@ def _detail(answer: RagAnswerModel) -> RagSavedAnswerDetail:
         title=answer.title,
         question=answer.question,
         answer_text=answer.answer_text,
+        source_summary=str(retrieval_metadata.get("source_summary") or ""),
         answer_mode=answer.answer_mode,
         source_scope=answer.source_scope_json or {},
         used_sources=answer.used_sources_json or [],
-        retrieval_metadata=answer.retrieval_metadata_json or {},
+        retrieval_metadata=retrieval_metadata,
         model_name=answer.model_name,
         note=answer.note,
         created_at=answer.created_at,
@@ -693,6 +772,15 @@ def _source_label(source_scope: dict) -> str | None:
     if mode == "collection":
         return "Iratgyűjtemény"
     return None
+
+
+def _optional_int(value) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _default_title(question: str) -> str:

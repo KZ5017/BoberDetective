@@ -2073,7 +2073,7 @@ pre {
   align-items: stretch;
   display: grid;
   gap: var(--layout-page-gap);
-  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
 }
 
 .rag-query-panel,
@@ -2081,9 +2081,33 @@ pre {
   min-height: 0;
 }
 
+.rag-saved-panel {
+  align-content: start;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.rag-settings-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .rag-saved-panel .compact-list {
-  max-height: 28rem;
+  align-content: start;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
   overflow: auto;
+}
+
+.rag-saved-panel .compact-list:has(.rag-empty-state:only-child) {
+  align-content: stretch;
+}
+
+.rag-saved-panel .rag-empty-state {
+  min-height: 100%;
+}
+
+.rag-empty-state {
+  min-height: 10rem;
 }
 
 .rag-answer-panel,
@@ -2091,11 +2115,20 @@ pre {
   min-height: 18rem;
 }
 
+.rag-answer-panel.has-current-answer {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .rag-answer-layout {
   align-items: start;
   display: grid;
   gap: var(--layout-page-gap);
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.rag-current-answer-layout {
+  align-items: start;
+  min-height: 0;
 }
 
 .rag-answer-card,
@@ -2105,11 +2138,43 @@ pre {
   min-width: 0;
 }
 
-.rag-answer-card {
+.rag-sources-panel {
   background: var(--color-surface-soft);
   border: 1px solid var(--color-border-card);
   border-radius: var(--radius-md);
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
   padding: var(--layout-card-padding);
+}
+
+.rag-current-answer-layout .rag-answer-card {
+  align-self: start;
+  min-height: 50rem;
+}
+
+.rag-current-answer-layout .rag-sources-panel {
+  align-self: start;
+  height: var(--rag-source-panel-height);
+  max-height: var(--rag-source-panel-height);
+}
+
+.rag-answer-card {
+  align-content: start;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  grid-auto-rows: max-content;
+  padding: var(--layout-card-padding);
+}
+
+.rag-answer-card > strong,
+.rag-sources-panel > .section-heading > strong {
+  color: var(--color-text);
+  font-size: var(--text-card-title-size);
+  font-weight: var(--text-card-title-weight);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .rag-answer-card.is-unconfirmed {
@@ -2132,9 +2197,11 @@ pre {
 }
 
 .rag-source-list {
+  align-content: start;
   display: grid;
   gap: var(--layout-card-gap);
-  max-height: 34rem;
+  max-height: none;
+  min-height: 0;
   overflow: auto;
 }
 

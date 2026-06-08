@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.schemas.rag import (
+    RagLatestRunSummaryResponse,
     RagQueryRequest,
     RagQueryResponse,
     RagSaveAnswerRequest,
@@ -17,6 +18,7 @@ from app.services.rag import (
     RagNotFoundError,
     RagValidationError,
     delete_rag_answer,
+    get_latest_rag_run_summary,
     get_rag_answer,
     list_rag_answers,
     run_rag_query,
@@ -56,6 +58,11 @@ def post_rag_save_answer(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except RagValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/cases/{case_id}/rag/latest-run-summary", response_model=RagLatestRunSummaryResponse)
+def get_rag_latest_run_summary(case_id: UUID, db: Session = Depends(get_db)) -> RagLatestRunSummaryResponse:
+    return RagLatestRunSummaryResponse(latest_run=get_latest_rag_run_summary(db, case_id))
 
 
 @router.get("/cases/{case_id}/rag/answers", response_model=RagSavedAnswerList)

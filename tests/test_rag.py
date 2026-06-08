@@ -98,7 +98,7 @@ def test_rag_saved_answer_list_item_uses_source_scope_summary() -> None:
 def test_rag_saved_answer_detail_preserves_payloads() -> None:
     source_scope = {"source_mode": "case", "resolved_document_count": 2}
     used_sources = [{"quote_preview": "idézet"}]
-    retrieval_metadata = {"retrieval_strategy": "hybrid"}
+    retrieval_metadata = {"retrieval_strategy": "hybrid", "source_summary": "Forrásösszegzés."}
     answer = _answer_model(
         source_scope_json=source_scope,
         used_sources_json=used_sources,
@@ -110,6 +110,7 @@ def test_rag_saved_answer_detail_preserves_payloads() -> None:
     assert detail.source_scope == source_scope
     assert detail.used_sources == used_sources
     assert detail.retrieval_metadata == retrieval_metadata
+    assert detail.source_summary == "Forrásösszegzés."
 
 
 def test_rag_api_list_wraps_service_response(monkeypatch) -> None:

@@ -14,6 +14,7 @@ class RagQueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     source_mode: RagSourceMode = "case"
     document_id: UUID | None = None
+    document_ids: list[UUID] = Field(default_factory=list)
     collection_id: UUID | None = None
     answer_mode: RagAnswerMode = "detailed"
     retrieval_strategy: RagRetrievalStrategy = "hybrid"
@@ -26,6 +27,8 @@ class RagQueryRequest(BaseModel):
             raise ValueError("document_id is required for document source mode")
         if self.source_mode != "document" and self.document_id is not None:
             raise ValueError("document_id is only allowed for document source mode")
+        if self.source_mode != "case" and self.document_ids:
+            raise ValueError("document_ids is only allowed for case source mode")
         if self.source_mode == "collection" and self.collection_id is None:
             raise ValueError("collection_id is required for collection source mode")
         if self.source_mode != "collection" and self.collection_id is not None:
@@ -92,6 +95,31 @@ class RagSaveAnswerResponse(BaseModel):
     saved: bool
 
 
+class RagLatestRunSummary(BaseModel):
+    analysis_run_id: UUID
+    status: str
+    validation_status: str | None = None
+    started_at: datetime
+    finished_at: datetime | None = None
+    question: str | None = None
+    source_mode: RagSourceMode | None = None
+    document_id: UUID | None = None
+    collection_id: UUID | None = None
+    answer_mode: RagAnswerMode | None = None
+    retrieval_strategy: RagRetrievalStrategy | None = None
+    max_chunks: int | None = None
+    selected_chunk_count: int = 0
+    document_answer_count: int = 0
+    used_source_count: int = 0
+    insufficient_source: bool | None = None
+    saved_answer_id: UUID | None = None
+    error_message: str | None = None
+
+
+class RagLatestRunSummaryResponse(BaseModel):
+    latest_run: RagLatestRunSummary | None = None
+
+
 class RagSavedAnswerListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -118,6 +146,7 @@ class RagSavedAnswerDetail(BaseModel):
     title: str | None
     question: str
     answer_text: str
+    source_summary: str
     answer_mode: str
     source_scope: dict
     used_sources: list

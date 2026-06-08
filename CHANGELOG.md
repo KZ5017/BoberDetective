@@ -1,5 +1,26 @@
 # CHANGELOG.md
 
+## 2026-06-08
+
+### Added
+
+- Added `GET /api/v1/cases/{case_id}/rag/latest-run-summary` so the `Általános iratkérdező` work surface can show the last RAG query persistently after refresh.
+- Added case-scope selected-document filtering to RAG queries through `document_ids`, matching the selected-document checkbox/radio source-scope behavior already used in the analysis workflow.
+- Saved RAG answers now preserve `source_summary` in retrieval metadata and show it again in saved-answer details.
+
+### Changed
+
+- Polished the `Általános iratkérdező` frontend into the same visual rhythm as `Ügy munkapad`: top semantic-index/latest-query status row, aligned query controls, richer source selectors, balanced answer/source columns, improved saved-answer empty state, and detail-panel scroll behavior.
+- Full-document processing focus handoff now fills the `Ügy munkapad` focus field and scrolls directly to the `Elemzés` panel.
+- Refreshed WSL/Codex startup documentation with the robust `setsid -f` backend/frontend launch pattern and verification commands.
+
+### Verified
+
+- `.venv/bin/pytest tests/test_rag.py -q` (`23 passed`)
+- `.venv/bin/alembic current` (`0045_limit_rag_answer_modes (head)`)
+- `npm --prefix frontend run build`
+- `git diff --check`
+
 ## 2026-06-07
 
 ### Added
