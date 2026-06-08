@@ -13,6 +13,7 @@
 - Polished the `Általános iratkérdező` frontend into the same visual rhythm as `Ügy munkapad`: top semantic-index/latest-query status row, aligned query controls, richer source selectors, balanced answer/source columns, improved saved-answer empty state, and detail-panel scroll behavior.
 - Full-document processing focus handoff now fills the `Ügy munkapad` focus field and scrolls directly to the `Elemzés` panel.
 - Refreshed WSL/Codex startup documentation with the robust `setsid -f` backend/frontend launch pattern and verification commands.
+- Added a dedicated mobile-only UI layer at `max-width: 760px`: work surfaces become single-column flows, input/button pairs stack vertically, `Ügy munkapad` gets a phone-specific panel order, and long filenames/source excerpts/hashes/status chips are constrained so they stay inside their cards.
 
 ### Verified
 

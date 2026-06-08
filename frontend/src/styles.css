@@ -2791,6 +2791,13 @@ pre {
     grid-column: auto;
     grid-row: auto;
     max-height: none;
+    order: 0;
+  }
+
+  .case-workbench-column > .history-export-row {
+    grid-template-areas:
+      "analysis-history"
+      "export-stack";
   }
 
   .source-action-row {
@@ -2799,5 +2806,494 @@ pre {
 
   .report-panel {
     grid-row: auto;
+  }
+}
+
+/* Mobile layout overrides: keep desktop and Full HD rules untouched. */
+@media (max-width: 760px) {
+  :root {
+    --font-size-xs: 0.7rem;
+    --font-size-sm: 0.76rem;
+    --font-size-md: 0.84rem;
+    --font-size-lg: 0.92rem;
+    --font-size-title: 0.98rem;
+    --font-size-shell-title: 1.18rem;
+
+    --text-label-size: 0.78rem;
+    --text-control-size: 0.82rem;
+    --text-detail-size: 0.8rem;
+    --text-body-muted-size: 0.82rem;
+
+    --space-xs: 0.2rem;
+    --space-sm: 0.3rem;
+    --space-md: 0.45rem;
+    --space-lg: 0.6rem;
+    --space-xl: 0.75rem;
+
+    --layout-page-padding: 0.65rem;
+    --layout-page-gap: 0.75rem;
+    --layout-panel-gap: 0.72rem;
+    --layout-panel-padding: 0.72rem;
+    --layout-card-gap: 0.55rem;
+    --layout-card-padding: 0.62rem;
+    --layout-compact-padding: 0.52rem;
+    --layout-button-padding: 0.42rem 0.62rem;
+    --layout-input-padding: 0.45rem 0.52rem;
+
+    --control-min-height: 2.2rem;
+    --button-min-height: 2.18rem;
+    --chip-min-height: 1.55rem;
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+
+  .topbar {
+    gap: var(--layout-toolbar-gap);
+    padding: 0.7rem;
+  }
+
+  .status-strip,
+  .metrics,
+  .tags {
+    gap: 0.35rem;
+  }
+
+  .workspace {
+    min-height: auto;
+    padding: var(--layout-page-padding);
+  }
+
+  .main-grid.case-workbench-grid {
+    align-items: stretch;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .surface-layout,
+  .surface-content,
+  .surface-placeholder,
+  .full-document-grid,
+  .general-rag-grid,
+  .rag-answer-layout,
+  .main-grid,
+  .main-grid.case-workbench-grid,
+  .workbench-status-row,
+  .case-workbench-column,
+  .case-workbench-review-column,
+  .case-workbench-column > .history-export-row,
+  .document-organizer-column,
+  .history-export-stack,
+  .report-filter-row,
+  .finding-conversion-type-row,
+  .manual-contradiction-select-row,
+  .model-status-grid,
+  .object-facts,
+  .analysis-process-row,
+  .full-document-output,
+  .full-document-items {
+    grid-template-columns: 1fr;
+  }
+
+  .surface-sidebar {
+    gap: 0.65rem;
+    position: static;
+  }
+
+  .surface-sidebar .model-status-bar {
+    gap: 0.55rem;
+    padding: 0.62rem;
+  }
+
+  .surface-sidebar .model-status-model-card {
+    grid-template-columns: 1fr;
+  }
+
+  .surface-sidebar .model-status-model-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .surface-sidebar .model-status-refresh button {
+    width: 100%;
+  }
+
+  .surface-nav {
+    gap: 0.4rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0.45rem;
+  }
+
+  .surface-tab {
+    justify-content: center;
+    min-height: 2.25rem;
+    padding-inline: 0.45rem;
+    text-align: center;
+  }
+
+  .hero-panel {
+    align-items: stretch;
+    padding: 0.8rem;
+  }
+
+  .surface-operation-card {
+    grid-template-columns: 1fr;
+    min-width: 0;
+  }
+
+  .surface-feedback {
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    padding-left: 0;
+    padding-top: 0.55rem;
+  }
+
+  .section-heading,
+  .research-run-summary-heading,
+  .item-card-header,
+  .research-finding-header,
+  .document-list-item,
+  .analysis-run-list-item,
+  .collection-create-row,
+  .source-filter-list-heading {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .section-heading {
+    flex-wrap: wrap;
+  }
+
+  .section-heading > svg {
+    display: none;
+  }
+
+  .panel {
+    min-width: 0;
+  }
+
+  .analysis-readiness-strip,
+  .research-run-summary {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .analysis-readiness-main .metrics,
+  .research-run-summary .metrics {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .analysis-readiness-main .metrics span,
+  .research-run-summary .metrics span,
+  .analysis-readiness-main .field-hint,
+  .analysis-readiness-main .error-text,
+  .analysis-readiness-main code {
+    white-space: normal;
+  }
+
+  .analysis-readiness-actions {
+    min-width: 0;
+  }
+
+  .analysis-readiness-actions button,
+  .collection-create-row button,
+  .document-collection-bulk-bar button,
+  .surface-form button,
+  .searchable-select-row .compact-clear-button,
+  .source-filter-list-heading button,
+  .manual-contradiction-create-button,
+  .finding-actions button,
+  .finding-toolbar button,
+  .source-action,
+  .review-row button,
+  .merge-panel button,
+  .compact-item button {
+    width: 100%;
+  }
+
+  .button-row,
+  .collection-create-row,
+  .document-collection-bulk-bar,
+  .finding-toolbar,
+  .finding-actions,
+  .review-row,
+  .searchable-select-row,
+  .source-filter-list-heading,
+  .source-action-row,
+  .full-document-worklist-toolbar,
+  .collection-scope-preview {
+    align-items: stretch;
+    display: grid;
+    flex-direction: column;
+    grid-template-columns: 1fr;
+  }
+
+  .full-document-status-toggle,
+  .analysis-history-toggle {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .full-document-worklist-search-input,
+  .collection-create-row input,
+  .document-collection-bulk-bar input,
+  .review-row input,
+  .searchable-select-row input,
+  .source-filter-search,
+  .source-action-row select,
+  .source-action-row .searchable-select,
+  .searchable-select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .source-filter-list,
+  .collection-content-list,
+  .documents-panel > .compact-list,
+  .document-collections-panel .compact-list,
+  .analysis-history-panel > .compact-list,
+  .export-history-panel > .compact-list,
+  .research-finding-list,
+  .item-list,
+  .compact-list {
+    max-height: 22rem;
+  }
+
+  .source-filter-list {
+    max-height: 18rem;
+  }
+
+  .document-detail-panel,
+  .case-workbench-column > *,
+  .case-workbench-review-column > *,
+  .case-workbench-column > .analysis-panel,
+  .case-workbench-review-column > .research-findings-panel,
+  .case-workbench-column > .history-export-row,
+  .history-export-row > .analysis-history-panel,
+  .history-export-stack > .export-history-panel {
+    contain: none;
+    grid-column: auto;
+    grid-row: auto;
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    order: 0;
+    overflow: visible;
+  }
+
+  .case-workbench-column,
+  .case-workbench-review-column,
+  .case-workbench-column > .history-export-row,
+  .history-export-stack {
+    display: contents;
+  }
+
+  .main-grid.case-workbench-grid > *,
+  .case-workbench-column > *,
+  .case-workbench-review-column > *,
+  .history-export-row > *,
+  .history-export-stack > * {
+    align-self: stretch;
+    width: 100%;
+  }
+
+  .case-workbench-column > .analysis-panel {
+    order: 10;
+  }
+
+  .case-workbench-review-column > .research-findings-panel {
+    order: 20;
+  }
+
+  .case-workbench-column > .manual-contradiction-panel {
+    order: 30;
+  }
+
+  .case-workbench-review-column > .report-panel {
+    order: 40;
+  }
+
+  .case-workbench-review-column > .object-detail-panel {
+    order: 50;
+  }
+
+  .case-workbench-review-column > .detached-sources-panel {
+    order: 60;
+  }
+
+  .case-workbench-column > .history-export-row {
+    order: 80;
+  }
+
+  .history-export-row > .analysis-history-panel {
+    grid-area: auto;
+    grid-column: 1 / -1;
+    order: 80;
+  }
+
+  .case-workbench-column > .analysis-detail-panel {
+    grid-column: 1 / -1;
+    order: 81;
+  }
+
+  .history-export-stack > .export-history-panel {
+    grid-area: auto;
+    grid-column: 1 / -1;
+    order: 92;
+  }
+
+  .history-export-stack > .export-panel {
+    grid-column: 1 / -1;
+    order: 93;
+  }
+
+  .document-import-panel,
+  .document-organizer-case-panel,
+  .document-collections-panel,
+  .documents-panel,
+  .document-detail-panel,
+  .full-document-grid > .panel,
+  .full-document-grid .detail-stack,
+  .full-document-output,
+  .full-document-output div,
+  .full-document-output strong,
+  .full-document-output p,
+  .full-document-output span {
+    min-height: 0;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .full-document-grid .detail-stack {
+    overflow: hidden;
+  }
+
+  .full-document-grid .detail-stack > strong,
+  .full-document-grid .detail-stack code,
+  .full-document-grid .detail-stack p,
+  .full-document-output strong,
+  .full-document-output p {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .full-document-grid .metrics {
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .full-document-grid .metrics span {
+    max-width: 100%;
+  }
+
+  .rag-current-answer-layout .rag-answer-card {
+    min-height: 24rem;
+  }
+
+  .rag-current-answer-layout .rag-sources-panel {
+    height: auto;
+    max-height: 28rem;
+  }
+
+  .rag-answer-panel.has-current-answer,
+  .rag-saved-panel,
+  .rag-saved-detail-panel {
+    grid-template-rows: auto;
+  }
+
+  .rag-saved-panel .compact-list {
+    height: auto;
+  }
+
+  .rag-saved-panel .rag-empty-state {
+    min-height: 12rem;
+  }
+
+  .rag-source-list {
+    max-height: 24rem;
+  }
+
+  .analysis-process-row {
+    gap: 0.45rem;
+  }
+
+  .analysis-history-toggle button {
+    width: 100%;
+  }
+
+  .analysis-process-source,
+  .analysis-process-results,
+  .analysis-detail-panel,
+  .analysis-run-detail-view,
+  .analysis-detail-block,
+  .analysis-process-list,
+  .analysis-process-row,
+  .analysis-readable-card,
+  .analysis-source-preview {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .analysis-process-row,
+  .analysis-readable-card {
+    overflow: hidden;
+  }
+
+  .analysis-readable-card > strong {
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .analysis-readable-card .source-meta {
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .analysis-readable-card .source-meta span {
+    max-width: 100%;
+  }
+
+  .analysis-process-arrow {
+    display: none;
+  }
+
+  .analysis-readable-card blockquote,
+  .analysis-source-preview,
+  .rag-source-card blockquote,
+  .source-box blockquote,
+  .source-quote-item blockquote,
+  .research-finding-source blockquote,
+  .report-item blockquote,
+  .detached-source-list blockquote {
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .source-meta span,
+  .metrics span,
+  .tags span,
+  .status-pill {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .searchable-select-options {
+    max-height: 14rem;
+    z-index: 120;
+  }
+
+  .export-box {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

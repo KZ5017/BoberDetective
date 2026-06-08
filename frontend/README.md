@@ -76,6 +76,12 @@ UI language rule:
 - Keep contradiction candidates framed as human-review candidates, not proven contradictions.
 - Backend enum/internal values can remain English in API payloads, but map them to Hungarian labels before rendering.
 
+Responsive UI note:
+
+- Desktop/default styling, Full HD styling, and phone styling are separate layers in `src/styles.css`.
+- Keep Full HD-specific changes inside the existing 1080p media query.
+- Keep phone-specific layout changes inside the `max-width: 760px` mobile media query so desktop and 1080p behavior stay isolated.
+
 ## Verification
 
 ```bash
