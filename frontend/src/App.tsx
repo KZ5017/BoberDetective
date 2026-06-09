@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import {
   Archive,
+  BookOpenText,
   CheckCircle2,
   Database,
   Download,
@@ -51,6 +52,11 @@ import {
   RagSavedAnswerListItem,
   RagSourceMode,
   RagUsedSource,
+  KnowledgeDocumentDetailResponse,
+  KnowledgeDocumentRead,
+  KnowledgeIndexStatusResponse,
+  KnowledgeQueryResponse,
+  KnowledgeUsedSource,
   ResearchFindingLatestRunSummary,
   ResearchFindingRead,
   ReviewReport,
@@ -85,7 +91,11 @@ import {
   getRagAnswer,
   getReviewReport,
   importDocument,
+  importKnowledgeDocument,
+  indexKnowledgeDocuments,
   getLlmSmoke,
+  getKnowledgeDocument,
+  getKnowledgeIndexStatus,
   listDetachedSourceItems,
   listDocumentCollectionDocuments,
   listDocumentCollections,
@@ -100,6 +110,7 @@ import {
   listEvents,
   listExports,
   listFullDocumentProcessingProfiles,
+  listKnowledgeDocuments,
   listMissingItemCandidates,
   listRagAnswers,
   listResearchFindings,
@@ -116,6 +127,7 @@ import {
   resolveDocumentCollectionScope,
   runAnalysis,
   runFullDocumentProcessing,
+  runKnowledgeQuery,
   runDocumentOcr,
   runRagQuery,
   saveRagAnswer,
@@ -145,7 +157,7 @@ const analysisSourceModes: AnalysisSourceMode[] = ["case", "document", "collecti
 const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
 const retrievalStrategies: RetrievalStrategy[] = ["keyword", "semantic", "hybrid"];
 const ragAnswerModes: RagAnswerMode[] = ["short", "detailed"];
-const workSurfaces = ["document_organizer", "case_workbench", "full_document_processing", "general_rag", "audit_log"] as const;
+const workSurfaces = ["document_organizer", "case_workbench", "full_document_processing", "general_rag", "knowledge_base", "audit_log"] as const;
 
 type WorkSurface = (typeof workSurfaces)[number];
 
@@ -160,6 +172,7 @@ const workSurfaceLabels: Record<WorkSurface, string> = {
   case_workbench: "Ügy munkapad",
   full_document_processing: "Teljes iratfeldolgozás",
   general_rag: "Általános iratkérdező",
+  knowledge_base: "Tudásbázis",
   audit_log: "Audit napló"
 };
 
@@ -220,6 +233,12 @@ const busyLabels: Record<string, string> = {
   "rag-save": "Iratkérdező válasz mentése",
   "rag-answers": "Mentett iratkérdező válaszok betöltése",
   "rag-answer-delete": "Mentett iratkérdező válasz törlése",
+  "knowledge-documents": "Tudásbázis dokumentumok betöltése",
+  "knowledge-import": "Markdown tudásanyag importálása",
+  "knowledge-detail": "Tudásbázis dokumentum részletei",
+  "knowledge-index-status": "Tudásbázis indexállapot",
+  "knowledge-index": "Tudásbázis indexelés",
+  "knowledge-query": "Tudásbázis kérdezés",
   "full-document-profiles": "Teljes iratfeldolgozási profilok betöltése",
   "full-document-items": "Teljes iratfeldolgozási munkalista betöltése",
   "full-document-run": "Teljes iratfeldolgozás futtatása",
@@ -236,6 +255,8 @@ const aiOperationLabels = new Set([
   "analysis",
   "full-document-run",
   "rag-query",
+  "knowledge-query",
+  "knowledge-index",
   "chunk-index",
   "chat-load",
   "embedding-load",
@@ -427,6 +448,21 @@ export function App() {
   const [ragForceReindex, setRagForceReindex] = useState(false);
   const [ragActiveIndexJobId, setRagActiveIndexJobId] = useState<string | null>(null);
   const [ragChunkIndexStatus, setRagChunkIndexStatus] = useState<ChunkIndexStatusResponse | null>(null);
+  const [knowledgeDocuments, setKnowledgeDocuments] = useState<KnowledgeDocumentRead[]>([]);
+  const [selectedKnowledgeDocumentId, setSelectedKnowledgeDocumentId] = useState("");
+  const [selectedKnowledgeDocument, setSelectedKnowledgeDocument] = useState<KnowledgeDocumentDetailResponse | null>(null);
+  const [knowledgeImportFile, setKnowledgeImportFile] = useState<File | null>(null);
+  const knowledgeImportInputRef = useRef<HTMLInputElement | null>(null);
+  const [knowledgeRelativePath, setKnowledgeRelativePath] = useState("");
+  const [knowledgeDocumentSearch, setKnowledgeDocumentSearch] = useState("");
+  const [knowledgeQuestion, setKnowledgeQuestion] = useState("");
+  const [knowledgeDocumentIds, setKnowledgeDocumentIds] = useState<string[]>([]);
+  const [knowledgeAnswerMode, setKnowledgeAnswerMode] = useState<RagAnswerMode>("detailed");
+  const [knowledgeRetrievalStrategy, setKnowledgeRetrievalStrategy] = useState<RetrievalStrategy>("hybrid");
+  const [knowledgeMaxChunks, setKnowledgeMaxChunks] = useState(45);
+  const [knowledgeForceReindex, setKnowledgeForceReindex] = useState(false);
+  const [knowledgeIndexStatus, setKnowledgeIndexStatus] = useState<KnowledgeIndexStatusResponse | null>(null);
+  const [knowledgeCurrentResponse, setKnowledgeCurrentResponse] = useState<KnowledgeQueryResponse | null>(null);
   const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("case");
   const [analysisDocumentId, setAnalysisDocumentId] = useState("");
   const [analysisDocumentIds, setAnalysisDocumentIds] = useState<string[]>([]);
@@ -530,6 +566,10 @@ export function App() {
   const filteredRagCaseDocuments = useMemo(
     () => filterDocumentsByName(analysisReadyDocuments, ragDocumentSearch),
     [analysisReadyDocuments, ragDocumentSearch]
+  );
+  const filteredKnowledgeDocuments = useMemo(
+    () => filterKnowledgeDocuments(knowledgeDocuments, knowledgeDocumentSearch),
+    [knowledgeDocuments, knowledgeDocumentSearch]
   );
   const targetCollectionDocumentIds = useMemo(
     () => new Set(documentCollectionTargetDocuments.map((document) => document.id)),
@@ -654,6 +694,15 @@ export function App() {
   const ragUsesSemanticIndex = ragRetrievalStrategy !== "keyword" && ragQuestion.trim().length > 0;
   const ragIndexJobIsRunning = ragChunkIndexStatus?.latest_run_status === "running";
   const canRunRagQuery = Boolean(selectedCaseId) && !busy && ragQuestion.trim().length > 0 && ragHasSource;
+  const knowledgeSelectedDocuments = useMemo(
+    () => knowledgeDocuments.filter((document) => knowledgeDocumentIds.includes(document.id)),
+    [knowledgeDocuments, knowledgeDocumentIds]
+  );
+  const canRunKnowledgeQuery =
+    !busy &&
+    knowledgeQuestion.trim().length > 0 &&
+    knowledgeDocuments.length > 0 &&
+    (knowledgeRetrievalStrategy === "keyword" || Boolean(knowledgeIndexStatus?.is_ready));
   const reportFilters = useMemo<ReviewReportFilterValues>(
     () => ({
       objectType: objectType || undefined,
@@ -891,6 +940,21 @@ export function App() {
   }, [ragSavedAnswers, selectedRagAnswerId]);
 
   useEffect(() => {
+    if (activeSurface !== "knowledge_base") return;
+    void refreshKnowledgeDocuments(false);
+    void refreshKnowledgeIndexStatus(false);
+  }, [activeSurface]);
+
+  useEffect(() => {
+    if (selectedKnowledgeDocumentId && !knowledgeDocuments.some((document) => document.id === selectedKnowledgeDocumentId)) {
+      setSelectedKnowledgeDocumentId("");
+      setSelectedKnowledgeDocument(null);
+    }
+    const validIds = new Set(knowledgeDocuments.map((document) => document.id));
+    setKnowledgeDocumentIds((current) => current.filter((documentId) => validIds.has(documentId)));
+  }, [knowledgeDocuments, selectedKnowledgeDocumentId]);
+
+  useEffect(() => {
     const allowedIds = new Set(analysisReadyDocuments.map((document) => document.id));
     setAnalysisDocumentIds((current) => current.filter((documentId) => allowedIds.has(documentId)));
   }, [analysisReadyDocuments]);
@@ -1096,6 +1160,51 @@ export function App() {
       } catch (err) {
         setError(err instanceof Error ? err.message : "Mentett iratkérdező válaszok betöltése sikertelen.");
       }
+    }
+  }
+
+  async function refreshKnowledgeDocuments(showNotice = false) {
+    const action = async () => {
+      const response = await listKnowledgeDocuments();
+      setKnowledgeDocuments(response.data);
+      if (showNotice) {
+        setNotice("Tudásbázis dokumentumok frissítve.");
+        setLastActionSummary(`${response.data.length} tudásbázis dokumentum.`);
+      }
+    };
+    if (showNotice) {
+      await perform("knowledge-documents", action);
+    } else {
+      try {
+        await action();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Tudásbázis dokumentumok betöltése sikertelen.");
+      }
+    }
+  }
+
+  async function refreshKnowledgeIndexStatus(showNotice = false): Promise<KnowledgeIndexStatusResponse | null> {
+    const action = async () => {
+      const response = await getKnowledgeIndexStatus();
+      setKnowledgeIndexStatus(response);
+      if (showNotice) {
+        setNotice("Tudásbázis indexállapot frissítve.");
+        setLastActionSummary(`Indexelve: ${response.indexed_chunk_count}/${response.chunk_count} tudásbázis szövegrész.`);
+      }
+      return response;
+    };
+    if (showNotice) {
+      let response: KnowledgeIndexStatusResponse | null = null;
+      await perform("knowledge-index-status", async () => {
+        response = await action();
+      });
+      return response;
+    }
+    try {
+      return await action();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Tudásbázis indexállapot lekérdezése sikertelen.");
+      return null;
     }
   }
 
@@ -1874,6 +1983,87 @@ export function App() {
       setNotice("Mentett iratkérdező válasz törölve.");
       setLastActionSummary(answer.title || answer.question);
     });
+  }
+
+  async function handleImportKnowledgeDocument() {
+    if (!knowledgeImportFile) return;
+    await perform("knowledge-import", async () => {
+      const result = await importKnowledgeDocument(knowledgeImportFile, knowledgeRelativePath);
+      const [documentsResponse, indexStatusResponse] = await Promise.all([
+        listKnowledgeDocuments(),
+        getKnowledgeIndexStatus()
+      ]);
+      setKnowledgeDocuments(documentsResponse.data);
+      setKnowledgeIndexStatus(indexStatusResponse);
+      setSelectedKnowledgeDocumentId(result.document.id);
+      setSelectedKnowledgeDocument(null);
+      setKnowledgeImportFile(null);
+      setKnowledgeRelativePath("");
+      if (knowledgeImportInputRef.current) {
+        knowledgeImportInputRef.current.value = "";
+      }
+      setNotice("Markdown tudásanyag importálva.");
+      setLastActionSummary(`${result.document.original_filename}: ${result.chunk_count} szövegrész.`);
+    });
+  }
+
+  async function handleLoadKnowledgeDocument(documentId: string) {
+    await perform("knowledge-detail", async () => {
+      const detail = await getKnowledgeDocument(documentId);
+      setSelectedKnowledgeDocumentId(documentId);
+      setSelectedKnowledgeDocument(detail);
+      setNotice("Tudásbázis dokumentum részletei betöltve.");
+      setLastActionSummary(`${detail.document.original_filename}: ${detail.chunks.length} szövegrész.`);
+    });
+  }
+
+  async function handleIndexKnowledgeDocuments() {
+    await perform("knowledge-index", async () => {
+      const result = await indexKnowledgeDocuments({
+        document_ids: knowledgeDocumentIds,
+        force_reindex: knowledgeForceReindex,
+        limit: 1000
+      });
+      const [documentsResponse, indexStatusResponse] = await Promise.all([
+        listKnowledgeDocuments(),
+        getKnowledgeIndexStatus()
+      ]);
+      setKnowledgeDocuments(documentsResponse.data);
+      setKnowledgeIndexStatus(indexStatusResponse);
+      setNotice("Tudásbázis indexelés kész.");
+      setLastActionSummary(
+        `${result.indexed_document_count} dokumentum, ${result.indexed_chunk_count} szövegrész indexelve.`
+      );
+    });
+  }
+
+  async function handleRunKnowledgeQuery() {
+    await perform("knowledge-query", async () => {
+      const response = await runKnowledgeQuery({
+        question: knowledgeQuestion.trim(),
+        document_ids: knowledgeDocumentIds,
+        answer_mode: knowledgeAnswerMode,
+        retrieval_strategy: knowledgeRetrievalStrategy,
+        max_chunks: knowledgeMaxChunks
+      });
+      setKnowledgeCurrentResponse(response);
+      setNotice("Tudásbázis válasz elkészült.");
+      setLastActionSummary(
+        `${labelRagAnswerMode(response.answer.answer_mode)} | ${response.used_sources.length} forrás | ${response.retrieval_metadata.selected_chunk_count} szövegrész`
+      );
+    });
+  }
+
+  function toggleKnowledgeDocumentFilter(documentId: string) {
+    setKnowledgeDocumentIds((current) =>
+      current.includes(documentId)
+        ? current.filter((item) => item !== documentId)
+        : [...current, documentId]
+    );
+  }
+
+  function selectAllFilteredKnowledgeDocuments() {
+    setKnowledgeDocumentIds(filteredKnowledgeDocuments.map((document) => document.id));
   }
 
   function scrollToRagSavedDetailPanel() {
@@ -3859,6 +4049,338 @@ export function App() {
     );
   }
 
+  function renderKnowledgeIndexStatusStrip() {
+    const hasIndexStatus = Boolean(knowledgeIndexStatus);
+    return (
+      <section className={`analysis-readiness-strip ${hasIndexStatus ? "" : "is-empty"}`}>
+        <div className="analysis-readiness-main">
+          <div>
+            <strong>Tudásbázis index állapot</strong>
+            {knowledgeIndexStatus ? (
+              <span>{[knowledgeIndexStatus.embedding_model, knowledgeIndexStatus.collection_name].filter(Boolean).join(" | ")}</span>
+            ) : (
+              <span>A Markdown tudásbázis indexelési készültsége itt jelenik meg.</span>
+            )}
+          </div>
+          {knowledgeIndexStatus ? (
+            <div className="metrics">
+              <span>{knowledgeIndexStatus.is_ready ? "index kész" : knowledgeIndexStatus.needs_indexing ? "indexelés szükséges" : "nincs indexelhető tartalom"}</span>
+              <span>Dokumentum: {knowledgeIndexStatus.indexed_document_count}/{knowledgeIndexStatus.document_count}</span>
+              <span>Szövegrész: {knowledgeIndexStatus.indexed_chunk_count}/{knowledgeIndexStatus.chunk_count}</span>
+              <span>Hiányzik: {knowledgeIndexStatus.missing_chunk_count}</span>
+            </div>
+          ) : (
+            <div className="metrics">
+              <span>Nincs betöltött indexállapot</span>
+              <span>A Tudásbázis megnyitásakor frissül</span>
+            </div>
+          )}
+          {knowledgeRetrievalStrategy !== "keyword" && knowledgeIndexStatus && !knowledgeIndexStatus.is_ready && (
+            <p className="error-text">Szemantikus vagy hybrid tudásbázis kérdezéshez előbb indexelni kell a Markdown szövegrészeket.</p>
+          )}
+        </div>
+        <div className="analysis-readiness-actions">
+          <button
+            className="secondary-button"
+            onClick={handleIndexKnowledgeDocuments}
+            disabled={Boolean(busy) || knowledgeDocuments.length === 0}
+            title="Lokális embedding és Qdrant index készítése a tudásbázis dokumentumaihoz"
+          >
+            Tudásbázis indexelése
+          </button>
+          <label className="checkbox-label">
+            <input type="checkbox" checked={knowledgeForceReindex} onChange={(event) => setKnowledgeForceReindex(event.target.checked)} />
+            Újraindexelés
+          </label>
+        </div>
+      </section>
+    );
+  }
+
+  function renderKnowledgeUsedSources(sources: KnowledgeUsedSource[]) {
+    if (sources.length === 0) {
+      return <p className="muted">A válaszhoz nem tartozik megjeleníthető tudásbázis-forrás.</p>;
+    }
+    return (
+      <div className="rag-source-list">
+        {sources.map((source, index) => (
+          <article key={`${source.chunk_id}-${index}`} className="compact-item rag-source-card">
+            <div className="item-card-header">
+              <div>
+                <strong>{source.original_filename}</strong>
+                <div className="metrics">
+                  {source.relative_path && <span>{source.relative_path}</span>}
+                  {source.heading_path && <span>{source.heading_path}</span>}
+                  <span>{source.chunk_index}. szövegrész</span>
+                  {source.retrieval_match_type && <span>{labelRetrievalStrategy(source.retrieval_match_type as RetrievalStrategy)}</span>}
+                  {source.retrieval_score !== null && <span>relevancia {source.retrieval_score.toFixed(3)}</span>}
+                  {source.contains_code_block && <span>kódblokk</span>}
+                </div>
+              </div>
+            </div>
+            <blockquote>{source.quote_preview}</blockquote>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
+  function renderKnowledgeBaseSurface() {
+    return (
+      <section className="surface-placeholder general-rag-surface knowledge-surface">
+        {renderSurfaceHeader("knowledge_base")}
+        <section className="workbench-status-row rag-status-row">
+          {renderKnowledgeIndexStatusStrip()}
+          <section className="research-run-summary">
+            <div className="research-run-summary-heading">
+              <div>
+                <strong>Tudásbázis állomány</strong>
+              </div>
+              <span className={`status-pill ${knowledgeDocuments.length === 0 ? "is-warning" : ""}`}>
+                {knowledgeDocuments.length === 0 ? "üres" : "használható"}
+              </span>
+            </div>
+            <div className="metrics">
+              <span>{knowledgeDocuments.length} dokumentum</span>
+              <span>{knowledgeDocuments.reduce((sum, document) => sum + document.chunk_count, 0)} szövegrész</span>
+              <span>{knowledgeDocuments.filter((document) => document.processing_status === "indexed").length} indexelt</span>
+              <span>{knowledgeDocumentIds.length > 0 ? `${knowledgeDocumentIds.length} kijelölve` : "teljes tudásbázis"}</span>
+            </div>
+          </section>
+        </section>
+
+        <section className="general-rag-grid knowledge-grid">
+          <section className="panel rag-query-panel knowledge-import-panel">
+            <div className="section-heading">
+              <h2>Markdown tudásanyag</h2>
+              <BookOpenText size={20} />
+            </div>
+            <div className="surface-form">
+              <label>
+                Markdown fájl
+                <input
+                  ref={knowledgeImportInputRef}
+                  type="file"
+                  accept=".md,text/markdown,text/plain"
+                  onChange={(event) => setKnowledgeImportFile(event.target.files?.[0] ?? null)}
+                />
+              </label>
+              <label>
+                Relatív útvonal
+                <input
+                  value={knowledgeRelativePath}
+                  onChange={(event) => setKnowledgeRelativePath(event.target.value)}
+                  placeholder="pl. notes/linux/suid.md"
+                />
+              </label>
+              <p className="field-hint">A Tudásbázis Markdown jegyzeteket kezel, nem ügyiratokat. Ezek nem jelennek meg az Ügy munkapad forrásköreiben.</p>
+              <div className="button-row">
+                <button onClick={handleImportKnowledgeDocument} disabled={Boolean(busy) || !knowledgeImportFile}>
+                  <FilePlus2 size={18} /> Importálás
+                </button>
+                <button className="secondary-button" onClick={() => refreshKnowledgeDocuments(true)} disabled={Boolean(busy)}>
+                  <RefreshCw size={18} /> Lista frissítése
+                </button>
+              </div>
+              <div className="source-filter-panel">
+                <div className="source-filter-list-heading">
+                  <button
+                    className="secondary-button"
+                    onClick={selectAllFilteredKnowledgeDocuments}
+                    disabled={filteredKnowledgeDocuments.length === 0 || Boolean(busy)}
+                  >
+                    Láthatók kijelölése
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={() => setKnowledgeDocumentIds([])}
+                    disabled={knowledgeDocumentIds.length === 0 || Boolean(busy)}
+                  >
+                    Kijelölés törlése
+                  </button>
+                  <input
+                    className="source-filter-search"
+                    value={knowledgeDocumentSearch}
+                    onChange={(event) => setKnowledgeDocumentSearch(event.target.value)}
+                    placeholder="Keresés a tudásbázis dokumentumokban"
+                  />
+                </div>
+                <div className="compact-list knowledge-document-list">
+                  {knowledgeDocuments.length === 0 && (
+                    <div className="research-empty-state rag-empty-state">
+                      <strong>Nincs importált Markdown tudásanyag</strong>
+                      <p>Importálj egy `.md` fájlt, majd indexeld a tudásbázist a kérdezéshez.</p>
+                    </div>
+                  )}
+                  {knowledgeDocuments.length > 0 && filteredKnowledgeDocuments.length === 0 && <p className="muted">Nincs a keresésnek megfelelő tudásbázis dokumentum.</p>}
+                  {filteredKnowledgeDocuments.map((document) => (
+                    <article key={document.id} className={`compact-item ${selectedKnowledgeDocumentId === document.id ? "is-selected" : ""}`}>
+                      <div className="item-card-header">
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={knowledgeDocumentIds.includes(document.id)}
+                            onChange={() => toggleKnowledgeDocumentFilter(document.id)}
+                          />
+                          <span>
+                            <strong>{document.original_filename}</strong>
+                            {document.relative_path && <small>{document.relative_path}</small>}
+                          </span>
+                        </label>
+                      </div>
+                      <div className="metrics">
+                        <span>{labelKnowledgeStatus(document.processing_status)}</span>
+                        <span>{document.chunk_count} szövegrész</span>
+                        <span>{document.indexed_chunk_count}/{document.chunk_count} indexelt</span>
+                        {document.indexed_at && <span>{formatDateTime(document.indexed_at)}</span>}
+                      </div>
+                      <button className="secondary-button" onClick={() => handleLoadKnowledgeDocument(document.id)} disabled={Boolean(busy)}>
+                        Részletek
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="panel rag-query-panel knowledge-query-panel">
+            <div className="section-heading">
+              <h2>Kérdés a tudásbázishoz</h2>
+              <MessageSquare size={20} />
+            </div>
+            <div className="surface-form">
+              <div className="form-row">
+                <label>
+                  Válasz típusa
+                  <select value={knowledgeAnswerMode} onChange={(event) => setKnowledgeAnswerMode(event.target.value as RagAnswerMode)}>
+                    {ragAnswerModes.map((mode) => (
+                      <option key={mode} value={mode}>{ragAnswerModeLabels[mode]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Forráskeresés
+                  <select value={knowledgeRetrievalStrategy} onChange={(event) => setKnowledgeRetrievalStrategy(event.target.value as RetrievalStrategy)}>
+                    {retrievalStrategies.map((item) => <option key={item} value={item}>{labelRetrievalStrategy(item)}</option>)}
+                  </select>
+                </label>
+              </div>
+              <label>
+                Szövegrész plafon
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={knowledgeMaxChunks}
+                  onChange={(event) => setKnowledgeMaxChunks(clampNumberInput(event.target.value, 1, 90, 45))}
+                />
+              </label>
+              <label>
+                Kérdés
+                <textarea
+                  value={knowledgeQuestion}
+                  onChange={(event) => setKnowledgeQuestion(event.target.value)}
+                  rows={9}
+                  placeholder="Írd be, mire szeretnél választ kapni kizárólag az importált Markdown tudásbázis alapján."
+                />
+              </label>
+              <p className="field-hint">
+                Ha nincs kijelölt dokumentum, a rendszer a teljes tudásbázisban keres. Szemantikus vagy hybrid módhoz előbb indexelni kell.
+              </p>
+              {!canRunKnowledgeQuery && knowledgeQuestion.trim().length > 0 && (
+                <p className="error-text">
+                  {knowledgeDocuments.length === 0
+                    ? "Nincs importált tudásbázis dokumentum."
+                    : knowledgeRetrievalStrategy === "keyword"
+                      ? ""
+                      : "A kijelölt tudásbázis-forrásokhoz hiányzik az aktuális index."}
+                </p>
+              )}
+              <button onClick={handleRunKnowledgeQuery} disabled={!canRunKnowledgeQuery}>
+                <Play size={18} /> Kérdezés indítása
+              </button>
+            </div>
+          </section>
+        </section>
+
+        <section className={`panel rag-answer-panel ${knowledgeCurrentResponse ? "has-current-answer" : ""}`}>
+          <div className="section-heading">
+            <h2>Aktuális tudásbázis válasz</h2>
+            <MessageSquare size={20} />
+          </div>
+          {!knowledgeCurrentResponse && (
+            <div className="research-empty-state rag-empty-state">
+              <strong>Nincs aktuális tudásbázis válasz</strong>
+              <p>Itt jelenik meg a legutóbbi tudásbázis-kérdésre adott válasz és a felhasznált Markdown források.</p>
+            </div>
+          )}
+          {knowledgeCurrentResponse && (
+            <div className="rag-answer-layout">
+              <article className={`rag-answer-card ${knowledgeCurrentResponse.answer.insufficient_source ? "is-unconfirmed" : ""}`}>
+                <div className="metrics">
+                  <span>{labelRagAnswerMode(knowledgeCurrentResponse.answer.answer_mode)}</span>
+                  <span>{labelRetrievalStrategy(knowledgeCurrentResponse.retrieval_metadata.retrieval_strategy)}</span>
+                  <span>{knowledgeCurrentResponse.retrieval_metadata.document_count} dokumentum</span>
+                  <span>{knowledgeCurrentResponse.retrieval_metadata.selected_chunk_count} szövegrész</span>
+                  {knowledgeCurrentResponse.answer.insufficient_source && <span>Nincs elég forrás</span>}
+                </div>
+                <p className="rag-answer-text">{knowledgeCurrentResponse.answer.answer_text}</p>
+                {knowledgeCurrentResponse.answer.source_summary && (
+                  <div className="module-note">
+                    Forrásalap: <strong>{knowledgeCurrentResponse.answer.source_summary}</strong>
+                  </div>
+                )}
+              </article>
+              <section className="rag-sources-panel knowledge-sources-panel">
+                <div className="section-heading">
+                  <strong>Felhasznált Markdown források</strong>
+                  <span className="status-pill">{knowledgeCurrentResponse.used_sources.length}</span>
+                </div>
+                {renderKnowledgeUsedSources(knowledgeCurrentResponse.used_sources)}
+              </section>
+            </div>
+          )}
+        </section>
+
+        <section className="panel rag-saved-detail-panel">
+          <div className="section-heading">
+            <h2>Tudásbázis dokumentum részletei</h2>
+            <BookOpenText size={20} />
+          </div>
+          {!selectedKnowledgeDocument && <p className="muted">Válassz egy Markdown dokumentumot a részletekhez.</p>}
+          {selectedKnowledgeDocument && (
+            <div className="detail-stack">
+              <article className="compact-item">
+                <strong>{selectedKnowledgeDocument.document.original_filename}</strong>
+                <div className="metrics">
+                  {selectedKnowledgeDocument.document.relative_path && <span>{selectedKnowledgeDocument.document.relative_path}</span>}
+                  <span>{selectedKnowledgeDocument.document.chunk_count} szövegrész</span>
+                  <span>{selectedKnowledgeDocument.document.char_count} karakter</span>
+                  <span>{labelKnowledgeStatus(selectedKnowledgeDocument.document.processing_status)}</span>
+                </div>
+              </article>
+              <div className="compact-list knowledge-chunk-list">
+                {selectedKnowledgeDocument.chunks.map((chunk) => (
+                  <article key={`${selectedKnowledgeDocument.document.id}-${chunk.chunk_index}`} className="compact-item">
+                    <strong>{chunk.heading_path || "Címsor nélküli szövegrész"}</strong>
+                    <div className="metrics">
+                      <span>{chunk.chunk_index}. szövegrész</span>
+                      <span>{chunk.char_start}-{chunk.char_end}</span>
+                      {chunk.contains_code_block && <span>kódblokk</span>}
+                      {chunk.code_languages.map((language) => <span key={language}>{language}</span>)}
+                    </div>
+                    <blockquote>{chunk.text_preview}</blockquote>
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      </section>
+    );
+  }
+
   function renderGeneralRagSurface() {
     return (
       <section className="surface-placeholder general-rag-surface">
@@ -4219,6 +4741,7 @@ export function App() {
                   {surface === "case_workbench" && <Database size={18} />}
                   {surface === "full_document_processing" && <FilePlus2 size={18} />}
                   {surface === "general_rag" && <MessageSquare size={18} />}
+                  {surface === "knowledge_base" && <BookOpenText size={18} />}
                   {surface === "audit_log" && <Archive size={18} />}
                   <span>{workSurfaceLabels[surface]}</span>
                 </button>
@@ -5742,6 +6265,8 @@ export function App() {
 
         {activeSurface === "general_rag" && renderGeneralRagSurface()}
 
+        {activeSurface === "knowledge_base" && renderKnowledgeBaseSurface()}
+
         {activeSurface === "full_document_processing" && (
           <section className="surface-placeholder">
             {renderSurfaceHeader("full_document_processing")}
@@ -6227,6 +6752,16 @@ function filterDocumentsByName(documents: DocumentRead[], searchText: string) {
   return documents.filter((document) => document.original_filename.toLocaleLowerCase("hu-HU").includes(needle));
 }
 
+function filterKnowledgeDocuments(documents: KnowledgeDocumentRead[], searchText: string) {
+  const needle = searchText.trim().toLocaleLowerCase("hu-HU");
+  if (!needle) return documents;
+  return documents.filter((document) =>
+    `${document.original_filename} ${document.relative_path ?? ""} ${document.sha256_hash}`
+      .toLocaleLowerCase("hu-HU")
+      .includes(needle)
+  );
+}
+
 function filterDocumentProcessingItemsByName(items: DocumentProcessingItemRead[], searchText: string) {
   const needle = searchText.trim().toLocaleLowerCase("hu-HU");
   if (!needle) return items;
@@ -6407,6 +6942,18 @@ function labelProcessingStatus(value: string) {
     text_review_required: "Szoveg ellenorzesre var",
     review_required: "Ellenőrzést igényel",
     failed: "Sikertelen"
+  };
+  return labels[value] ?? value;
+}
+
+function labelKnowledgeStatus(value: string) {
+  const labels: Record<string, string> = {
+    imported: "Importálva",
+    processed: "Feldolgozva",
+    indexing: "Indexelés alatt",
+    indexed: "Indexelve",
+    failed: "Sikertelen",
+    archived: "Archivált"
   };
   return labels[value] ?? value;
 }

@@ -13,6 +13,7 @@ from app.api.v1.entities import router as entities_router
 from app.api.v1.events import router as events_router
 from app.api.v1.exports import router as exports_router
 from app.api.v1.full_document_processing import router as full_document_processing_router
+from app.api.v1.knowledge import router as knowledge_router
 from app.api.v1.manual_entries import router as manual_entries_router
 from app.api.v1.missing_items import router as missing_items_router
 from app.api.v1.rag import router as rag_router
@@ -36,6 +37,7 @@ api_router.include_router(entities_router, tags=["entities"])
 api_router.include_router(events_router, tags=["events"])
 api_router.include_router(exports_router, tags=["exports"])
 api_router.include_router(full_document_processing_router, tags=["full-document-processing"])
+api_router.include_router(knowledge_router, tags=["knowledge"])
 api_router.include_router(manual_entries_router, tags=["manual-entries"])
 api_router.include_router(missing_items_router, tags=["missing-items"])
 api_router.include_router(rag_router, tags=["rag"])

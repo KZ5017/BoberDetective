@@ -17,6 +17,7 @@ from app.models.document_processing import DocumentProcessingItemModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.export import ExportItemModel, ExportModel
+from app.models.knowledge import KnowledgeDocumentModel
 from app.models.missing_item import MissingItemCandidateModel, MissingItemCandidateSourceModel
 from app.models.review import HumanReviewModel
 from app.models.rag_answer import RagAnswerModel
@@ -52,6 +53,7 @@ __all__ = [
     "ExportItemModel",
     "ExportModel",
     "HumanReviewModel",
+    "KnowledgeDocumentModel",
     "MissingItemCandidateModel",
     "MissingItemCandidateSourceModel",
     "RagAnswerModel",

@@ -141,7 +141,7 @@ Az elso szelet celja:
 
 ```text
 .md fajlok importalasa, chunkolasa, indexelese es kerdezese kulon
-Tudasbazis modulban, Obsidian-specifikus graf funkciok nelkul.
+Tudasbazis modulban, alkalmazas-specifikus integracio nelkul.
 ```
 
 ### 6.1 Backend
@@ -200,7 +200,7 @@ A parser tartsa meg vagy metaadatkent vigye tovabb:
 - code block nyelvjeloles,
 - listak,
 - tablak,
-- Obsidian wikilinkek forrasszovege.
+- wikilink-szeru jelolesek forrasszovege.
 
 ### 7.2 Chunkolasi elvek
 
@@ -242,28 +242,31 @@ PrivEsc jegyzetek > Linux > SUID binarisok
 Ez a RAG forrasmegjelenitesben sokkal hasznosabb, mint egy puszta
 oldalszam, mert Markdownban nincs termeszetes page fogalom.
 
-## 8. Obsidian specifikus elemek
+## 8. Markdown kompatibilitasi elemek
 
-Az elso szeletben az Obsidian-tamogatas csak kompatibilitas legyen,
-nem teljes graf feldolgozas.
+Az elso szelet alkalmazasfuggetlen Markdown feldolgozas. A cel nem egy
+konkret jegyzetelo alkalmazas integracioja, hanem a forrasszoveg
+megorzese es kerdezhetove tetele.
 
 Elso szelet:
 
 - `.md` fajlok importalhatok,
-- wikilink forrasszoveg megmarad,
+- wikilink-szeru jelolesek forrasszovege megmarad,
 - frontmatter nem veszik el,
 - mappautvonal megmarad,
 - code blockok es headingek ertelmesen kezelodnek.
 
 Kesobbi szelet:
 
-- wikilink target feloldas,
-- backlink nezet,
 - tag alapu szures,
 - frontmatter alapu szures,
-- Obsidian mappaszerkezetbol gyujtemenyjavaslat,
-- kapcsolati graf,
-- attachment/image kezeles.
+- mappautvonal alapu szures/import segitsegek,
+- valaszok mentese es visszakeresese.
+
+Nem cel a kozeljovoben:
+
+- alkalmazas-specifikus kapcsolatnezet vagy graf-integracio,
+- alkalmazas-specifikus csatolmany- vagy kepfeldolgozas.
 
 ## 9. RAG viselkedes
 
@@ -515,7 +518,7 @@ GET  /api/v1/knowledge/documents
 GET  /api/v1/knowledge/documents/{knowledge_document_id}
 DELETE /api/v1/knowledge/documents/{knowledge_document_id}
 
-POST /api/v1/knowledge/index/jobs
+POST /api/v1/knowledge/index
 GET  /api/v1/knowledge/index/status
 
 POST /api/v1/knowledge/query
@@ -571,7 +574,7 @@ Output:
 ### 13.8 Index status/job
 
 ```text
-POST /api/v1/knowledge/index/jobs
+POST /api/v1/knowledge/index
 GET  /api/v1/knowledge/index/status
 ```
 
@@ -579,6 +582,10 @@ Az elso verzio indexelhet:
 
 - minden aktiv knowledge documentet,
 - vagy kesobb kivalasztott dokumentumokat/gyujtemenyt.
+
+Az elso implementalt valtozat szinkron `POST /api/v1/knowledge/index`
+vegpontot hasznal. Background job/progress kesobbi nagy volumen szeletben
+adhato hozza, ha a live tesztek alapjan indokolt.
 
 Statusz tartalom:
 
@@ -702,6 +709,79 @@ Backend tesztek:
 8. `search_findings` nem lat knowledge chunkot.
 9. `full-document processing` nem lat knowledge dokumentumot.
 10. Path traversal jellegu `relative_path` elutasitott vagy normalizalt.
+
+### 13.13 Implementacios allapot - 2026-06-09
+
+Elkeszult backend foundation:
+
+- `0046_knowledge_documents` migracio,
+- `KnowledgeDocumentModel`,
+- knowledge Pydantic response/request semak,
+- determinisztikus Markdown parser/chunker,
+- data-root/text-store alapu original/text-layer/chunk-manifest tarolas,
+- `.md` import/list/detail endpointok:
+  - `POST /api/v1/knowledge/documents`,
+  - `GET /api/v1/knowledge/documents`,
+  - `GET /api/v1/knowledge/documents/{knowledge_document_id}`,
+- `0047_knowledge_index_metadata` migracio,
+- knowledge embedding/index metadata mezok:
+  - `embedding_provider`,
+  - `embedding_model`,
+  - `vector_collection`,
+  - `indexed_chunk_count`,
+  - `indexed_at`,
+- kulon knowledge Qdrant collection nev:
+
+```text
+<qdrant_chunk_collection>_knowledge_<embedding_model_slug>
+```
+
+- knowledge index service:
+  - `app/services/knowledge_indexing.py`,
+  - `QdrantKnowledgeIndex`,
+  - `index_knowledge_documents`,
+  - `get_knowledge_index_status`,
+- index endpointok:
+  - `GET /api/v1/knowledge/index/status`,
+  - `POST /api/v1/knowledge/index`.
+- knowledge query service:
+  - `app/services/knowledge_query.py`,
+  - keyword/semantic/hybrid retrieval csak `knowledge_documents` es knowledge
+    vector collection felett,
+  - source-bound magyar LLM prompt,
+  - JSON fallback parser az answer payloadhoz,
+  - filename + relative path + heading path alapu forraskartyak.
+- query endpoint:
+  - `POST /api/v1/knowledge/query`.
+- elso frontend surface:
+  - oldalsav/menu elem: `Tudásbázis`,
+  - Markdown import panel,
+  - tudásbázis dokumentum lista/keresés/kijelölés,
+  - index állapot és indexelés gomb,
+  - kérdés panel,
+  - aktuális válasz panel,
+  - filename + relative path + heading path alapú forráskártyák,
+  - dokumentum részletek és chunk preview panel.
+
+Ellenorzott modulhatar:
+
+- a knowledge-vector payload `knowledge_document_id` alapu,
+- nem tartalmaz `case_id` payloadot,
+- nem a klasszikus ugyirat chunk collectionbe ir.
+
+Kovetkezo implementacios cel:
+
+```text
+Tudasbazis dokumentum eletciklus workflow: valodi torles/archivalas/
+ujraimport, data-root takaritas, knowledge Qdrant pontok takaritasa,
+audit es UX visszajelzes
+```
+
+Az elso query backend contract mar csak `knowledge_documents`-bol es a kulon
+knowledge Qdrant collectionbol dolgozik. Nem olvas klasszikus ugyirat
+`documents` rekordokat es nem hasznalja a case chunk collectiont.
+Az elso frontend surface mar lathato, a backend import/index/query
+contractokra van kotve, es user-side live teszten alapvetoen atment.
 
 ## 14. Markdown parser/chunker contract v1
 
@@ -891,9 +971,10 @@ Hasznald az `nmap -sV` parancsot.
 
 Ne normalizaljuk, ne vegyuk ki, ne alakitsuk at.
 
-### 14.10 Obsidian wikilink
+### 14.10 Wikilink-szeru jelolesek
 
-Obsidian wikilinkek v1-ben maradjanak karakterhűen a szovegben.
+Wikilink-szeru jelolesek v1-ben maradjanak karakterhűen a szovegben.
+Nem kell feloldani oket es nem kell kapcsolatgrafot epiteni beloluk.
 
 Pelda:
 
@@ -914,9 +995,7 @@ V1 viselkedes:
 }
 ```
 
-A teljes Obsidian graf/backlink feldolgozas kesobbi szelet.
-
-### 14.11 Obsidian tagek
+### 14.11 Tag jelolesek
 
 Inline tag:
 
@@ -930,9 +1009,9 @@ V1 viselkedes:
 - metadata szinten kigyujtheto `tags` listaba,
 - frontmatter tags kulon `frontmatter_tags` listaba kerulhet.
 
-### 14.12 Kepek es attachmentek
+### 14.12 Kepek es csatolmanyhivatkozasok
 
-V1-ben ne dolgozzuk fel az attachmenteket.
+V1-ben ne dolgozzuk fel a kepeket vagy csatolmanyhivatkozasokat.
 
 Pelda:
 
@@ -945,8 +1024,7 @@ Viselkedes:
 
 - maradjanak forrashu szovegkent,
 - ne legyen OCR,
-- ne legyen kepindex,
-- attachment feldolgozas kesobbi kulon szelet.
+- ne legyen kepindex.
 
 ### 14.13 Minimalis chunk metadata
 
@@ -1034,7 +1112,7 @@ Javasolt:
   - listablokkokat,
   - tablablokkokat,
   - bekezdeseket,
-  - Obsidian wikilink/tag mintakat.
+  - wikilink-szeru es tag jeloleseket.
 
 Indok:
 
@@ -1055,7 +1133,7 @@ Elso tesztek:
 3. Markdown headingekbol helyes heading path keszul.
 4. Fenced code block nem szakad szet normal meretnel.
 5. YAML frontmatter nem veszik el.
-6. Wikilink forrasszoveg megmarad.
+6. Wikilink-szeru forrasszoveg megmarad.
 7. Markdown chunkok indexelhetok.
 8. Tudasbazis RAG csak knowledge-base dokumentumokat hasznal.
 9. Ugy munkapad nem kinalja fel knowledge-base dokumentumokat forraskent.
@@ -1064,7 +1142,7 @@ Elso tesztek:
 
 ## 16. Nyitott kerdesek
 
-Implementacio elott tisztazando:
+Kovetkezo szeletek elott tisztazando:
 
 1. Legyen-e mappas upload / batch import az elso szeletben, vagy eloszor
    csak tobb fajlos `.md` upload?
@@ -1075,7 +1153,6 @@ Implementacio elott tisztazando:
 4. Mekkora legyen a Markdown chunk merethatara code blockok mellett?
 5. Kulon `knowledge_query_runs` tabla legyen, vagy az `analysis_runs`
    kapjon ugytol fuggetlen futastipust?
-6. Mikor vezessuk be az Obsidian wikilink/backlink graf feldolgozast?
 
 ## 17. Backend implementation plan v1
 
@@ -1090,8 +1167,8 @@ minimalis, tesztelheto backend alap a globalis Markdown Tudasbazishoz
 Nem cel meg:
 
 - teljes frontend,
-- Obsidian graf,
-- attachment feldolgozas,
+- alkalmazas-specifikus integracio,
+- kep/csatolmany feldolgozas,
 - mappas import,
 - mentett tudasbazis valaszok teljes workflow-ja.
 
@@ -1418,14 +1495,16 @@ Az elso backend szelet akkor tekintheto kesznek, ha:
    - valasz/forras megjelenites.
 7. Nagyobb sajat Markdown korpusz live smoke.
 8. UX es prompt finomitas a live tapasztalatok alapjan.
-9. Obsidian-specifikus masodik szelet tervezese, ha az alap stabil.
 
 ## 19. Statusz
 
 Allapot:
 
 ```text
-tervezesi alap, DB/API contract v1 irany, Markdown parser/chunker contract v1 es backend implementation plan v1 letrehozva, implementacio meg nem indult
+elso backend/frontend implementacios szelet kesz: globalis knowledge_documents
+alap, Markdown import/chunk-manifest, knowledge-only indexeles, knowledge-only
+kerdezes, es minimalis Tudásbázis frontend felulet mukodik; kovetkezo
+lepes a torles/archivalas/ujraimport workflow es UX/retrieval hardening
 ```
 
 Kapcsolodo dokumentumok:

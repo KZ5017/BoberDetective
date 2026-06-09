@@ -350,6 +350,103 @@ export type RagSavedAnswerDetail = {
   created_at: string;
 };
 
+export type KnowledgeDocumentRead = {
+  id: string;
+  original_filename: string;
+  relative_path: string | null;
+  mime_type: string;
+  file_extension: string;
+  file_size_bytes: number;
+  sha256_hash: string;
+  document_kind: string;
+  processing_status: string;
+  language_code: string | null;
+  parser_name: string | null;
+  parser_version: string | null;
+  chunk_count: number;
+  char_count: number;
+  embedding_provider: string | null;
+  embedding_model: string | null;
+  vector_collection: string | null;
+  indexed_chunk_count: number;
+  indexed_at: string | null;
+  frontmatter_json: Record<string, unknown>;
+  heading_summary_json: Array<Record<string, unknown>>;
+  quality_flags_json: string[];
+  imported_at: string;
+  updated_at: string;
+};
+
+export type KnowledgeChunkPreview = {
+  chunk_index: number;
+  heading_path: string;
+  char_start: number;
+  char_end: number;
+  contains_code_block: boolean;
+  code_languages: string[];
+  quality_flags: string[];
+  text_preview: string;
+};
+
+export type KnowledgeDocumentDetailResponse = {
+  document: KnowledgeDocumentRead;
+  chunks: KnowledgeChunkPreview[];
+};
+
+export type KnowledgeIndexStatusResponse = {
+  collection_name: string;
+  embedding_model: string;
+  document_count: number;
+  chunk_count: number;
+  indexed_document_count: number;
+  indexed_chunk_count: number;
+  missing_document_count: number;
+  missing_chunk_count: number;
+  is_ready: boolean;
+  needs_indexing: boolean;
+};
+
+export type KnowledgeIndexResponse = {
+  indexed_document_count: number;
+  indexed_chunk_count: number;
+  skipped_document_count: number;
+  collection_name: string;
+  embedding_model: string;
+};
+
+export type KnowledgeUsedSource = {
+  knowledge_document_id: string;
+  original_filename: string;
+  relative_path: string | null;
+  chunk_id: string;
+  chunk_index: number;
+  heading_path: string;
+  quote_preview: string;
+  contains_code_block: boolean;
+  code_languages: string[];
+  retrieval_score: number | null;
+  retrieval_match_type: string | null;
+};
+
+export type KnowledgeQueryResponse = {
+  answer: {
+    answer_text: string;
+    source_summary: string;
+    insufficient_source: boolean;
+    answer_mode: RagAnswerMode;
+  };
+  used_sources: KnowledgeUsedSource[];
+  retrieval_metadata: {
+    retrieval_strategy: RetrievalStrategy;
+    max_chunks: number;
+    selected_chunk_count: number;
+    document_count: number;
+    embedding_model: string | null;
+    collection_name: string | null;
+  };
+  can_save: boolean;
+};
+
 export type ReviewReportItem = {
   object_type: string;
   object_id: string;
@@ -1135,6 +1232,61 @@ export function getRagAnswer(caseId: string, answerId: string): Promise<RagSaved
 export function deleteRagAnswer(caseId: string, answerId: string): Promise<void> {
   return request(`/cases/${caseId}/rag/answers/${answerId}`, {
     method: "DELETE"
+  });
+}
+
+export function listKnowledgeDocuments(): Promise<{ data: KnowledgeDocumentRead[] }> {
+  return request("/knowledge/documents");
+}
+
+export function importKnowledgeDocument(file: File, relativePath?: string): Promise<{
+  document: KnowledgeDocumentRead;
+  chunk_count: number;
+  frontmatter_detected: boolean;
+  quality_flags: string[];
+}> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (relativePath?.trim()) {
+    formData.append("relative_path", relativePath.trim());
+  }
+  return request("/knowledge/documents", {
+    method: "POST",
+    body: formData
+  });
+}
+
+export function getKnowledgeDocument(documentId: string): Promise<KnowledgeDocumentDetailResponse> {
+  return request(`/knowledge/documents/${documentId}`);
+}
+
+export function getKnowledgeIndexStatus(): Promise<KnowledgeIndexStatusResponse> {
+  return request("/knowledge/index/status");
+}
+
+export function indexKnowledgeDocuments(payload: {
+  document_ids?: string[];
+  force_reindex?: boolean;
+  limit?: number;
+}): Promise<KnowledgeIndexResponse> {
+  return request("/knowledge/index", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function runKnowledgeQuery(payload: {
+  question: string;
+  document_ids?: string[];
+  answer_mode: RagAnswerMode;
+  retrieval_strategy: RetrievalStrategy;
+  max_chunks: number;
+}): Promise<KnowledgeQueryResponse> {
+  return request("/knowledge/query", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
   });
 }
 

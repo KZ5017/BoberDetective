@@ -1,10 +1,31 @@
 # CHANGELOG.md
 
+## 2026-06-09
+
+### Added
+
+- Added the first backend foundation for the global `Tudásbázis` slice: migration `0046_knowledge_documents`, `KnowledgeDocumentModel`, knowledge Pydantic schemas, deterministic Markdown parser/chunker service, data-root/text-store backed `.md` import service, `/api/v1/knowledge/documents` import/list/detail endpoints, storage-path helpers, and focused parser/import/API tests covering frontmatter, heading paths, code block preservation, invalid encoding, empty Markdown input, manifest writing, and endpoint behavior.
+- Added the first knowledge-base indexing slice: migration `0047_knowledge_index_metadata`, knowledge document embedding/index metadata fields, a separate knowledge Qdrant collection naming path, `app/services/knowledge_indexing.py`, `GET /api/v1/knowledge/index/status`, `POST /api/v1/knowledge/index`, and focused tests proving that knowledge-vector payloads do not use case-file `case_id` payloads or the case chunk collection.
+- Added the first knowledge-only query backend contract: `POST /api/v1/knowledge/query`, `app/services/knowledge_query.py`, keyword/semantic/hybrid knowledge retrieval over `knowledge_documents`, source cards with filename/relative path/heading path, a source-bound Hungarian answer prompt, JSON fallback parsing for the answer payload, and focused tests for endpoint behavior, prompt construction, keyword retrieval, Qdrant knowledge search filtering, and empty-source placeholder answers.
+- Added the first `Tudásbázis` frontend surface: sidebar navigation entry, Markdown import form, knowledge document list/search/selection, knowledge index status and index action, knowledge question form, current answer panel, source cards with filename/relative path/heading path, and document detail/chunk preview panel.
+- Documented the current `Tudásbázis` handoff state: user-side live test passed, and the next clean backend slice is knowledge document lifecycle hardening with real delete/archive/reimport semantics, data-root cleanup, Qdrant knowledge-point cleanup, and audit events.
+
+### Verified
+
+- `.venv/bin/python -m pytest tests/test_knowledge_query.py tests/test_knowledge_indexing.py tests/test_knowledge_import.py tests/test_knowledge_api.py tests/test_markdown_parser.py tests/test_storage.py tests/test_health.py -q` (`25 passed`)
+- `.venv/bin/python -m pytest -q` (`325 passed`, 1 Docling deprecation warning)
+- `npm --prefix frontend run build`
+- `.venv/bin/python -m alembic upgrade head` / current head `0047_knowledge_index_metadata`
+- `GET /api/v1/knowledge/index/status` live backend smoke returned an empty but valid knowledge index status response.
+- `POST /api/v1/knowledge/query` live backend smoke returned a valid empty-source placeholder answer for an empty knowledge base.
+- Live import -> index -> query smoke passed with a generated Markdown note: import created one `markdown_note` with 2 chunks, knowledge indexing wrote 2 chunks into `boberdetective_chunks_knowledge_text_embedding_bge_m3`, and a hybrid short query returned a source-backed answer plus source cards.
+- `git diff --check`
+
 ## 2026-06-08
 
 ### Added
 
-- Added `Design_documents/21_markdown_knowledge_base_module_plan.md` as the first design foundation for the next larger `Tudásbázis` slice: Markdown import, `knowledge_base` / `markdown_note` separation, knowledge-base-only RAG, explicit non-goals around not mixing these documents into investigative workflows, a DB/API contract v1 direction around global `knowledge_documents`, `/api/v1/knowledge/*`, separate knowledge-vector indexing, a Markdown parser/chunker contract v1 covering UTF-8, frontmatter, heading paths, code-block-safe chunking, Obsidian wikilinks/tags, source display, quality flags, and a backend implementation plan v1 for the first import/chunking slice.
+- Added `Design_documents/21_markdown_knowledge_base_module_plan.md` as the first design foundation for the next larger `Tudásbázis` slice: Markdown import, `knowledge_base` / `markdown_note` separation, knowledge-base-only RAG, explicit non-goals around not mixing these documents into investigative workflows, a DB/API contract v1 direction around global `knowledge_documents`, `/api/v1/knowledge/*`, separate knowledge-vector indexing, a Markdown parser/chunker contract v1 covering UTF-8, frontmatter, heading paths, code-block-safe chunking, wikilink/tag-like Markdown patterns as source-preserved text/metadata, source display, quality flags, and a backend implementation plan v1 for the first import/chunking slice.
 - Added `GET /api/v1/cases/{case_id}/rag/latest-run-summary` so the `Általános iratkérdező` work surface can show the last RAG query persistently after refresh.
 - Added case-scope selected-document filtering to RAG queries through `document_ids`, matching the selected-document checkbox/radio source-scope behavior already used in the analysis workflow.
 - Saved RAG answers now preserve `source_summary` in retrieval metadata and show it again in saved-answer details.

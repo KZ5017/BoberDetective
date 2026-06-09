@@ -9,6 +9,7 @@ def test_storage_paths_stay_under_data_root(tmp_path: Path) -> None:
     storage = StoragePaths(tmp_path)
 
     assert storage.case_dir("case-1") == tmp_path / "cases" / "case-1"
+    assert storage.knowledge_document_dir("doc-1") == tmp_path / "knowledge" / "documents" / "doc-1"
 
 
 def test_storage_rejects_path_traversal(tmp_path: Path) -> None:
@@ -17,3 +18,5 @@ def test_storage_rejects_path_traversal(tmp_path: Path) -> None:
     with pytest.raises(StoragePathError):
         storage.case_dir("../outside")
 
+    with pytest.raises(StoragePathError):
+        storage.knowledge_document_dir("../outside")

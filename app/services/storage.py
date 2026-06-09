@@ -32,6 +32,15 @@ class StoragePaths:
             return self._resolve_under_root("audit")
         return self._resolve_under_root("cases", case_id, "audit")
 
+    def knowledge_document_dir(self, knowledge_document_id: str) -> Path:
+        return self._resolve_under_root("knowledge", "documents", knowledge_document_id)
+
+    def knowledge_document_originals_dir(self, knowledge_document_id: str) -> Path:
+        return self._resolve_under_root("knowledge", "documents", knowledge_document_id, "originals")
+
+    def knowledge_document_derived_dir(self, knowledge_document_id: str) -> Path:
+        return self._resolve_under_root("knowledge", "documents", knowledge_document_id, "derived")
+
     def _resolve_under_root(self, *parts: str) -> Path:
         for part in parts:
             self._validate_path_part(part)
