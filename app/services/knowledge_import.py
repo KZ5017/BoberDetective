@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import hashlib
 import json
 from pathlib import Path, PurePath
+import shutil
 from uuid import UUID, uuid4
 
 from fastapi import UploadFile
@@ -41,6 +42,10 @@ class KnowledgeUploadTooLargeError(KnowledgeImportError):
 
 
 class KnowledgeMarkdownParseError(KnowledgeImportError):
+    pass
+
+
+class KnowledgeLifecycleError(KnowledgeImportError):
     pass
 
 
@@ -132,6 +137,74 @@ def get_knowledge_document(db: Session, knowledge_document_id: UUID) -> Knowledg
     if document is None:
         raise KnowledgeDocumentNotFoundError("Knowledge document not found")
     return document
+
+
+def archive_knowledge_document(db: Session, knowledge_document_id: UUID) -> KnowledgeDocumentModel:
+    document = get_knowledge_document(db, knowledge_document_id)
+    if document.processing_status == "archived":
+        return document
+    _delete_knowledge_vector_points(document.id)
+    previous_status = document.processing_status
+    document.processing_status = "archived"
+    document.indexed_chunk_count = 0
+    document.indexed_at = None
+    document.updated_at = datetime.now(UTC)
+    db.add(document)
+    _write_knowledge_audit_event(
+        db,
+        event_type="knowledge_document_archived",
+        document=document,
+        input_summary={"previous_processing_status": previous_status},
+        output_summary={"processing_status": document.processing_status},
+    )
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+def restore_knowledge_document(db: Session, knowledge_document_id: UUID) -> KnowledgeDocumentModel:
+    document = get_knowledge_document(db, knowledge_document_id)
+    if document.processing_status != "archived":
+        return document
+    document.processing_status = "processed"
+    document.indexed_chunk_count = 0
+    document.indexed_at = None
+    document.updated_at = datetime.now(UTC)
+    db.add(document)
+    _write_knowledge_audit_event(
+        db,
+        event_type="knowledge_document_restored",
+        document=document,
+        input_summary={"previous_processing_status": "archived"},
+        output_summary={"processing_status": document.processing_status, "requires_reindex": True},
+    )
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+def delete_knowledge_document(db: Session, knowledge_document_id: UUID) -> None:
+    document = get_knowledge_document(db, knowledge_document_id)
+    storage = StoragePaths(get_settings().data_root)
+    document_dir = storage.knowledge_document_dir(str(document.id))
+    _delete_knowledge_vector_points(document.id)
+    _write_knowledge_audit_event(
+        db,
+        event_type="knowledge_document_deleted",
+        document=document,
+        input_summary={
+            "processing_status": document.processing_status,
+            "stored_path": document.stored_path,
+            "text_layer_storage_uri": document.text_layer_storage_uri,
+            "chunk_manifest_storage_uri": document.chunk_manifest_storage_uri,
+            "vector_collection": document.vector_collection,
+            "indexed_chunk_count": document.indexed_chunk_count,
+        },
+        output_summary={"knowledge_document_id": str(document.id), "data_root_directory_removed": True},
+    )
+    db.delete(document)
+    _remove_knowledge_document_dir(document_dir, storage.data_root)
+    db.commit()
 
 
 async def import_knowledge_document(
@@ -241,6 +314,48 @@ def read_knowledge_chunks(document: KnowledgeDocumentModel) -> list[KnowledgeSto
                 continue
             rows.append(KnowledgeStoredChunk.from_json_dict(json.loads(stripped)))
     return rows
+
+
+def _delete_knowledge_vector_points(knowledge_document_id: UUID) -> None:
+    from app.services.knowledge_indexing import QdrantKnowledgeIndex
+
+    QdrantKnowledgeIndex().delete_document_points(knowledge_document_id)
+
+
+def _write_knowledge_audit_event(
+    db: Session,
+    *,
+    event_type: str,
+    document: KnowledgeDocumentModel,
+    input_summary: dict,
+    output_summary: dict,
+) -> None:
+    storage = StoragePaths(get_settings().data_root)
+    user = get_or_create_dev_user(db)
+    event = AuditEvent(
+        event_type=event_type,
+        success=True,
+        user_id=str(user.id),
+        related_object_type="knowledge_document",
+        related_object_id=str(document.id),
+        input_summary={
+            "filename": document.original_filename,
+            "relative_path": document.relative_path,
+            "sha256_hash": document.sha256_hash,
+            **input_summary,
+        },
+        output_summary=output_summary,
+    )
+    DatabaseAuditWriter(db).write(event)
+    JsonlAuditWriter(storage).write_global(event)
+
+
+def _remove_knowledge_document_dir(document_dir: Path, data_root: Path) -> None:
+    resolved_dir = document_dir.resolve()
+    if not _is_relative_to(resolved_dir, data_root):
+        raise KnowledgeLifecycleError("Knowledge document path escapes configured data root")
+    if resolved_dir.exists():
+        shutil.rmtree(resolved_dir)
 
 
 def _ensure_markdown_upload(filename: str | None) -> None:

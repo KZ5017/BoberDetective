@@ -137,6 +137,43 @@ def test_post_knowledge_index(monkeypatch) -> None:
     assert captured["request"].limit == 50
 
 
+def test_archive_knowledge_document_endpoint(monkeypatch) -> None:
+    document = _document()
+    document.processing_status = "archived"
+    monkeypatch.setattr("app.api.v1.knowledge.archive_knowledge_document", lambda db, knowledge_document_id: document)
+
+    response = TestClient(create_app()).post(f"/api/v1/knowledge/documents/{document.id}/archive")
+
+    assert response.status_code == 200
+    assert response.json()["processing_status"] == "archived"
+
+
+def test_restore_knowledge_document_endpoint(monkeypatch) -> None:
+    document = _document()
+    document.processing_status = "processed"
+    monkeypatch.setattr("app.api.v1.knowledge.restore_knowledge_document", lambda db, knowledge_document_id: document)
+
+    response = TestClient(create_app()).post(f"/api/v1/knowledge/documents/{document.id}/restore")
+
+    assert response.status_code == 200
+    assert response.json()["processing_status"] == "processed"
+
+
+def test_delete_knowledge_document_endpoint(monkeypatch) -> None:
+    deleted = {}
+
+    def fake_delete(db, knowledge_document_id):
+        deleted["id"] = knowledge_document_id
+
+    document_id = uuid4()
+    monkeypatch.setattr("app.api.v1.knowledge.delete_knowledge_document", fake_delete)
+
+    response = TestClient(create_app()).delete(f"/api/v1/knowledge/documents/{document_id}")
+
+    assert response.status_code == 204
+    assert deleted["id"] == document_id
+
+
 def _document(*, chunk_count: int = 1, frontmatter_json: dict | None = None) -> SimpleNamespace:
     now = datetime.now(UTC)
     return SimpleNamespace(

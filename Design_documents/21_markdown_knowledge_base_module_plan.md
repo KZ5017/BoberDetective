@@ -753,6 +753,17 @@ Elkeszult backend foundation:
   - filename + relative path + heading path alapu forraskartyak.
 - query endpoint:
   - `POST /api/v1/knowledge/query`.
+- lifecycle endpointok:
+  - `POST /api/v1/knowledge/documents/{knowledge_document_id}/archive`,
+  - `POST /api/v1/knowledge/documents/{knowledge_document_id}/restore`,
+  - `DELETE /api/v1/knowledge/documents/{knowledge_document_id}`.
+- lifecycle viselkedes:
+  - archivalt dokumentum lathato marad, de nem aktiv kerdezesi/indexelesi
+    forras,
+  - archivalas es vegleges torles eltavolitja az adott dokumentum knowledge
+    Qdrant pontjait,
+  - vegleges torles eltavolitja a dokumentum data-root konyvtarat,
+  - minden lifecycle muvelet global audit eventet ir.
 - elso frontend surface:
   - oldalsav/menu elem: `Tudásbázis`,
   - Markdown import panel,
@@ -761,7 +772,8 @@ Elkeszult backend foundation:
   - kérdés panel,
   - aktuális válasz panel,
   - filename + relative path + heading path alapú forráskártyák,
-  - dokumentum részletek és chunk preview panel.
+  - dokumentum részletek és chunk preview panel,
+  - archive/restore/final delete kontrollok.
 
 Ellenorzott modulhatar:
 
@@ -772,9 +784,8 @@ Ellenorzott modulhatar:
 Kovetkezo implementacios cel:
 
 ```text
-Tudasbazis dokumentum eletciklus workflow: valodi torles/archivalas/
-ujraimport, data-root takaritas, knowledge Qdrant pontok takaritasa,
-audit es UX visszajelzes
+Tudasbazis lifecycle live smoke, majd reimport/bulk import es UX/retrieval
+finomitas a tapasztalatok alapjan
 ```
 
 Az elso query backend contract mar csak `knowledge_documents`-bol es a kulon
@@ -1503,8 +1514,9 @@ Allapot:
 ```text
 elso backend/frontend implementacios szelet kesz: globalis knowledge_documents
 alap, Markdown import/chunk-manifest, knowledge-only indexeles, knowledge-only
-kerdezes, es minimalis Tudásbázis frontend felulet mukodik; kovetkezo
-lepes a torles/archivalas/ujraimport workflow es UX/retrieval hardening
+kerdezes, minimalis Tudásbázis frontend felulet, es elso archive/restore/
+final delete lifecycle workflow mukodik; kovetkezo lepes a lifecycle live
+smoke es UX/retrieval hardening
 ```
 
 Kapcsolodo dokumentumok:

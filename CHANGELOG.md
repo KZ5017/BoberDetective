@@ -9,10 +9,11 @@
 - Added the first knowledge-only query backend contract: `POST /api/v1/knowledge/query`, `app/services/knowledge_query.py`, keyword/semantic/hybrid knowledge retrieval over `knowledge_documents`, source cards with filename/relative path/heading path, a source-bound Hungarian answer prompt, JSON fallback parsing for the answer payload, and focused tests for endpoint behavior, prompt construction, keyword retrieval, Qdrant knowledge search filtering, and empty-source placeholder answers.
 - Added the first `Tudásbázis` frontend surface: sidebar navigation entry, Markdown import form, knowledge document list/search/selection, knowledge index status and index action, knowledge question form, current answer panel, source cards with filename/relative path/heading path, and document detail/chunk preview panel.
 - Documented the current `Tudásbázis` handoff state: user-side live test passed, and the next clean backend slice is knowledge document lifecycle hardening with real delete/archive/reimport semantics, data-root cleanup, Qdrant knowledge-point cleanup, and audit events.
+- Added the first knowledge document lifecycle workflow: archive, restore, and final delete endpoints; Qdrant knowledge-point deletion by `knowledge_document_id`; data-root document directory cleanup on final delete; global audit events; frontend archive/restore/delete controls; and source-selection safeguards so archived Markdown notes are visible but not query/index sources.
 
 ### Verified
 
-- `.venv/bin/python -m pytest tests/test_knowledge_query.py tests/test_knowledge_indexing.py tests/test_knowledge_import.py tests/test_knowledge_api.py tests/test_markdown_parser.py tests/test_storage.py tests/test_health.py -q` (`25 passed`)
+- `.venv/bin/python -m pytest tests/test_knowledge_query.py tests/test_knowledge_indexing.py tests/test_knowledge_import.py tests/test_knowledge_api.py tests/test_markdown_parser.py tests/test_storage.py tests/test_health.py -q` (`31 passed`)
 - `.venv/bin/python -m pytest -q` (`325 passed`, 1 Docling deprecation warning)
 - `npm --prefix frontend run build`
 - `.venv/bin/python -m alembic upgrade head` / current head `0047_knowledge_index_metadata`

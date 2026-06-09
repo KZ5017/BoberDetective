@@ -75,6 +75,30 @@ def test_qdrant_knowledge_index_creates_collection_and_upserts_knowledge_payload
     assert "case_id" not in point["payload"]
 
 
+def test_qdrant_knowledge_index_deletes_document_points_by_filter() -> None:
+    requests: list[tuple[str, str, dict | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content) if request.content else None
+        requests.append((request.method, request.url.path, payload))
+        return httpx.Response(200, json={"result": True})
+
+    client = httpx.Client(base_url="http://qdrant.local", transport=httpx.MockTransport(handler))
+    document_id = uuid4()
+
+    QdrantKnowledgeIndex(_settings(), client).delete_document_points(document_id)
+
+    assert requests[0][0] == "POST"
+    assert requests[0][1] == "/collections/chunks_knowledge_text_embedding_test_model/points/delete"
+    assert requests[0][2] == {
+        "filter": {
+            "must": [
+                {"key": "knowledge_document_id", "match": {"value": str(document_id)}},
+            ]
+        }
+    }
+
+
 def test_embed_knowledge_chunks_batches_texts(monkeypatch) -> None:
     calls: list[list[str]] = []
 

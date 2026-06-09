@@ -203,6 +203,32 @@ class QdrantKnowledgeIndex:
             )
         return hits
 
+    def delete_document_points(self, knowledge_document_id: UUID) -> None:
+        client = self._client or self._build_client()
+        close_client = self._client is None
+        try:
+            response = client.post(
+                f"/collections/{self.collection_name}/points/delete",
+                params={"wait": "true"},
+                json={
+                    "filter": {
+                        "must": [
+                            {"key": "knowledge_document_id", "match": {"value": str(knowledge_document_id)}},
+                        ]
+                    }
+                },
+            )
+            if response.status_code == 404:
+                return
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise KnowledgeIndexError(_http_status_error_message(exc)) from exc
+        except httpx.HTTPError as exc:
+            raise KnowledgeIndexError(str(exc)) from exc
+        finally:
+            if close_client:
+                client.close()
+
     def _build_client(self) -> httpx.Client:
         return httpx.Client(base_url=self._settings.qdrant_url.rstrip("/"), timeout=30)
 

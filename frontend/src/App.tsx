@@ -65,6 +65,7 @@ import {
   ReviewReportSource,
   RetrievalStrategy,
   addDocumentsToCollection,
+  archiveKnowledgeDocument,
   attachDetachedSourceItem,
   attachManualSourceToExistingObject,
   bulkDeleteDocumentProcessingItems,
@@ -79,6 +80,7 @@ import {
   createManualObjectFromDetachedSource,
   deleteCase,
   deleteDocumentCollection,
+  deleteKnowledgeDocument,
   deleteRagAnswer,
   detachObjectSource,
   discardDocument,
@@ -124,6 +126,7 @@ import {
   reviewObject,
   removeDocumentsFromCollection,
   restoreResearchFinding,
+  restoreKnowledgeDocument,
   resolveDocumentCollectionScope,
   runAnalysis,
   runFullDocumentProcessing,
@@ -239,6 +242,9 @@ const busyLabels: Record<string, string> = {
   "knowledge-index-status": "Tudásbázis indexállapot",
   "knowledge-index": "Tudásbázis indexelés",
   "knowledge-query": "Tudásbázis kérdezés",
+  "knowledge-archive": "Tudásbázis dokumentum archiválása",
+  "knowledge-restore": "Tudásbázis dokumentum visszaállítása",
+  "knowledge-delete": "Tudásbázis dokumentum törlése",
   "full-document-profiles": "Teljes iratfeldolgozási profilok betöltése",
   "full-document-items": "Teljes iratfeldolgozási munkalista betöltése",
   "full-document-run": "Teljes iratfeldolgozás futtatása",
@@ -698,10 +704,14 @@ export function App() {
     () => knowledgeDocuments.filter((document) => knowledgeDocumentIds.includes(document.id)),
     [knowledgeDocuments, knowledgeDocumentIds]
   );
+  const activeKnowledgeDocuments = useMemo(
+    () => knowledgeDocuments.filter((document) => document.processing_status !== "archived"),
+    [knowledgeDocuments]
+  );
   const canRunKnowledgeQuery =
     !busy &&
     knowledgeQuestion.trim().length > 0 &&
-    knowledgeDocuments.length > 0 &&
+    activeKnowledgeDocuments.length > 0 &&
     (knowledgeRetrievalStrategy === "keyword" || Boolean(knowledgeIndexStatus?.is_ready));
   const reportFilters = useMemo<ReviewReportFilterValues>(
     () => ({
@@ -2017,6 +2027,63 @@ export function App() {
     });
   }
 
+  async function refreshKnowledgeAfterLifecycleChange(selectedDocumentId?: string) {
+    const [documentsResponse, indexStatusResponse] = await Promise.all([
+      listKnowledgeDocuments(),
+      getKnowledgeIndexStatus()
+    ]);
+    setKnowledgeDocuments(documentsResponse.data);
+    setKnowledgeIndexStatus(indexStatusResponse);
+    setKnowledgeDocumentIds((current) => {
+      const activeIds = new Set(
+        documentsResponse.data
+          .filter((document) => document.processing_status !== "archived")
+          .map((document) => document.id)
+      );
+      return current.filter((id) => activeIds.has(id));
+    });
+    if (selectedDocumentId) {
+      const stillPresent = documentsResponse.data.some((document) => document.id === selectedDocumentId);
+      if (stillPresent) {
+        const detail = await getKnowledgeDocument(selectedDocumentId);
+        setSelectedKnowledgeDocumentId(selectedDocumentId);
+        setSelectedKnowledgeDocument(detail);
+      } else {
+        setSelectedKnowledgeDocumentId("");
+        setSelectedKnowledgeDocument(null);
+      }
+    }
+  }
+
+  async function handleArchiveKnowledgeDocument(document: KnowledgeDocumentRead) {
+    await perform("knowledge-archive", async () => {
+      const archived = await archiveKnowledgeDocument(document.id);
+      await refreshKnowledgeAfterLifecycleChange(document.id);
+      setNotice("Tudásbázis dokumentum archiválva.");
+      setLastActionSummary(`${archived.original_filename}: archiválva, újraindexelés szükséges visszaállítás után.`);
+    });
+  }
+
+  async function handleRestoreKnowledgeDocument(document: KnowledgeDocumentRead) {
+    await perform("knowledge-restore", async () => {
+      const restored = await restoreKnowledgeDocument(document.id);
+      await refreshKnowledgeAfterLifecycleChange(document.id);
+      setNotice("Tudásbázis dokumentum visszaállítva.");
+      setLastActionSummary(`${restored.original_filename}: visszaállítva, indexelhető.`);
+    });
+  }
+
+  async function handleDeleteKnowledgeDocument(document: KnowledgeDocumentRead) {
+    const confirmed = window.confirm(`Végleg törlöd ezt a tudásbázis dokumentumot?\n\n${document.original_filename}`);
+    if (!confirmed) return;
+    await perform("knowledge-delete", async () => {
+      await deleteKnowledgeDocument(document.id);
+      await refreshKnowledgeAfterLifecycleChange(document.id);
+      setNotice("Tudásbázis dokumentum végleg törölve.");
+      setLastActionSummary(`${document.original_filename}: törölve.`);
+    });
+  }
+
   async function handleIndexKnowledgeDocuments() {
     await perform("knowledge-index", async () => {
       const result = await indexKnowledgeDocuments({
@@ -2055,6 +2122,8 @@ export function App() {
   }
 
   function toggleKnowledgeDocumentFilter(documentId: string) {
+    const document = knowledgeDocuments.find((item) => item.id === documentId);
+    if (document?.processing_status === "archived") return;
     setKnowledgeDocumentIds((current) =>
       current.includes(documentId)
         ? current.filter((item) => item !== documentId)
@@ -2063,7 +2132,11 @@ export function App() {
   }
 
   function selectAllFilteredKnowledgeDocuments() {
-    setKnowledgeDocumentIds(filteredKnowledgeDocuments.map((document) => document.id));
+    setKnowledgeDocumentIds(
+      filteredKnowledgeDocuments
+        .filter((document) => document.processing_status !== "archived")
+        .map((document) => document.id)
+    );
   }
 
   function scrollToRagSavedDetailPanel() {
@@ -4142,7 +4215,8 @@ export function App() {
             </div>
             <div className="metrics">
               <span>{knowledgeDocuments.length} dokumentum</span>
-              <span>{knowledgeDocuments.reduce((sum, document) => sum + document.chunk_count, 0)} szövegrész</span>
+              <span>{activeKnowledgeDocuments.length} aktív</span>
+              <span>{activeKnowledgeDocuments.reduce((sum, document) => sum + document.chunk_count, 0)} szövegrész</span>
               <span>{knowledgeDocuments.filter((document) => document.processing_status === "indexed").length} indexelt</span>
               <span>{knowledgeDocumentIds.length > 0 ? `${knowledgeDocumentIds.length} kijelölve` : "teljes tudásbázis"}</span>
             </div>
@@ -4214,13 +4288,14 @@ export function App() {
                   )}
                   {knowledgeDocuments.length > 0 && filteredKnowledgeDocuments.length === 0 && <p className="muted">Nincs a keresésnek megfelelő tudásbázis dokumentum.</p>}
                   {filteredKnowledgeDocuments.map((document) => (
-                    <article key={document.id} className={`compact-item ${selectedKnowledgeDocumentId === document.id ? "is-selected" : ""}`}>
+                    <article key={document.id} className={`compact-item ${selectedKnowledgeDocumentId === document.id ? "is-selected" : ""} ${document.processing_status === "archived" ? "is-muted" : ""}`}>
                       <div className="item-card-header">
                         <label className="checkbox-label">
                           <input
                             type="checkbox"
                             checked={knowledgeDocumentIds.includes(document.id)}
                             onChange={() => toggleKnowledgeDocumentFilter(document.id)}
+                            disabled={document.processing_status === "archived"}
                           />
                           <span>
                             <strong>{document.original_filename}</strong>
@@ -4234,9 +4309,23 @@ export function App() {
                         <span>{document.indexed_chunk_count}/{document.chunk_count} indexelt</span>
                         {document.indexed_at && <span>{formatDateTime(document.indexed_at)}</span>}
                       </div>
-                      <button className="secondary-button" onClick={() => handleLoadKnowledgeDocument(document.id)} disabled={Boolean(busy)}>
-                        Részletek
-                      </button>
+                      <div className="button-row">
+                        <button className="secondary-button" onClick={() => handleLoadKnowledgeDocument(document.id)} disabled={Boolean(busy)}>
+                          Részletek
+                        </button>
+                        {document.processing_status === "archived" ? (
+                          <button className="secondary-button" onClick={() => handleRestoreKnowledgeDocument(document)} disabled={Boolean(busy)}>
+                            <Archive size={18} /> Visszaállítás
+                          </button>
+                        ) : (
+                          <button className="secondary-button" onClick={() => handleArchiveKnowledgeDocument(document)} disabled={Boolean(busy)}>
+                            <Archive size={18} /> Archiválás
+                          </button>
+                        )}
+                        <button className="danger-button" onClick={() => handleDeleteKnowledgeDocument(document)} disabled={Boolean(busy)}>
+                          <Trash2 size={18} /> Végleges törlés
+                        </button>
+                      </div>
                     </article>
                   ))}
                 </div>
@@ -4290,8 +4379,8 @@ export function App() {
               </p>
               {!canRunKnowledgeQuery && knowledgeQuestion.trim().length > 0 && (
                 <p className="error-text">
-                  {knowledgeDocuments.length === 0
-                    ? "Nincs importált tudásbázis dokumentum."
+                  {activeKnowledgeDocuments.length === 0
+                    ? "Nincs aktív tudásbázis dokumentum."
                     : knowledgeRetrievalStrategy === "keyword"
                       ? ""
                       : "A kijelölt tudásbázis-forrásokhoz hiányzik az aktuális index."}
@@ -4358,6 +4447,20 @@ export function App() {
                   <span>{selectedKnowledgeDocument.document.chunk_count} szövegrész</span>
                   <span>{selectedKnowledgeDocument.document.char_count} karakter</span>
                   <span>{labelKnowledgeStatus(selectedKnowledgeDocument.document.processing_status)}</span>
+                </div>
+                <div className="button-row">
+                  {selectedKnowledgeDocument.document.processing_status === "archived" ? (
+                    <button className="secondary-button" onClick={() => handleRestoreKnowledgeDocument(selectedKnowledgeDocument.document)} disabled={Boolean(busy)}>
+                      <Archive size={18} /> Visszaállítás
+                    </button>
+                  ) : (
+                    <button className="secondary-button" onClick={() => handleArchiveKnowledgeDocument(selectedKnowledgeDocument.document)} disabled={Boolean(busy)}>
+                      <Archive size={18} /> Archiválás
+                    </button>
+                  )}
+                  <button className="danger-button" onClick={() => handleDeleteKnowledgeDocument(selectedKnowledgeDocument.document)} disabled={Boolean(busy)}>
+                    <Trash2 size={18} /> Végleges törlés
+                  </button>
                 </div>
               </article>
               <div className="compact-list knowledge-chunk-list">

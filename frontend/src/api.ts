@@ -1260,6 +1260,24 @@ export function getKnowledgeDocument(documentId: string): Promise<KnowledgeDocum
   return request(`/knowledge/documents/${documentId}`);
 }
 
+export function archiveKnowledgeDocument(documentId: string): Promise<KnowledgeDocumentRead> {
+  return request(`/knowledge/documents/${documentId}/archive`, {
+    method: "POST"
+  });
+}
+
+export function restoreKnowledgeDocument(documentId: string): Promise<KnowledgeDocumentRead> {
+  return request(`/knowledge/documents/${documentId}/restore`, {
+    method: "POST"
+  });
+}
+
+export function deleteKnowledgeDocument(documentId: string): Promise<void> {
+  return request(`/knowledge/documents/${documentId}`, {
+    method: "DELETE"
+  });
+}
+
 export function getKnowledgeIndexStatus(): Promise<KnowledgeIndexStatusResponse> {
   return request("/knowledge/index/status");
 }

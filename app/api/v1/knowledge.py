@@ -25,13 +25,17 @@ from app.services.knowledge_import import (
     DuplicateKnowledgeDocumentError,
     KnowledgeDocumentNotFoundError,
     KnowledgeImportError,
+    KnowledgeLifecycleError,
     KnowledgeMarkdownParseError,
     KnowledgeUploadTooLargeError,
     UnsupportedKnowledgeDocumentTypeError,
+    archive_knowledge_document,
+    delete_knowledge_document,
     get_knowledge_document,
     import_knowledge_document,
     list_knowledge_documents,
     read_knowledge_chunks,
+    restore_knowledge_document,
 )
 from app.services.knowledge_query import KnowledgeQueryValidationError, run_knowledge_query
 
@@ -97,6 +101,48 @@ def get_knowledge_document_detail(
         document=KnowledgeDocumentResponse.model_validate(document),
         chunks=chunks,
     )
+
+
+@router.post("/knowledge/documents/{knowledge_document_id}/archive", response_model=KnowledgeDocumentResponse)
+def post_knowledge_document_archive(
+    knowledge_document_id: UUID,
+    db: Session = Depends(get_db),
+) -> KnowledgeDocumentResponse:
+    try:
+        document = archive_knowledge_document(db, knowledge_document_id)
+    except KnowledgeDocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except KnowledgeIndexError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return KnowledgeDocumentResponse.model_validate(document)
+
+
+@router.post("/knowledge/documents/{knowledge_document_id}/restore", response_model=KnowledgeDocumentResponse)
+def post_knowledge_document_restore(
+    knowledge_document_id: UUID,
+    db: Session = Depends(get_db),
+) -> KnowledgeDocumentResponse:
+    try:
+        document = restore_knowledge_document(db, knowledge_document_id)
+    except KnowledgeDocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return KnowledgeDocumentResponse.model_validate(document)
+
+
+@router.delete("/knowledge/documents/{knowledge_document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_knowledge_document_endpoint(
+    knowledge_document_id: UUID,
+    db: Session = Depends(get_db),
+) -> None:
+    try:
+        delete_knowledge_document(db, knowledge_document_id)
+    except KnowledgeDocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except KnowledgeLifecycleError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except KnowledgeIndexError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return None
 
 
 @router.get("/knowledge/index/status", response_model=KnowledgeIndexStatusResponse)
