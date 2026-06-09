@@ -414,6 +414,9 @@ export type KnowledgeIndexResponse = {
   embedding_model: string;
 };
 
+export type KnowledgeImportAction = "imported" | "skipped" | "replaced";
+export type KnowledgeImportConflictStrategy = "fail" | "skip" | "replace";
+
 export type KnowledgeUsedSource = {
   knowledge_document_id: string;
   original_filename: string;
@@ -839,11 +842,32 @@ const reviewPathByType: Record<string, (caseId: string, objectId: string) => str
   missing_item_candidate: (caseId, objectId) => `/cases/${caseId}/missing-item-candidates/${objectId}/reviews`
 };
 
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(message: string, status: number, detail: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+function apiErrorMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string") {
+    return detail.message;
+  }
+  return fallback;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/v1${path}`, init);
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new Error(body?.detail ?? `${response.status} ${response.statusText}`);
+    const detail = body?.detail ?? null;
+    throw new ApiError(apiErrorMessage(detail, `${response.status} ${response.statusText}`), response.status, detail);
   }
   if (response.status === 204) {
     return undefined as T;
@@ -1239,17 +1263,23 @@ export function listKnowledgeDocuments(): Promise<{ data: KnowledgeDocumentRead[
   return request("/knowledge/documents");
 }
 
-export function importKnowledgeDocument(file: File, relativePath?: string): Promise<{
+export function importKnowledgeDocument(file: File, relativeDirectory?: string, conflictStrategy: KnowledgeImportConflictStrategy = "fail"): Promise<{
   document: KnowledgeDocumentRead;
   chunk_count: number;
   frontmatter_detected: boolean;
   quality_flags: string[];
+  action: KnowledgeImportAction;
+  warning: string | null;
+  conflict_type: string | null;
+  existing_document_id: string | null;
+  replaced_document_id: string | null;
 }> {
   const formData = new FormData();
   formData.append("file", file);
-  if (relativePath?.trim()) {
-    formData.append("relative_path", relativePath.trim());
+  if (relativeDirectory?.trim()) {
+    formData.append("relative_path", relativeDirectory.trim());
   }
+  formData.append("conflict_strategy", conflictStrategy);
   return request("/knowledge/documents", {
     method: "POST",
     body: formData

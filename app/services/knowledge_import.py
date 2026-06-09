@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path, PurePath
 import shutil
+from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import UploadFile
@@ -47,6 +48,33 @@ class KnowledgeMarkdownParseError(KnowledgeImportError):
 
 class KnowledgeLifecycleError(KnowledgeImportError):
     pass
+
+
+KnowledgeImportAction = Literal["imported", "skipped", "replaced"]
+KnowledgeImportConflictStrategy = Literal["fail", "skip", "replace"]
+
+
+class KnowledgeImportConflictError(KnowledgeImportError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        conflict_type: str,
+        existing_document: KnowledgeDocumentModel,
+    ) -> None:
+        super().__init__(message)
+        self.conflict_type = conflict_type
+        self.existing_document = existing_document
+
+
+@dataclass(frozen=True)
+class KnowledgeImportResult:
+    document: KnowledgeDocumentModel
+    action: KnowledgeImportAction
+    warning: str | None = None
+    conflict_type: str | None = None
+    existing_document_id: UUID | None = None
+    replaced_document_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -212,18 +240,38 @@ async def import_knowledge_document(
     upload: UploadFile,
     *,
     relative_path: str | None = None,
-) -> KnowledgeDocumentModel:
+    conflict_strategy: KnowledgeImportConflictStrategy = "fail",
+) -> KnowledgeImportResult:
+    if conflict_strategy not in {"fail", "skip", "replace"}:
+        raise KnowledgeImportError("Unsupported knowledge import conflict strategy")
     _ensure_markdown_upload(upload.filename)
-    safe_relative_path = _normalize_relative_path(relative_path)
+    original_filename = Path(upload.filename or "document.md").name
+    safe_relative_path = _build_import_relative_path(relative_path, original_filename)
     settings = get_settings()
     content = await _read_limited_upload(upload, settings.max_upload_bytes)
     sha256_hash = hashlib.sha256(content).hexdigest()
 
-    duplicate = db.execute(
-        select(KnowledgeDocumentModel).where(KnowledgeDocumentModel.sha256_hash == sha256_hash)
-    ).scalar_one_or_none()
+    duplicate = _find_knowledge_document_by_hash(db, sha256_hash)
     if duplicate is not None:
-        raise DuplicateKnowledgeDocumentError("Knowledge document with this content hash already exists")
+        return _handle_import_conflict(
+            duplicate,
+            conflict_type="same_hash",
+            conflict_strategy=conflict_strategy,
+            message="Knowledge document with this content hash already exists",
+        )
+
+    path_conflict = _find_knowledge_document_by_relative_path(db, safe_relative_path)
+    if path_conflict is not None:
+        if conflict_strategy != "replace":
+            return _handle_import_conflict(
+                path_conflict,
+                conflict_type="same_relative_path",
+                conflict_strategy=conflict_strategy,
+                message="Knowledge document with this relative_path already exists",
+            )
+        replacement_document = path_conflict
+    else:
+        replacement_document = None
 
     parsed = parse_markdown_bytes(content)
     if parsed.has_fatal_error:
@@ -245,7 +293,7 @@ async def import_knowledge_document(
 
     document = KnowledgeDocumentModel(
         id=document_id,
-        original_filename=Path(upload.filename or "document.md").name,
+        original_filename=original_filename,
         relative_path=safe_relative_path,
         stored_path=str(original_path),
         mime_type=upload.content_type or "text/markdown",
@@ -296,7 +344,17 @@ async def import_knowledge_document(
     JsonlAuditWriter(storage).write_global(event)
     db.commit()
     db.refresh(document)
-    return document
+    if replacement_document is not None:
+        replaced_document_id = replacement_document.id
+        delete_knowledge_document(db, replacement_document.id)
+        return KnowledgeImportResult(
+            document=document,
+            action="replaced",
+            warning="A korábbi azonos relatív útvonalú tudásbázis dokumentum törölve lett.",
+            conflict_type="same_relative_path",
+            replaced_document_id=replaced_document_id,
+        )
+    return KnowledgeImportResult(document=document, action="imported")
 
 
 def read_knowledge_chunks(document: KnowledgeDocumentModel) -> list[KnowledgeStoredChunk]:
@@ -314,6 +372,42 @@ def read_knowledge_chunks(document: KnowledgeDocumentModel) -> list[KnowledgeSto
                 continue
             rows.append(KnowledgeStoredChunk.from_json_dict(json.loads(stripped)))
     return rows
+
+
+def _find_knowledge_document_by_hash(db: Session, sha256_hash: str) -> KnowledgeDocumentModel | None:
+    return db.execute(
+        select(KnowledgeDocumentModel).where(KnowledgeDocumentModel.sha256_hash == sha256_hash)
+    ).scalar_one_or_none()
+
+
+def _find_knowledge_document_by_relative_path(db: Session, relative_path: str | None) -> KnowledgeDocumentModel | None:
+    if relative_path is None:
+        return None
+    return db.execute(
+        select(KnowledgeDocumentModel).where(KnowledgeDocumentModel.relative_path == relative_path)
+    ).scalar_one_or_none()
+
+
+def _handle_import_conflict(
+    existing_document: KnowledgeDocumentModel,
+    *,
+    conflict_type: str,
+    conflict_strategy: KnowledgeImportConflictStrategy,
+    message: str,
+) -> KnowledgeImportResult:
+    if conflict_strategy == "fail":
+        raise KnowledgeImportConflictError(
+            message,
+            conflict_type=conflict_type,
+            existing_document=existing_document,
+        )
+    return KnowledgeImportResult(
+        document=existing_document,
+        action="skipped",
+        warning=message,
+        conflict_type=conflict_type,
+        existing_document_id=existing_document.id,
+    )
 
 
 def _delete_knowledge_vector_points(knowledge_document_id: UUID) -> None:
@@ -363,13 +457,25 @@ def _ensure_markdown_upload(filename: str | None) -> None:
         raise UnsupportedKnowledgeDocumentTypeError("Only .md Markdown files can be imported into the knowledge base")
 
 
-def _normalize_relative_path(relative_path: str | None) -> str | None:
-    if relative_path is None or relative_path.strip() == "":
+def _build_import_relative_path(relative_directory: str | None, filename: str) -> str:
+    safe_filename = Path(filename).name
+    if not safe_filename or safe_filename in {".", ".."}:
+        raise KnowledgeImportError("Unsafe knowledge filename")
+    directory = _normalize_relative_directory(relative_directory)
+    if directory is None:
+        return safe_filename
+    return PurePath(directory, safe_filename).as_posix()
+
+
+def _normalize_relative_directory(relative_directory: str | None) -> str | None:
+    if relative_directory is None or relative_directory.strip() == "":
         return None
-    normalized = relative_path.strip().replace("\\", "/")
+    normalized = relative_directory.strip().replace("\\", "/").strip("/")
+    if normalized == "":
+        return None
     pure = PurePath(normalized)
     if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
-        raise KnowledgeImportError("Unsafe relative_path")
+        raise KnowledgeImportError("Unsafe relative directory")
     return pure.as_posix()
 
 

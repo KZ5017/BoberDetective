@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -24,6 +24,7 @@ from app.services.knowledge_indexing import (
 from app.services.knowledge_import import (
     DuplicateKnowledgeDocumentError,
     KnowledgeDocumentNotFoundError,
+    KnowledgeImportConflictError,
     KnowledgeImportError,
     KnowledgeLifecycleError,
     KnowledgeMarkdownParseError,
@@ -51,12 +52,31 @@ def get_knowledge_documents(db: Session = Depends(get_db)) -> KnowledgeDocumentL
 
 @router.post("/knowledge/documents", response_model=KnowledgeDocumentImportResponse, status_code=status.HTTP_201_CREATED)
 async def post_knowledge_document(
+    response: Response,
     file: UploadFile = File(...),
     relative_path: str | None = Form(default=None),
+    conflict_strategy: str = Form(default="fail"),
     db: Session = Depends(get_db),
 ) -> KnowledgeDocumentImportResponse:
     try:
-        document = await import_knowledge_document(db, file, relative_path=relative_path)
+        result = await import_knowledge_document(
+            db,
+            file,
+            relative_path=relative_path,
+            conflict_strategy=conflict_strategy,
+        )
+    except KnowledgeImportConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": str(exc),
+                "conflict_type": exc.conflict_type,
+                "existing_document_id": str(exc.existing_document.id),
+                "existing_original_filename": exc.existing_document.original_filename,
+                "existing_relative_path": exc.existing_document.relative_path,
+                "existing_sha256_hash": exc.existing_document.sha256_hash,
+            },
+        ) from exc
     except DuplicateKnowledgeDocumentError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except KnowledgeUploadTooLargeError as exc:
@@ -67,11 +87,19 @@ async def post_knowledge_document(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except KnowledgeImportError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    document = result.document
+    if result.action == "skipped":
+        response.status_code = status.HTTP_200_OK
     return KnowledgeDocumentImportResponse(
         document=KnowledgeDocumentResponse.model_validate(document),
         chunk_count=document.chunk_count,
         frontmatter_detected=bool(document.frontmatter_json),
         quality_flags=document.quality_flags_json,
+        action=result.action,
+        warning=result.warning,
+        conflict_type=result.conflict_type,
+        existing_document_id=result.existing_document_id,
+        replaced_document_id=result.replaced_document_id,
     )
 
 

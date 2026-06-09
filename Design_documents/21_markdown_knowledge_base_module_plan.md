@@ -545,18 +545,75 @@ Input:
 
 - multipart upload,
 - csak `.md` fajl,
-- opcionális `relative_path`,
+- opcionális relatív mappaútvonal,
 - opcionális `collection_name` vagy kesobbi tudasbazis-gyujtemeny.
 
 Backend validacio:
 
 - kiterjesztes `.md`,
 - meretlimit,
-- utvonal normalizalas,
+- relatív mappaútvonal normalizalas,
 - nincs path traversal,
 - UTF-8 dekodolhatosag vagy kontrollalt hibajelzes,
 - hash szamitas,
 - duplikatumkezeles.
+
+### 13.7.1 Importutkozes-kezeles
+
+Az importutkozeseket nem szabad csendben feloldani. Egyfajlos importnal a user
+relatív mappaútvonalat ad meg, nem teljes fajlutvonalat. A backend ehhez
+automatikusan hozzaadja a feltoltott fajl eredeti nevet, es ebbol kepzi a
+tárolt `relative_path` erteket:
+
+```text
+<relativ_mappa>/<eredeti_fajlnev.md>
+```
+
+Ha a user nem ad meg mappaútvonalat, a tárolt `relative_path` az eredeti fajlnev
+lesz. A tárolt `relative_path` es a `sha256_hash` kulon jelentessel bir:
+
+- azonos `sha256_hash` barhol: ugyanaz a fajltartalom mar szerepel a
+  Tudasbazisban, ezert az uj import nem hoz letre uj rekordot es nem torol
+  semmit; a valasz figyelmeztessen, hogy a fajl mar importalva van,
+- azonos tárolt `relative_path` es azonos `sha256_hash`: ugyanaz az eset meg
+  erosebb azonositassal; nincs adatmodositas,
+- azonos tárolt `relative_path`, de eltero `sha256_hash`: valodi felulirasi
+  helyzet; ehhez explicit user dontes kell,
+- mappaútvonal nelkul is kepzodik `relative_path`: ilyenkor az eredeti fajlnev
+  lesz az importkulcs.
+
+Javasolt backend szerzodes:
+
+```text
+conflict_strategy = fail | skip | replace
+```
+
+Jelentes:
+
+- `fail`: alapertelmezett. Utkozes eseten a backend `409 Conflict`
+  valaszt ad, es semmit nem modosit,
+- `skip`: utkozes eseten nem importal, nem torol, hanem strukturalt
+  "kihagyva" valaszt ad,
+- `replace`: csak azonos tárolt `relative_path` es eltero hash eseten engedelyezett.
+  Az uj fajlt elobb teljesen validalni, feldolgozni es perzisztalni kell.
+  Csak sikeres uj import utan torolheto a regi dokumentum DB rekordja,
+  data-root konyvtara es knowledge Qdrant pontjai.
+
+Frontend elv:
+
+- egyfajlos importnal `fail` az alap,
+- tárolt relative_path utkozesnel a user dontson:
+  - "Meglevo megtartasa",
+  - "Csere az uj fajlra",
+- kesobbi tobbfajlos importnal ugyanez a dontesi modell legyen
+  alkalmazhato egyenkent vagy "alkalmazd az osszes ilyen utkozesre"
+  jellegu kapcsoloval.
+
+Fontos biztonsagi szabaly:
+
+```text
+A regi dokumentum csak akkor torolheto, ha az uj import teljesen sikeres.
+```
 
 Output:
 
@@ -764,6 +821,13 @@ Elkeszult backend foundation:
     Qdrant pontjait,
   - vegleges torles eltavolitja a dokumentum data-root konyvtarat,
   - minden lifecycle muvelet global audit eventet ir.
+- importutkozes backend szerzodes:
+  - `conflict_strategy = fail | skip | replace`,
+  - azonos hash eseten nincs mutacio, csak `fail` vagy strukturalt
+    `skipped` valasz,
+  - azonos relative_path es eltero hash eseten `replace` hozza letre az uj
+    dokumentumot, majd csak siker utan torli a regit,
+  - a 409 konfliktus strukturalt adatot ad a frontend dontesi UI-hoz.
 - elso frontend surface:
   - oldalsav/menu elem: `Tudásbázis`,
   - Markdown import panel,
@@ -773,7 +837,11 @@ Elkeszult backend foundation:
   - aktuális válasz panel,
   - filename + relative path + heading path alapú forráskártyák,
   - dokumentum részletek és chunk preview panel,
-  - archive/restore/final delete kontrollok.
+  - archive/restore/final delete kontrollok,
+  - egyfajlos importutkozes-dontesi UI:
+    - `Meglévő megtartása`,
+    - `Csere az új fájlra` azonos relative_path eseten,
+    - azonos hash eseten nincs csereopcio.
 
 Ellenorzott modulhatar:
 
@@ -784,8 +852,8 @@ Ellenorzott modulhatar:
 Kovetkezo implementacios cel:
 
 ```text
-Tudasbazis lifecycle live smoke, majd reimport/bulk import es UX/retrieval
-finomitas a tapasztalatok alapjan
+Importutkozes live smoke es UX finomitas, majd kesobb batch/folder import
+dontesi modell
 ```
 
 Az elso query backend contract mar csak `knowledge_documents`-bol es a kulon
@@ -1155,14 +1223,16 @@ Elso tesztek:
 
 Kovetkezo szeletek elott tisztazando:
 
-1. Legyen-e mappas upload / batch import az elso szeletben, vagy eloszor
+1. Importutkozes-kezeles implementalasa `fail | skip | replace`
+   strategiaval, a fenti hash/relative_path szabalyok szerint.
+2. Legyen-e mappas upload / batch import az elso szeletben, vagy eloszor
    csak tobb fajlos `.md` upload?
-2. Mentjuk-e a tudasbazis valaszokat ugyanugy, mint az altalanos RAG
+3. Mentjuk-e a tudasbazis valaszokat ugyanugy, mint az altalanos RAG
    valaszokat?
-3. A heading path kulon DB mezokent, chunk metadata-kent vagy manifest
+4. A heading path kulon DB mezokent, chunk metadata-kent vagy manifest
    adatkent legyen tarolva?
-4. Mekkora legyen a Markdown chunk merethatara code blockok mellett?
-5. Kulon `knowledge_query_runs` tabla legyen, vagy az `analysis_runs`
+5. Mekkora legyen a Markdown chunk merethatara code blockok mellett?
+6. Kulon `knowledge_query_runs` tabla legyen, vagy az `analysis_runs`
    kapjon ugytol fuggetlen futastipust?
 
 ## 17. Backend implementation plan v1
@@ -1506,6 +1576,14 @@ Az elso backend szelet akkor tekintheto kesznek, ha:
    - valasz/forras megjelenites.
 7. Nagyobb sajat Markdown korpusz live smoke.
 8. UX es prompt finomitas a live tapasztalatok alapjan.
+9. Importutkozes-kezelés:
+   - azonos hash kihagyasa/figyelmeztetese,
+   - azonos relative_path es eltero hash eseten explicit dontes,
+   - kesobbi batch importhoz "alkalmazd az osszes ilyen utkozesre" modell.
+10. Batch/mappas Markdown import:
+   - tobb `.md` fajl egy menetben,
+   - relativ mappautvonal + eredeti fajlnev alapu importkulcs,
+   - konfliktusok osszegyujtese es csoportos dontesi UI.
 
 ## 19. Statusz
 
@@ -1514,9 +1592,12 @@ Allapot:
 ```text
 elso backend/frontend implementacios szelet kesz: globalis knowledge_documents
 alap, Markdown import/chunk-manifest, knowledge-only indexeles, knowledge-only
-kerdezes, minimalis Tudásbázis frontend felulet, es elso archive/restore/
-final delete lifecycle workflow mukodik; kovetkezo lepes a lifecycle live
-smoke es UX/retrieval hardening
+kerdezes, minimalis Tudásbázis frontend felulet, elso archive/restore/
+final delete lifecycle workflow, backend importutkozes-szerzodes, es
+egyfajlos frontend konfliktus-dontesi UI mukodik; a relativ mappautvonal +
+eredeti fajlnev alapu importkulcs live tesztelve; kovetkezo lepes a
+batch/mappas Markdown import tervezese es implementalasa ugyanerre a
+konfliktusmodellre epitve
 ```
 
 Kapcsolodo dokumentumok:

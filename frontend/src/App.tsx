@@ -22,6 +22,7 @@ import {
   AnalysisResponse,
   AnalysisRunDetail,
   AnalysisRunRead,
+  ApiError,
   AnalysisSourceMode,
   CaseRead,
   ClaimRead,
@@ -54,6 +55,7 @@ import {
   RagUsedSource,
   KnowledgeDocumentDetailResponse,
   KnowledgeDocumentRead,
+  KnowledgeImportConflictStrategy,
   KnowledgeIndexStatusResponse,
   KnowledgeQueryResponse,
   KnowledgeUsedSource,
@@ -168,6 +170,15 @@ type DocumentProcessingUnconfirmedDetail = {
   validation_status: "unconfirmed";
   validation_message?: string;
   llm_source_label?: string;
+};
+
+type KnowledgeImportConflictDetail = {
+  message: string;
+  conflict_type: string;
+  existing_document_id: string;
+  existing_original_filename: string;
+  existing_relative_path: string | null;
+  existing_sha256_hash: string;
 };
 
 const workSurfaceLabels: Record<WorkSurface, string> = {
@@ -460,6 +471,7 @@ export function App() {
   const [knowledgeImportFile, setKnowledgeImportFile] = useState<File | null>(null);
   const knowledgeImportInputRef = useRef<HTMLInputElement | null>(null);
   const [knowledgeRelativePath, setKnowledgeRelativePath] = useState("");
+  const [knowledgeImportConflict, setKnowledgeImportConflict] = useState<KnowledgeImportConflictDetail | null>(null);
   const [knowledgeDocumentSearch, setKnowledgeDocumentSearch] = useState("");
   const [knowledgeQuestion, setKnowledgeQuestion] = useState("");
   const [knowledgeDocumentIds, setKnowledgeDocumentIds] = useState<string[]>([]);
@@ -1995,26 +2007,76 @@ export function App() {
     });
   }
 
-  async function handleImportKnowledgeDocument() {
+  function isKnowledgeImportConflictDetail(value: unknown): value is KnowledgeImportConflictDetail {
+    return Boolean(
+      value &&
+      typeof value === "object" &&
+      "conflict_type" in value &&
+      "existing_document_id" in value &&
+      "existing_original_filename" in value
+    );
+  }
+
+  async function refreshKnowledgeImportState(result: Awaited<ReturnType<typeof importKnowledgeDocument>>) {
+    const [documentsResponse, indexStatusResponse] = await Promise.all([
+      listKnowledgeDocuments(),
+      getKnowledgeIndexStatus()
+    ]);
+    setKnowledgeDocuments(documentsResponse.data);
+    setKnowledgeIndexStatus(indexStatusResponse);
+    setSelectedKnowledgeDocumentId(result.document.id);
+    setSelectedKnowledgeDocument(null);
+    setKnowledgeImportFile(null);
+    setKnowledgeRelativePath("");
+    setKnowledgeImportConflict(null);
+    if (knowledgeImportInputRef.current) {
+      knowledgeImportInputRef.current.value = "";
+    }
+  }
+
+  async function handleImportKnowledgeDocument(strategy: KnowledgeImportConflictStrategy = "fail") {
     if (!knowledgeImportFile) return;
     await perform("knowledge-import", async () => {
-      const result = await importKnowledgeDocument(knowledgeImportFile, knowledgeRelativePath);
-      const [documentsResponse, indexStatusResponse] = await Promise.all([
-        listKnowledgeDocuments(),
-        getKnowledgeIndexStatus()
-      ]);
-      setKnowledgeDocuments(documentsResponse.data);
-      setKnowledgeIndexStatus(indexStatusResponse);
-      setSelectedKnowledgeDocumentId(result.document.id);
-      setSelectedKnowledgeDocument(null);
-      setKnowledgeImportFile(null);
-      setKnowledgeRelativePath("");
-      if (knowledgeImportInputRef.current) {
-        knowledgeImportInputRef.current.value = "";
+      try {
+        const result = await importKnowledgeDocument(knowledgeImportFile, knowledgeRelativePath, strategy);
+        await refreshKnowledgeImportState(result);
+        if (result.action === "replaced") {
+          setNotice("Markdown tudásanyag cserélve.");
+          setLastActionSummary(`${result.document.original_filename}: új verzió importálva, a korábbi törölve.`);
+          return;
+        }
+        if (result.action === "skipped") {
+          setNotice("Markdown tudásanyag importálása kihagyva.");
+          setLastActionSummary(result.warning || `${result.document.original_filename}: már szerepel a Tudásbázisban.`);
+          return;
+        }
+        setNotice("Markdown tudásanyag importálva.");
+        setLastActionSummary(`${result.document.original_filename}: ${result.chunk_count} szövegrész.`);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409 && isKnowledgeImportConflictDetail(err.detail)) {
+          setKnowledgeImportConflict(err.detail);
+          setNotice("");
+          setLastActionSummary(`Importütközés: ${err.detail.existing_original_filename}`);
+          return;
+        }
+        throw err;
       }
-      setNotice("Markdown tudásanyag importálva.");
-      setLastActionSummary(`${result.document.original_filename}: ${result.chunk_count} szövegrész.`);
     });
+  }
+
+  function handleKeepExistingKnowledgeDocument() {
+    setKnowledgeImportConflict(null);
+    setKnowledgeImportFile(null);
+    setKnowledgeRelativePath("");
+    if (knowledgeImportInputRef.current) {
+      knowledgeImportInputRef.current.value = "";
+    }
+    setNotice("A meglévő tudásbázis dokumentum megtartva.");
+    setLastActionSummary("Az ütköző import kihagyva.");
+  }
+
+  async function handleReplaceKnowledgeDocumentImport() {
+    await handleImportKnowledgeDocument("replace");
   }
 
   async function handleLoadKnowledgeDocument(documentId: string) {
@@ -4236,20 +4298,54 @@ export function App() {
                   ref={knowledgeImportInputRef}
                   type="file"
                   accept=".md,text/markdown,text/plain"
-                  onChange={(event) => setKnowledgeImportFile(event.target.files?.[0] ?? null)}
+                  onChange={(event) => {
+                    setKnowledgeImportFile(event.target.files?.[0] ?? null);
+                    setKnowledgeImportConflict(null);
+                  }}
                 />
               </label>
               <label>
-                Relatív útvonal
+                Relatív mappaútvonal
                 <input
                   value={knowledgeRelativePath}
-                  onChange={(event) => setKnowledgeRelativePath(event.target.value)}
-                  placeholder="pl. notes/linux/suid.md"
+                  onChange={(event) => {
+                    setKnowledgeRelativePath(event.target.value);
+                    setKnowledgeImportConflict(null);
+                  }}
+                  placeholder="pl. notes/linux"
                 />
               </label>
-              <p className="field-hint">A Tudásbázis Markdown jegyzeteket kezel, nem ügyiratokat. Ezek nem jelennek meg az Ügy munkapad forrásköreiben.</p>
+              <p className="field-hint">
+                A Tudásbázis Markdown jegyzeteket kezel, nem ügyiratokat. A fájlnév automatikusan hozzáadódik a relatív mappaútvonalhoz.
+              </p>
+              {knowledgeImportConflict && (
+                <div className="module-note module-note-warning">
+                  <strong>Importütközés</strong>
+                  <p>{knowledgeImportConflict.message}</p>
+                  <div className="metrics">
+                    <span>{knowledgeImportConflict.conflict_type === "same_hash" ? "Azonos tartalom" : "Azonos relatív útvonal"}</span>
+                    <span>{knowledgeImportConflict.existing_original_filename}</span>
+                    {knowledgeImportConflict.existing_relative_path && <span>{knowledgeImportConflict.existing_relative_path}</span>}
+                  </div>
+                  {knowledgeImportConflict.conflict_type === "same_hash" ? (
+                    <p>Azonos tartalmú fájl már szerepel a Tudásbázisban. Új import nem szükséges.</p>
+                  ) : (
+                    <p>Azonos relatív útvonalon már van más tartalmú Markdown dokumentum. Dönthetsz, hogy megtartod a meglévőt, vagy cseréled az új fájlra.</p>
+                  )}
+                  <div className="button-row">
+                    <button className="secondary-button" onClick={handleKeepExistingKnowledgeDocument} disabled={Boolean(busy)}>
+                      Meglévő megtartása
+                    </button>
+                    {knowledgeImportConflict.conflict_type === "same_relative_path" && (
+                      <button className="danger-button" onClick={handleReplaceKnowledgeDocumentImport} disabled={Boolean(busy) || !knowledgeImportFile}>
+                        <Trash2 size={18} /> Csere az új fájlra
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="button-row">
-                <button onClick={handleImportKnowledgeDocument} disabled={Boolean(busy) || !knowledgeImportFile}>
+                <button onClick={() => handleImportKnowledgeDocument()} disabled={Boolean(busy) || !knowledgeImportFile}>
                   <FilePlus2 size={18} /> Importálás
                 </button>
                 <button className="secondary-button" onClick={() => refreshKnowledgeDocuments(true)} disabled={Boolean(busy)}>

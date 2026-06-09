@@ -9,6 +9,7 @@ from fastapi import UploadFile
 from app.models.knowledge import KnowledgeDocumentModel
 from app.models.user import UserModel
 from app.services.knowledge_import import (
+    KnowledgeImportConflictError,
     archive_knowledge_document,
     delete_knowledge_document,
     import_knowledge_document,
@@ -38,8 +39,10 @@ Hasznald az `id` parancsot.
         ),
     )
 
-    document = asyncio.run(import_knowledge_document(db, upload, relative_path="notes/note.md"))
+    result = asyncio.run(import_knowledge_document(db, upload, relative_path="notes"))
+    document = result.document
 
+    assert result.action == "imported"
     assert document in db.added
     assert document.processing_status == "processed"
     assert document.relative_path == "notes/note.md"
@@ -54,6 +57,109 @@ Hasznald az `id` parancsot.
     assert len(chunks) == 1
     assert chunks[0].heading_path == "Linux > SUID"
     assert chunks[0].frontmatter_tags == ["linux"]
+
+
+def test_import_knowledge_document_uses_filename_when_relative_directory_is_empty(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    db = _FakeDb()
+    upload = UploadFile(filename="note.md", file=BytesIO(b"# Note\n\nMeaningful Markdown body.\n"))
+
+    result = asyncio.run(import_knowledge_document(db, upload, relative_path=""))
+
+    assert result.document.relative_path == "note.md"
+
+
+def test_import_knowledge_document_rejects_unsafe_relative_directory(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    db = _FakeDb()
+    upload = UploadFile(filename="note.md", file=BytesIO(b"# Note\n"))
+
+    try:
+        asyncio.run(import_knowledge_document(db, upload, relative_path="../notes"))
+    except Exception as exc:
+        assert "Unsafe relative directory" in str(exc)
+    else:
+        raise AssertionError("Expected unsafe relative directory rejection")
+
+
+def test_import_knowledge_document_same_hash_skip_returns_existing_without_mutation(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    existing = _knowledge_document(tmp_path, processing_status="indexed", indexed_chunk_count=2)
+    monkeypatch.setattr("app.services.knowledge_import._find_knowledge_document_by_hash", lambda db, sha256_hash: existing)
+    db = _FakeDb(document=existing)
+    upload = UploadFile(filename="note.md", file=BytesIO(b"# Same\n"))
+
+    result = asyncio.run(import_knowledge_document(db, upload, relative_path="other", conflict_strategy="skip"))
+
+    assert result.action == "skipped"
+    assert result.document == existing
+    assert result.conflict_type == "same_hash"
+    assert result.existing_document_id == existing.id
+    assert db.commits == 0
+    assert db.deleted == []
+
+
+def test_import_knowledge_document_same_hash_fail_raises_conflict(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    existing = _knowledge_document(tmp_path, processing_status="indexed", indexed_chunk_count=2)
+    monkeypatch.setattr("app.services.knowledge_import._find_knowledge_document_by_hash", lambda db, sha256_hash: existing)
+    db = _FakeDb(document=existing)
+    upload = UploadFile(filename="note.md", file=BytesIO(b"# Same\n"))
+
+    try:
+        asyncio.run(import_knowledge_document(db, upload, relative_path="other", conflict_strategy="fail"))
+    except KnowledgeImportConflictError as exc:
+        assert exc.conflict_type == "same_hash"
+        assert exc.existing_document == existing
+    else:
+        raise AssertionError("Expected KnowledgeImportConflictError")
+
+    assert db.commits == 0
+    assert db.deleted == []
+
+
+def test_import_knowledge_document_replace_relative_path_imports_new_then_deletes_old(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    old = _knowledge_document(tmp_path, processing_status="indexed", indexed_chunk_count=2)
+    old_dir = tmp_path / "knowledge" / "documents" / str(old.id)
+    (old_dir / "originals").mkdir(parents=True)
+    (old_dir / "originals" / "original.md").write_text("# Old\n", encoding="utf-8")
+    monkeypatch.setattr("app.services.knowledge_import._find_knowledge_document_by_hash", lambda db, sha256_hash: None)
+    captured_relative_paths = []
+    monkeypatch.setattr(
+        "app.services.knowledge_import._find_knowledge_document_by_relative_path",
+        lambda db, relative_path: captured_relative_paths.append(relative_path) or old,
+    )
+    deleted_vector_ids = []
+    monkeypatch.setattr("app.services.knowledge_import._delete_knowledge_vector_points", lambda document_id: deleted_vector_ids.append(document_id))
+    db = _FakeDb(document=old)
+    upload = UploadFile(filename="note.md", file=BytesIO(b"# New\n\nUpdated text.\n"))
+
+    result = asyncio.run(import_knowledge_document(db, upload, relative_path="notes", conflict_strategy="replace"))
+
+    assert result.action == "replaced"
+    assert result.replaced_document_id == old.id
+    assert result.document.id != old.id
+    assert result.document.relative_path == "notes/note.md"
+    assert captured_relative_paths == ["notes/note.md"]
+    assert db.deleted == [old]
+    assert deleted_vector_ids == [old.id]
+    assert not old_dir.exists()
 
 
 def test_archive_and_restore_knowledge_document_marks_reindex_required(monkeypatch, tmp_path) -> None:
@@ -106,6 +212,9 @@ class _FakeDb:
     def __init__(self, document=None) -> None:
         self.added = []
         self.document = document
+        self.documents = {}
+        if document is not None:
+            self.documents[document.id] = document
         self.deleted = []
         self.commits = 0
 
@@ -115,17 +224,18 @@ class _FakeDb:
 
     def get(self, model, item_id):
         del model
-        if self.document is not None and self.document.id == item_id:
-            return self.document
-        return None
+        return self.documents.get(item_id)
 
     def add(self, item) -> None:
         if isinstance(item, UserModel) and item.id is None:
             item.id = uuid4()
+        if isinstance(item, KnowledgeDocumentModel):
+            self.documents[item.id] = item
         self.added.append(item)
 
     def delete(self, item) -> None:
         self.deleted.append(item)
+        self.documents.pop(item.id, None)
 
     def flush(self) -> None:
         pass
@@ -136,6 +246,7 @@ class _FakeDb:
     def refresh(self, item) -> None:
         if isinstance(item, KnowledgeDocumentModel):
             self.document = item
+            self.documents[item.id] = item
 
 
 class _FakeResult:

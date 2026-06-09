@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 KnowledgeDocumentKind = Literal["markdown_note"]
 KnowledgeDocumentStatus = Literal["imported", "processed", "indexing", "indexed", "failed", "archived"]
+KnowledgeImportAction = Literal["imported", "skipped", "replaced"]
+KnowledgeImportConflictStrategy = Literal["fail", "skip", "replace"]
 KnowledgeAnswerMode = Literal["short", "detailed"]
 KnowledgeRetrievalStrategy = Literal["keyword", "semantic", "hybrid"]
 
@@ -60,6 +62,11 @@ class KnowledgeDocumentImportResponse(BaseModel):
     chunk_count: int
     frontmatter_detected: bool
     quality_flags: list[str]
+    action: KnowledgeImportAction = "imported"
+    warning: str | None = None
+    conflict_type: str | None = None
+    existing_document_id: UUID | None = None
+    replaced_document_id: UUID | None = None
 
 
 class KnowledgeDocumentDetailResponse(BaseModel):

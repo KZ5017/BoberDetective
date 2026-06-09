@@ -5,6 +5,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.services.knowledge_import import KnowledgeImportConflictError
 from app.services.knowledge_import import KnowledgeStoredChunk
 from app.services.knowledge_indexing import KnowledgeIndexResult, KnowledgeIndexStatus
 
@@ -63,15 +64,23 @@ def test_post_knowledge_document_rejects_non_markdown_before_db_use() -> None:
 def test_post_knowledge_document_maps_import_response(monkeypatch) -> None:
     document = _document(chunk_count=2, frontmatter_json={"tags": ["web"]})
 
-    async def fake_import(db, file, *, relative_path=None):
-        assert relative_path == "notes/note.md"
-        return document
+    async def fake_import(db, file, *, relative_path=None, conflict_strategy="fail"):
+        assert relative_path == "notes"
+        assert conflict_strategy == "fail"
+        return SimpleNamespace(
+            document=document,
+            action="imported",
+            warning=None,
+            conflict_type=None,
+            existing_document_id=None,
+            replaced_document_id=None,
+        )
 
     monkeypatch.setattr("app.api.v1.knowledge.import_knowledge_document", fake_import)
 
     response = TestClient(create_app()).post(
         "/api/v1/knowledge/documents",
-        data={"relative_path": "notes/note.md"},
+        data={"relative_path": "notes"},
         files={"file": ("note.md", b"# Title\n\nText", "text/markdown")},
     )
 
@@ -80,6 +89,60 @@ def test_post_knowledge_document_maps_import_response(monkeypatch) -> None:
     assert body["document"]["id"] == str(document.id)
     assert body["chunk_count"] == 2
     assert body["frontmatter_detected"] is True
+    assert body["action"] == "imported"
+
+
+def test_post_knowledge_document_accepts_skip_strategy(monkeypatch) -> None:
+    document = _document(chunk_count=2)
+
+    async def fake_import(db, file, *, relative_path=None, conflict_strategy="fail"):
+        assert conflict_strategy == "skip"
+        return SimpleNamespace(
+            document=document,
+            action="skipped",
+            warning="Knowledge document with this content hash already exists",
+            conflict_type="same_hash",
+            existing_document_id=document.id,
+            replaced_document_id=None,
+        )
+
+    monkeypatch.setattr("app.api.v1.knowledge.import_knowledge_document", fake_import)
+
+    response = TestClient(create_app()).post(
+        "/api/v1/knowledge/documents",
+        data={"relative_path": "notes", "conflict_strategy": "skip"},
+        files={"file": ("note.md", b"# Title\n\nText", "text/markdown")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action"] == "skipped"
+    assert body["conflict_type"] == "same_hash"
+    assert body["existing_document_id"] == str(document.id)
+
+
+def test_post_knowledge_document_returns_structured_conflict(monkeypatch) -> None:
+    document = _document(chunk_count=2)
+
+    async def fake_import(db, file, *, relative_path=None, conflict_strategy="fail"):
+        raise KnowledgeImportConflictError(
+            "Knowledge document with this relative_path already exists",
+            conflict_type="same_relative_path",
+            existing_document=document,
+        )
+
+    monkeypatch.setattr("app.api.v1.knowledge.import_knowledge_document", fake_import)
+
+    response = TestClient(create_app()).post(
+        "/api/v1/knowledge/documents",
+        data={"relative_path": "notes"},
+        files={"file": ("note.md", b"# Title\n\nText", "text/markdown")},
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["conflict_type"] == "same_relative_path"
+    assert detail["existing_document_id"] == str(document.id)
 
 
 def test_get_knowledge_index_status(monkeypatch) -> None:

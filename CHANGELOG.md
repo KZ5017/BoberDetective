@@ -10,16 +10,24 @@
 - Added the first `Tudásbázis` frontend surface: sidebar navigation entry, Markdown import form, knowledge document list/search/selection, knowledge index status and index action, knowledge question form, current answer panel, source cards with filename/relative path/heading path, and document detail/chunk preview panel.
 - Documented the current `Tudásbázis` handoff state: user-side live test passed, and the next clean backend slice is knowledge document lifecycle hardening with real delete/archive/reimport semantics, data-root cleanup, Qdrant knowledge-point cleanup, and audit events.
 - Added the first knowledge document lifecycle workflow: archive, restore, and final delete endpoints; Qdrant knowledge-point deletion by `knowledge_document_id`; data-root document directory cleanup on final delete; global audit events; frontend archive/restore/delete controls; and source-selection safeguards so archived Markdown notes are visible but not query/index sources.
+- Documented the planned knowledge import conflict contract: same content hash should skip with warning and no mutation; same `relative_path` with different hash is a replacement conflict requiring explicit user decision; backend should support `conflict_strategy = fail | skip | replace` so later batch imports can reuse the same decision model.
+- Added the first backend import-conflict contract for `Tudásbázis` Markdown imports: multipart import accepts `conflict_strategy=fail|skip|replace`, same-hash conflicts can fail or return a structured skipped response without mutation, same `relative_path` with different hash can be replaced only through explicit `replace`, and replacement imports create the new document before deleting the old data-root/Qdrant/DB record.
+- Added the one-file frontend conflict decision UI for `Tudásbázis` Markdown imports: structured 409 conflicts now show a Hungarian decision panel with `Meglévő megtartása` and, for same-relative-path replacements, `Csere az új fájlra`; same-hash conflicts are shown as already imported and do not offer replacement.
+
+### Changed
+
+- Changed the `Tudásbázis` Markdown import path semantics: the frontend field is now a relative directory path, while the backend stores and compares the full relative file path built from that directory plus the uploaded filename. Empty directory input stores the original filename as the import key.
 
 ### Verified
 
-- `.venv/bin/python -m pytest tests/test_knowledge_query.py tests/test_knowledge_indexing.py tests/test_knowledge_import.py tests/test_knowledge_api.py tests/test_markdown_parser.py tests/test_storage.py tests/test_health.py -q` (`31 passed`)
-- `.venv/bin/python -m pytest -q` (`325 passed`, 1 Docling deprecation warning)
+- `.venv/bin/python -m pytest tests/test_knowledge_query.py tests/test_knowledge_indexing.py tests/test_knowledge_import.py tests/test_knowledge_api.py tests/test_markdown_parser.py tests/test_storage.py tests/test_health.py -q` (`38 passed`)
+- `.venv/bin/python -m pytest -q` (`338 passed`, 1 Docling deprecation warning)
 - `npm --prefix frontend run build`
 - `.venv/bin/python -m alembic upgrade head` / current head `0047_knowledge_index_metadata`
 - `GET /api/v1/knowledge/index/status` live backend smoke returned an empty but valid knowledge index status response.
 - `POST /api/v1/knowledge/query` live backend smoke returned a valid empty-source placeholder answer for an empty knowledge base.
 - Live import -> index -> query smoke passed with a generated Markdown note: import created one `markdown_note` with 2 chunks, knowledge indexing wrote 2 chunks into `boberdetective_chunks_knowledge_text_embedding_bge_m3`, and a hybrid short query returned a source-backed answer plus source cards.
+- User-side browser smoke passed for the knowledge import conflict workflow: same content is recognized, same filename/path with changed content offers replacement, and the relative-directory-plus-filename import key now behaves as intended.
 - `git diff --check`
 
 ## 2026-06-08
