@@ -1,13 +1,15 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.schemas.knowledge import (
-    KnowledgeChunkPreview,
-    KnowledgeDocumentDetailResponse,
-    KnowledgeDocumentImportResponse,
+    KnowledgeDocumentBatchImportResponse,
+    KnowledgeDocumentBatchImportSummary,
+    KnowledgeDocumentBatchPreviewItem,
+    KnowledgeDocumentBatchPreviewResponse,
+    KnowledgeDocumentBatchPreviewSummary,
     KnowledgeIndexRequest,
     KnowledgeIndexResponse,
     KnowledgeIndexStatusResponse,
@@ -22,20 +24,13 @@ from app.services.knowledge_indexing import (
     index_knowledge_documents,
 )
 from app.services.knowledge_import import (
-    DuplicateKnowledgeDocumentError,
     KnowledgeDocumentNotFoundError,
-    KnowledgeImportConflictError,
-    KnowledgeImportError,
     KnowledgeLifecycleError,
-    KnowledgeMarkdownParseError,
-    KnowledgeUploadTooLargeError,
-    UnsupportedKnowledgeDocumentTypeError,
     archive_knowledge_document,
     delete_knowledge_document,
-    get_knowledge_document,
-    import_knowledge_document,
+    import_knowledge_document_batch,
     list_knowledge_documents,
-    read_knowledge_chunks,
+    preview_knowledge_document_batch,
     restore_knowledge_document,
 )
 from app.services.knowledge_query import KnowledgeQueryValidationError, run_knowledge_query
@@ -50,84 +45,46 @@ def get_knowledge_documents(db: Session = Depends(get_db)) -> KnowledgeDocumentL
     )
 
 
-@router.post("/knowledge/documents", response_model=KnowledgeDocumentImportResponse, status_code=status.HTTP_201_CREATED)
-async def post_knowledge_document(
-    response: Response,
-    file: UploadFile = File(...),
-    relative_path: str | None = Form(default=None),
-    conflict_strategy: str = Form(default="fail"),
+@router.post("/knowledge/documents/batch/preview", response_model=KnowledgeDocumentBatchPreviewResponse)
+async def post_knowledge_document_batch_preview(
+    files: list[UploadFile] = File(...),
+    relative_paths: list[str] | None = Form(default=None),
+    client_file_ids: list[str] | None = Form(default=None),
     db: Session = Depends(get_db),
-) -> KnowledgeDocumentImportResponse:
-    try:
-        result = await import_knowledge_document(
-            db,
-            file,
-            relative_path=relative_path,
-            conflict_strategy=conflict_strategy,
-        )
-    except KnowledgeImportConflictError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "message": str(exc),
-                "conflict_type": exc.conflict_type,
-                "existing_document_id": str(exc.existing_document.id),
-                "existing_original_filename": exc.existing_document.original_filename,
-                "existing_relative_path": exc.existing_document.relative_path,
-                "existing_sha256_hash": exc.existing_document.sha256_hash,
-            },
-        ) from exc
-    except DuplicateKnowledgeDocumentError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except KnowledgeUploadTooLargeError as exc:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)) from exc
-    except UnsupportedKnowledgeDocumentTypeError as exc:
-        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(exc)) from exc
-    except KnowledgeMarkdownParseError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except KnowledgeImportError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    document = result.document
-    if result.action == "skipped":
-        response.status_code = status.HTTP_200_OK
-    return KnowledgeDocumentImportResponse(
-        document=KnowledgeDocumentResponse.model_validate(document),
-        chunk_count=document.chunk_count,
-        frontmatter_detected=bool(document.frontmatter_json),
-        quality_flags=document.quality_flags_json,
-        action=result.action,
-        warning=result.warning,
-        conflict_type=result.conflict_type,
-        existing_document_id=result.existing_document_id,
-        replaced_document_id=result.replaced_document_id,
+) -> KnowledgeDocumentBatchPreviewResponse:
+    if not files:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one Markdown file is required")
+    result = await preview_knowledge_document_batch(
+        db,
+        files,
+        relative_paths=relative_paths,
+        client_file_ids=client_file_ids,
+    )
+    return KnowledgeDocumentBatchPreviewResponse(
+        items=[KnowledgeDocumentBatchPreviewItem(**item.__dict__) for item in result.items],
+        summary=KnowledgeDocumentBatchPreviewSummary(**result.summary.__dict__),
     )
 
 
-@router.get("/knowledge/documents/{knowledge_document_id}", response_model=KnowledgeDocumentDetailResponse)
-def get_knowledge_document_detail(
-    knowledge_document_id: UUID,
+@router.post("/knowledge/documents/batch/import", response_model=KnowledgeDocumentBatchImportResponse)
+async def post_knowledge_document_batch_import(
+    files: list[UploadFile] = File(...),
+    relative_paths: list[str] | None = Form(default=None),
+    client_file_ids: list[str] | None = Form(default=None),
+    decisions: list[str] | None = Form(default=None),
     db: Session = Depends(get_db),
-) -> KnowledgeDocumentDetailResponse:
-    try:
-        document = get_knowledge_document(db, knowledge_document_id)
-    except KnowledgeDocumentNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    chunks = [
-        KnowledgeChunkPreview(
-            chunk_index=chunk.chunk_index,
-            heading_path=chunk.heading_path,
-            char_start=chunk.char_start,
-            char_end=chunk.char_end,
-            contains_code_block=chunk.contains_code_block,
-            code_languages=chunk.code_languages,
-            quality_flags=chunk.quality_flags,
-            text_preview=_preview(chunk.text),
-        )
-        for chunk in read_knowledge_chunks(document)
-    ]
-    return KnowledgeDocumentDetailResponse(
-        document=KnowledgeDocumentResponse.model_validate(document),
-        chunks=chunks,
+) -> KnowledgeDocumentBatchImportResponse:
+    if not files:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one Markdown file is required")
+    result = await import_knowledge_document_batch(
+        db,
+        files,
+        relative_paths=relative_paths,
+        client_file_ids=client_file_ids,
+        decisions=decisions,
+    )
+    return KnowledgeDocumentBatchImportResponse(
+        summary=KnowledgeDocumentBatchImportSummary(**result.summary.__dict__),
     )
 
 
@@ -200,10 +157,3 @@ def post_knowledge_query(
         return run_knowledge_query(db, payload)
     except KnowledgeQueryValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-
-def _preview(text: str, limit: int = 500) -> str:
-    normalized = " ".join(text.split())
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 1].rstrip() + "…"

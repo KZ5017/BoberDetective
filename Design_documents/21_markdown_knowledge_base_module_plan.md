@@ -513,11 +513,11 @@ Javasolt prefix:
 Elso endpointok:
 
 ```text
-POST /api/v1/knowledge/documents
 GET  /api/v1/knowledge/documents
-GET  /api/v1/knowledge/documents/{knowledge_document_id}
 DELETE /api/v1/knowledge/documents/{knowledge_document_id}
 
+POST /api/v1/knowledge/documents/batch/preview
+POST /api/v1/knowledge/documents/batch/import
 POST /api/v1/knowledge/index
 GET  /api/v1/knowledge/index/status
 
@@ -527,8 +527,6 @@ POST /api/v1/knowledge/query
 Kesobbi endpointok:
 
 ```text
-POST /api/v1/knowledge/documents/bulk
-POST /api/v1/knowledge/import-folder
 GET  /api/v1/knowledge/answers
 POST /api/v1/knowledge/answers
 GET  /api/v1/knowledge/answers/{answer_id}
@@ -538,14 +536,15 @@ DELETE /api/v1/knowledge/answers/{answer_id}
 ### 13.7 Import endpoint
 
 ```text
-POST /api/v1/knowledge/documents
+POST /api/v1/knowledge/documents/batch/preview
+POST /api/v1/knowledge/documents/batch/import
 ```
 
 Input:
 
 - multipart upload,
-- csak `.md` fajl,
-- opcionális relatív mappaútvonal,
+- egy vagy tobb `.md` fajl,
+- kötelező relatív mappaútvonal fajlonkent,
 - opcionális `collection_name` vagy kesobbi tudasbazis-gyujtemeny.
 
 Backend validacio:
@@ -560,17 +559,18 @@ Backend validacio:
 
 ### 13.7.1 Importutkozes-kezeles
 
-Az importutkozeseket nem szabad csendben feloldani. Egyfajlos importnal a user
-relatív mappaútvonalat ad meg, nem teljes fajlutvonalat. A backend ehhez
-automatikusan hozzaadja a feltoltott fajl eredeti nevet, es ebbol kepzi a
-tárolt `relative_path` erteket:
+Az importutkozeseket nem szabad csendben feloldani. A publikus importfelulet
+kizarolag a batch preview/import utat hasznalja; egyetlen fajl importja is
+egy egyfajlos batch-kent kezelendo. A user relatív mappaútvonalat ad meg, nem
+teljes fajlutvonalat. A backend ehhez automatikusan hozzaadja a feltoltott fajl
+eredeti nevet, es ebbol kepzi a tárolt `relative_path` erteket:
 
 ```text
 <relativ_mappa>/<eredeti_fajlnev.md>
 ```
 
-Ha a user nem ad meg mappaútvonalat, a tárolt `relative_path` az eredeti fajlnev
-lesz. A tárolt `relative_path` es a `sha256_hash` kulon jelentessel bir:
+A batch importban a mappaútvonal kötelező. A tárolt `relative_path` es a
+`sha256_hash` kulon jelentessel bir:
 
 - azonos `sha256_hash` barhol: ugyanaz a fajltartalom mar szerepel a
   Tudasbazisban, ezert az uj import nem hoz letre uj rekordot es nem torol
@@ -579,41 +579,241 @@ lesz. A tárolt `relative_path` es a `sha256_hash` kulon jelentessel bir:
   erosebb azonositassal; nincs adatmodositas,
 - azonos tárolt `relative_path`, de eltero `sha256_hash`: valodi felulirasi
   helyzet; ehhez explicit user dontes kell,
-- mappaútvonal nelkul is kepzodik `relative_path`: ilyenkor az eredeti fajlnev
-  lesz az importkulcs.
+Publikus batch dontesi modell:
 
-Javasolt backend szerzodes:
+- uj, konfliktusmentes fajl: automatikus import,
+- azonos `sha256_hash`: automatikus kihagyas, nincs mutacio,
+- azonos tárolt `relative_path`, de eltero `sha256_hash`: explicit userdontes,
+- ervenytelen vagy nem importalhato fajl: kihagyas hibajelzessel.
 
-```text
-conflict_strategy = fail | skip | replace
-```
-
-Jelentes:
-
-- `fail`: alapertelmezett. Utkozes eseten a backend `409 Conflict`
-  valaszt ad, es semmit nem modosit,
-- `skip`: utkozes eseten nem importal, nem torol, hanem strukturalt
-  "kihagyva" valaszt ad,
-- `replace`: csak azonos tárolt `relative_path` es eltero hash eseten engedelyezett.
-  Az uj fajlt elobb teljesen validalni, feldolgozni es perzisztalni kell.
-  Csak sikeres uj import utan torolheto a regi dokumentum DB rekordja,
-  data-root konyvtara es knowledge Qdrant pontjai.
-
-Frontend elv:
-
-- egyfajlos importnal `fail` az alap,
-- tárolt relative_path utkozesnel a user dontson:
-  - "Meglevo megtartasa",
-  - "Csere az uj fajlra",
-- kesobbi tobbfajlos importnal ugyanez a dontesi modell legyen
-  alkalmazhato egyenkent vagy "alkalmazd az osszes ilyen utkozesre"
-  jellegu kapcsoloval.
+A fajlonkenti explicit dontes csak valodi cserehelyzetben szukseges. A
+tamogatott dontesek: `import`, `skip`, `replace`, `keep_existing`.
 
 Fontos biztonsagi szabaly:
 
 ```text
 A regi dokumentum csak akkor torolheto, ha az uj import teljesen sikeres.
 ```
+
+### 13.7.2 Batch/mappas Markdown import contract v1
+
+A kovetkezo Tudásbázis szelet celja, hogy a user ne csak egyetlen `.md`
+fajlt, hanem tobb Markdown fajlt vagy egy teljes mappaszerkezetet is be tudjon
+emelni egy menetben.
+
+Alapelv:
+
+```text
+A batch import az egyetlen publikus Markdown importut: same_hash,
+same_relative_path, invalid es ready allapotokat kulonit el.
+```
+
+Fontos, hogy ne legyen masodik, eltero importlogika. Az importkulcs:
+
+```text
+tárolt relative_path = relatív mappaútvonal + eredeti fájlnév
+```
+
+Ha a batch import mappaszerkezetbol indul, akkor a frontend vagy a backend
+olyan relatív mappaútvonalat adjon at fajlonkent, amely az import gyokerehez
+kepest ertelmezett. Pelda:
+
+```text
+Import gyoker: /home/user/notes
+Fajl: /home/user/notes/linux/suid.md
+Tarolt relative_path: linux/suid.md
+```
+
+#### Backend API irany
+
+Javasolt ketlepcsos backend szerzodes:
+
+1. `POST /api/v1/knowledge/documents/batch/preview`
+2. `POST /api/v1/knowledge/documents/batch/import`
+
+Indok:
+
+- a preview lepes import elott osszegyujti a konfliktusokat,
+- a user lathatja, mi fog tortenni,
+- az import lepes automatikusan kezeli a nem konfliktusos fajlokat,
+- explicit user dontes csak azonos relative_path es eltero hash eseten kell,
+- kesobb ugyanide illesztheto az "alkalmazd az osszes ilyen utkozesre" logika.
+
+Az elso implementacio lehet egyszerubb, de a contract mentalitasa mar most ez
+legyen: eloszor feltaras, aztan dontes, aztan import.
+
+#### Preview bemenet
+
+A preview endpoint tobb fajlt fogadjon multipart formaban.
+
+Fajlonkent szukseges adat:
+
+- file,
+- kötelező relatív mappaútvonal,
+- opcionális kliensoldali sorszam vagy kliensoldali fajlazonosito.
+
+A kliensoldali azonosito nem perzisztens adat, csak arra kell, hogy a frontend
+vissza tudja parositani a preview eredmenyt a feltoltott fajlhoz.
+
+#### Preview kimenet
+
+A preview endpoint ne importaljon es ne toroljon semmit.
+
+Javasolt valasz:
+
+```json
+{
+  "items": [
+    {
+      "client_file_id": "file_1",
+      "relative_directory": "linux",
+      "resolved_relative_path": "linux/suid.md",
+      "status": "same_relative_path",
+      "conflict_type": "same_relative_path",
+      "existing_document_id": "00000000-0000-0000-0000-000000000000",
+      "existing_relative_path": "linux/suid.md"
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "ready": 1,
+    "same_hash": 0,
+    "same_relative_path": 0,
+    "invalid": 0
+  }
+}
+```
+
+A `summary` minden kijelolt fajlt szamol, de az `items` lista csak a
+figyelmet igenylo sorokat tartalmazza: `same_hash`, `same_relative_path`,
+vagy `invalid`. A `ready` fajlok ne keruljenek vissza itemkent, mert nagy
+batch importnal feleslegesen terhelnek a UI-t es a valaszt.
+
+`status` javasolt ertekei:
+
+- `ready`: importalhato, nincs utkozes,
+- `same_hash`: azonos tartalom mar szerepel a Tudásbázisban,
+- `same_relative_path`: azonos tarolt relative_path alatt mas tartalom van,
+- `invalid`: a fajl nem importalhato.
+
+Hash ertekeket a backend hasznalhat az utkozes felismeresehez, de a frontend
+ne jelenitse meg oket felhasznaloi informaciokent.
+
+`conflict_type` javasolt ertekei:
+
+- `same_hash`,
+- `same_relative_path`,
+- `invalid_file`,
+- `unsafe_relative_path`,
+- `unsupported_file_type`,
+- `parse_error`.
+
+#### Import bemenet
+
+Az import endpoint ugyanazokat a fajlokat es fajlonkenti donteseket kapja,
+de a frontend csak ott ker userdontest, ahol valodi cserehelyzet van.
+
+Frontend viselkedes:
+
+- `ready`: uj fajl, automatikusan importalando,
+- `same_hash`: azonos tartalom mar szerepel, automatikusan kihagyando,
+- `invalid`: nem importalhato fajl, dontesi lehetoseg nelkul jelezendo,
+- `same_relative_path`: azonos tarolt relative_path alatt mas tartalom van,
+  ez az egyetlen eset, ahol userdontes kell.
+
+Javasolt fajlonkenti dontes:
+
+```json
+{
+  "client_file_id": "file_1",
+  "decision": "import"
+}
+```
+
+`decision` tamogatott ertekei:
+
+- `import`: uj fajl importalasa, ha nincs utkozes,
+- `skip`: fajl kihagyasa,
+- `replace`: azonos tarolt relative_path es eltero hash eseten csere,
+- `keep_existing`: UI-szinonima lehet a `skip` dontesre.
+
+Batch szintu shortcut dontesek kesobb:
+
+- `skip_all_same_hash`,
+- `replace_all_same_relative_path`,
+- `skip_all_same_relative_path`.
+
+Az elso slice-ban az API fajlonkenti donteseket tamogat, de a UI csak
+same-relative-path/different-content konfliktusnal jelenit meg dontesi mezot.
+Az import valasz `summary` resze minden fajlt szamoljon, az `items` lista
+ne legyen a publikus valasz resze. Az API ne zarja ki a kesobbi csoportos
+donteseket.
+
+#### Import kimenet
+
+Az import endpoint tomor osszegzest adjon vissza. A reszletes fajllista az
+elonezeti dontesi felulet feladata; import utan ne terheljuk ujra a UI-t es a
+halozatot ugyanazzal a listaval.
+
+Javasolt valasz:
+
+```json
+{
+  "summary": {
+    "total": 1,
+    "imported": 1,
+    "skipped": 0,
+    "replaced": 0,
+    "failed": 0
+  }
+}
+```
+
+#### Biztonsagi es tranzakcios szabalyok
+
+- Azonos hash eseten ne importaljunk uj rekordot es ne toroljunk semmit.
+- Azonos tarolt relative_path es eltero hash eseten csak explicit `replace`
+  dontesre tortenhet csere.
+- Csere eseten az uj fajlt elobb teljesen validalni, feldolgozni es
+  perzisztalni kell.
+- A regi dokumentum csak sikeres uj import utan torolheto.
+- Egy fajl hibaja ne tegye ervenytelenne a teljes batch-et, ha a tobbi fajl
+  onalloan feldolgozhato.
+- A batch import legyen reszleges sikerre kepes, es ezt a summary egyertelmuen
+  jelezze.
+- Minden importalt, kihagyott, cserelt es hibas fajlrol legyen audit-szintu
+  nyom kovetheto.
+
+#### Frontend UX irany
+
+Elso frontend cel:
+
+- tobb `.md` fajl kivalasztasa,
+- kötelező import gyokermappa / relatív mappautvonal megadasa,
+- preview summary:
+  - osszes kijelolt fajl,
+  - automatikusan importalhato fajlok szama,
+  - azonos tartalmu fajlok szama,
+  - azonos utvonalon mas tartalmu fajlok szama,
+  - hibas fajlok szama,
+- konfliktuslista:
+  - azonos tartalmu fajlok,
+  - azonos utvonalon mas tartalmu fajlok,
+  - hibas fajlok,
+- dontes csak azonos utvonalon mas tartalmu fajloknal,
+- kesobb csoportos dontes azonos konfliktustipusokra.
+
+Magyar UI fogalmak:
+
+- `Import előnézet`,
+- `Új fájl`,
+- `Azonos tartalom már szerepel`,
+- `Azonos útvonalon más tartalom van`,
+- `Meglévő megtartása`,
+- `Csere az új fájlra`,
+- `Alkalmazás az összes ilyen ütközésre`,
+- `Import indítása`,
+- `Import összegzés`.
 
 Output:
 
@@ -776,10 +976,10 @@ Elkeszult backend foundation:
 - knowledge Pydantic response/request semak,
 - determinisztikus Markdown parser/chunker,
 - data-root/text-store alapu original/text-layer/chunk-manifest tarolas,
-- `.md` import/list/detail endpointok:
-  - `POST /api/v1/knowledge/documents`,
+- `.md` batch import/list endpointok:
+  - `POST /api/v1/knowledge/documents/batch/preview`,
+  - `POST /api/v1/knowledge/documents/batch/import`,
   - `GET /api/v1/knowledge/documents`,
-  - `GET /api/v1/knowledge/documents/{knowledge_document_id}`,
 - `0047_knowledge_index_metadata` migracio,
 - knowledge embedding/index metadata mezok:
   - `embedding_provider`,
@@ -822,26 +1022,24 @@ Elkeszult backend foundation:
   - vegleges torles eltavolitja a dokumentum data-root konyvtarat,
   - minden lifecycle muvelet global audit eventet ir.
 - importutkozes backend szerzodes:
-  - `conflict_strategy = fail | skip | replace`,
-  - azonos hash eseten nincs mutacio, csak `fail` vagy strukturalt
-    `skipped` valasz,
-  - azonos relative_path es eltero hash eseten `replace` hozza letre az uj
-    dokumentumot, majd csak siker utan torli a regit,
-  - a 409 konfliktus strukturalt adatot ad a frontend dontesi UI-hoz.
+  - publikus import csak batch preview/import uton van,
+  - azonos hash eseten nincs mutacio, a fajl automatikusan kimarad,
+  - azonos relative_path es eltero hash eseten csak explicit `replace`
+    dontes hozza letre az uj dokumentumot, majd csak siker utan torli a regit,
+  - a preview csak konfliktusos/ervenytelen sorokat ad vissza itemkent,
+    a konfliktusmentes uj fajlok automatikusan importalodnak.
 - elso frontend surface:
   - oldalsav/menu elem: `Tudásbázis`,
-  - Markdown import panel,
+  - batch Markdown import panel,
   - tudásbázis dokumentum lista/keresés/kijelölés,
   - index állapot és indexelés gomb,
   - kérdés panel,
   - aktuális válasz panel,
   - filename + relative path + heading path alapú forráskártyák,
-  - dokumentum részletek és chunk preview panel,
+  - dokumentumlista kijelöléssel és tömegműveletekkel,
   - archive/restore/final delete kontrollok,
-  - egyfajlos importutkozes-dontesi UI:
-    - `Meglévő megtartása`,
-    - `Csere az új fájlra` azonos relative_path eseten,
-    - azonos hash eseten nincs csereopcio.
+  - batch importutkozes-dontesi UI csak azonos relative_path es eltero hash
+    eseten.
 
 Ellenorzott modulhatar:
 
@@ -1223,10 +1421,10 @@ Elso tesztek:
 
 Kovetkezo szeletek elott tisztazando:
 
-1. Importutkozes-kezeles implementalasa `fail | skip | replace`
-   strategiaval, a fenti hash/relative_path szabalyok szerint.
-2. Legyen-e mappas upload / batch import az elso szeletben, vagy eloszor
-   csak tobb fajlos `.md` upload?
+1. A batch/mappas import elso implementacioja ketlepcsos preview/import
+   endpoint legyen-e, vagy egy egyszerubb egyendpointos slice-szal induljon.
+2. A frontend elso korben csak tobb fajl kivalasztast tamogasson-e, vagy
+   rogton mappavalasztast is, ha a bongeszo API ezt megbizhatoan adja.
 3. Mentjuk-e a tudasbazis valaszokat ugyanugy, mint az altalanos RAG
    valaszokat?
 4. A heading path kulon DB mezokent, chunk metadata-kent vagy manifest
@@ -1339,10 +1537,9 @@ Elso sémák:
 
 - `KnowledgeDocumentResponse`
 - `KnowledgeDocumentListResponse`
-- `KnowledgeDocumentImportResponse`
-- `KnowledgeDocumentDetailResponse`
 - `KnowledgeDocumentStatus`
-- `KnowledgeChunkPreview`
+- `KnowledgeDocumentBatchPreviewResponse`
+- `KnowledgeDocumentBatchImportResponse`
 
 Kesobbi sémák:
 
@@ -1455,9 +1652,9 @@ app/api/v1/router.py
 Elso endpointok:
 
 ```text
-POST /api/v1/knowledge/documents
 GET  /api/v1/knowledge/documents
-GET  /api/v1/knowledge/documents/{knowledge_document_id}
+POST /api/v1/knowledge/documents/batch/preview
+POST /api/v1/knowledge/documents/batch/import
 DELETE /api/v1/knowledge/documents/{knowledge_document_id}
 ```
 
@@ -1579,11 +1776,16 @@ Az elso backend szelet akkor tekintheto kesznek, ha:
 9. Importutkozes-kezelés:
    - azonos hash kihagyasa/figyelmeztetese,
    - azonos relative_path es eltero hash eseten explicit dontes,
-   - kesobbi batch importhoz "alkalmazd az osszes ilyen utkozesre" modell.
+   - batch importban csak valodi cserehelyzetben ker userdontest.
 10. Batch/mappas Markdown import:
    - tobb `.md` fajl egy menetben,
    - relativ mappautvonal + eredeti fajlnev alapu importkulcs,
-   - konfliktusok osszegyujtese es csoportos dontesi UI.
+   - konfliktusok osszegyujtese,
+   - automatikus import/skip a nem dontesi helyzetekben,
+   - csoportos dontesi UI az azonos relative_path es eltero hash utkozesekre.
+11. Nagyobb sajat Markdown korpusz live smoke es teljesitmeny/UX hardening.
+12. Opcionális folder-selection fejlesztes, ha a bongeszo altal adott relativ
+    utak eleg stabilan hasznalhatok.
 
 ## 19. Statusz
 
@@ -1593,11 +1795,17 @@ Allapot:
 elso backend/frontend implementacios szelet kesz: globalis knowledge_documents
 alap, Markdown import/chunk-manifest, knowledge-only indexeles, knowledge-only
 kerdezes, minimalis Tudásbázis frontend felulet, elso archive/restore/
-final delete lifecycle workflow, backend importutkozes-szerzodes, es
-egyfajlos frontend konfliktus-dontesi UI mukodik; a relativ mappautvonal +
-eredeti fajlnev alapu importkulcs live tesztelve; kovetkezo lepes a
-batch/mappas Markdown import tervezese es implementalasa ugyanerre a
-konfliktusmodellre epitve
+final delete lifecycle workflow, backend importutkozes-szerzodes, es batch-only
+Markdown import UI mukodik; a relativ mappautvonal + eredeti fajlnev alapu
+importkulcs live tesztelve; a publikus egyfajlos importut kivezetve, egy fajl
+importja is a batch preview/import folyamaton keresztul tortenik; a
+batch-preview es batch-import backend endpointok megvalosultak, es a frontend
+batch import UI elerheto tobbfajlos kivalasztassal, kotelezo relativ
+mappautvonallal, konfliktuslista-alapu elonezettel, automatikus
+ujfajl-importtal, automatikus azonos-hash kihagyassal, csak valodi
+same-path/different-content utkozesnel megjeleno dontessel es tomor import
+osszegzessel; user oldali live teszt alapjan a funkcio mukodik, a kovetkezo
+munka inkabb nagyobb korpuszos hardening es kisebb UX finomitas
 ```
 
 Kapcsolodo dokumentumok:

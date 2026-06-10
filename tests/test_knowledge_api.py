@@ -5,8 +5,6 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.services.knowledge_import import KnowledgeImportConflictError
-from app.services.knowledge_import import KnowledgeStoredChunk
 from app.services.knowledge_indexing import KnowledgeIndexResult, KnowledgeIndexStatus
 
 
@@ -23,126 +21,94 @@ def test_list_knowledge_documents(monkeypatch) -> None:
     assert data[0]["original_filename"] == "note.md"
 
 
-def test_get_knowledge_document_detail_returns_chunk_previews(monkeypatch) -> None:
-    document = _document()
-    chunk = KnowledgeStoredChunk(
-        chunk_id=str(uuid4()),
-        chunk_index=0,
-        heading_path="Linux > SUID",
-        heading_level=2,
-        char_start=0,
-        char_end=25,
-        text="Hasznald az `id` parancsot.",
-        contains_code_block=False,
-        code_languages=[],
-        wikilinks=[],
-        tags=[],
-        frontmatter_tags=[],
-        quality_flags=[],
-    )
-    monkeypatch.setattr("app.api.v1.knowledge.get_knowledge_document", lambda db, knowledge_document_id: document)
-    monkeypatch.setattr("app.api.v1.knowledge.read_knowledge_chunks", lambda item: [chunk])
+def test_post_knowledge_document_batch_preview_maps_response(monkeypatch) -> None:
+    existing_id = uuid4()
 
-    response = TestClient(create_app()).get(f"/api/v1/knowledge/documents/{document.id}")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["document"]["id"] == str(document.id)
-    assert body["chunks"][0]["heading_path"] == "Linux > SUID"
-    assert body["chunks"][0]["text_preview"] == "Hasznald az `id` parancsot."
-
-
-def test_post_knowledge_document_rejects_non_markdown_before_db_use() -> None:
-    response = TestClient(create_app()).post(
-        "/api/v1/knowledge/documents",
-        files={"file": ("note.txt", b"hello", "text/plain")},
-    )
-
-    assert response.status_code == 415
-
-
-def test_post_knowledge_document_maps_import_response(monkeypatch) -> None:
-    document = _document(chunk_count=2, frontmatter_json={"tags": ["web"]})
-
-    async def fake_import(db, file, *, relative_path=None, conflict_strategy="fail"):
-        assert relative_path == "notes"
-        assert conflict_strategy == "fail"
+    async def fake_preview(db, files, *, relative_paths=None, client_file_ids=None):
+        assert [file.filename for file in files] == ["one.md", "two.md"]
+        assert relative_paths == ["notes/a", "notes/b"]
+        assert client_file_ids == ["file_a", "file_b"]
         return SimpleNamespace(
-            document=document,
-            action="imported",
-            warning=None,
-            conflict_type=None,
-            existing_document_id=None,
-            replaced_document_id=None,
+            items=[
+                SimpleNamespace(
+                    client_file_id="file_a",
+                    original_filename="one.md",
+                    relative_directory="notes/a",
+                    resolved_relative_path="notes/a/one.md",
+                    sha256_hash="a" * 64,
+                    status="ready",
+                    conflict_type=None,
+                    existing_document_id=None,
+                    existing_original_filename=None,
+                    existing_relative_path=None,
+                    error=None,
+                ),
+                SimpleNamespace(
+                    client_file_id="file_b",
+                    original_filename="two.md",
+                    relative_directory="notes/b",
+                    resolved_relative_path="notes/b/two.md",
+                    sha256_hash="b" * 64,
+                    status="same_hash",
+                    conflict_type="same_hash",
+                    existing_document_id=existing_id,
+                    existing_original_filename="two.md",
+                    existing_relative_path="old/two.md",
+                    error=None,
+                ),
+            ],
+            summary=SimpleNamespace(total=2, ready=1, same_hash=1, same_relative_path=0, invalid=0),
         )
 
-    monkeypatch.setattr("app.api.v1.knowledge.import_knowledge_document", fake_import)
+    monkeypatch.setattr("app.api.v1.knowledge.preview_knowledge_document_batch", fake_preview)
 
     response = TestClient(create_app()).post(
-        "/api/v1/knowledge/documents",
-        data={"relative_path": "notes"},
-        files={"file": ("note.md", b"# Title\n\nText", "text/markdown")},
-    )
-
-    assert response.status_code == 201
-    body = response.json()
-    assert body["document"]["id"] == str(document.id)
-    assert body["chunk_count"] == 2
-    assert body["frontmatter_detected"] is True
-    assert body["action"] == "imported"
-
-
-def test_post_knowledge_document_accepts_skip_strategy(monkeypatch) -> None:
-    document = _document(chunk_count=2)
-
-    async def fake_import(db, file, *, relative_path=None, conflict_strategy="fail"):
-        assert conflict_strategy == "skip"
-        return SimpleNamespace(
-            document=document,
-            action="skipped",
-            warning="Knowledge document with this content hash already exists",
-            conflict_type="same_hash",
-            existing_document_id=document.id,
-            replaced_document_id=None,
-        )
-
-    monkeypatch.setattr("app.api.v1.knowledge.import_knowledge_document", fake_import)
-
-    response = TestClient(create_app()).post(
-        "/api/v1/knowledge/documents",
-        data={"relative_path": "notes", "conflict_strategy": "skip"},
-        files={"file": ("note.md", b"# Title\n\nText", "text/markdown")},
+        "/api/v1/knowledge/documents/batch/preview",
+        files=[
+            ("relative_paths", (None, "notes/a")),
+            ("relative_paths", (None, "notes/b")),
+            ("client_file_ids", (None, "file_a")),
+            ("client_file_ids", (None, "file_b")),
+            ("files", ("one.md", b"# One\n\nBody", "text/markdown")),
+            ("files", ("two.md", b"# Two\n\nBody", "text/markdown")),
+        ],
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["action"] == "skipped"
-    assert body["conflict_type"] == "same_hash"
-    assert body["existing_document_id"] == str(document.id)
+    assert body["summary"] == {"total": 2, "ready": 1, "same_hash": 1, "same_relative_path": 0, "invalid": 0}
+    assert body["items"][0]["resolved_relative_path"] == "notes/a/one.md"
+    assert body["items"][1]["existing_document_id"] == str(existing_id)
 
 
-def test_post_knowledge_document_returns_structured_conflict(monkeypatch) -> None:
-    document = _document(chunk_count=2)
+def test_post_knowledge_document_batch_import_maps_response(monkeypatch) -> None:
+    async def fake_import(db, files, *, relative_paths=None, client_file_ids=None, decisions=None):
+        assert [file.filename for file in files] == ["one.md", "two.md"]
+        assert relative_paths == ["notes/a", "notes/b"]
+        assert client_file_ids == ["file_a", "file_b"]
+        assert decisions == ["import", "skip"]
+        return SimpleNamespace(summary=SimpleNamespace(total=2, imported=1, skipped=1, replaced=0, failed=0))
 
-    async def fake_import(db, file, *, relative_path=None, conflict_strategy="fail"):
-        raise KnowledgeImportConflictError(
-            "Knowledge document with this relative_path already exists",
-            conflict_type="same_relative_path",
-            existing_document=document,
-        )
-
-    monkeypatch.setattr("app.api.v1.knowledge.import_knowledge_document", fake_import)
+    monkeypatch.setattr("app.api.v1.knowledge.import_knowledge_document_batch", fake_import)
 
     response = TestClient(create_app()).post(
-        "/api/v1/knowledge/documents",
-        data={"relative_path": "notes"},
-        files={"file": ("note.md", b"# Title\n\nText", "text/markdown")},
+        "/api/v1/knowledge/documents/batch/import",
+        files=[
+            ("relative_paths", (None, "notes/a")),
+            ("relative_paths", (None, "notes/b")),
+            ("client_file_ids", (None, "file_a")),
+            ("client_file_ids", (None, "file_b")),
+            ("decisions", (None, "import")),
+            ("decisions", (None, "skip")),
+            ("files", ("one.md", b"# One\n\nBody", "text/markdown")),
+            ("files", ("two.md", b"# Two\n\nBody", "text/markdown")),
+        ],
     )
 
-    assert response.status_code == 409
-    detail = response.json()["detail"]
-    assert detail["conflict_type"] == "same_relative_path"
-    assert detail["existing_document_id"] == str(document.id)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"] == {"total": 2, "imported": 1, "skipped": 1, "replaced": 0, "failed": 0}
+    assert "items" not in body
 
 
 def test_get_knowledge_index_status(monkeypatch) -> None:

@@ -7,21 +7,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 KnowledgeDocumentKind = Literal["markdown_note"]
 KnowledgeDocumentStatus = Literal["imported", "processed", "indexing", "indexed", "failed", "archived"]
-KnowledgeImportAction = Literal["imported", "skipped", "replaced"]
-KnowledgeImportConflictStrategy = Literal["fail", "skip", "replace"]
+KnowledgeBatchPreviewStatus = Literal["ready", "same_hash", "same_relative_path", "invalid"]
+KnowledgeBatchImportAction = Literal["imported", "skipped", "replaced", "failed"]
+KnowledgeBatchImportDecision = Literal["import", "skip", "replace", "keep_existing"]
 KnowledgeAnswerMode = Literal["short", "detailed"]
 KnowledgeRetrievalStrategy = Literal["keyword", "semantic", "hybrid"]
-
-
-class KnowledgeChunkPreview(BaseModel):
-    chunk_index: int
-    heading_path: str = ""
-    char_start: int
-    char_end: int
-    contains_code_block: bool = False
-    code_languages: list[str] = Field(default_factory=list)
-    quality_flags: list[str] = Field(default_factory=list)
-    text_preview: str = ""
 
 
 class KnowledgeDocumentResponse(BaseModel):
@@ -57,21 +47,43 @@ class KnowledgeDocumentListResponse(BaseModel):
     data: list[KnowledgeDocumentResponse]
 
 
-class KnowledgeDocumentImportResponse(BaseModel):
-    document: KnowledgeDocumentResponse
-    chunk_count: int
-    frontmatter_detected: bool
-    quality_flags: list[str]
-    action: KnowledgeImportAction = "imported"
-    warning: str | None = None
+class KnowledgeDocumentBatchPreviewItem(BaseModel):
+    client_file_id: str
+    original_filename: str | None = None
+    relative_directory: str | None = None
+    resolved_relative_path: str | None = None
+    sha256_hash: str | None = None
+    status: KnowledgeBatchPreviewStatus
     conflict_type: str | None = None
     existing_document_id: UUID | None = None
-    replaced_document_id: UUID | None = None
+    existing_original_filename: str | None = None
+    existing_relative_path: str | None = None
+    error: str | None = None
 
 
-class KnowledgeDocumentDetailResponse(BaseModel):
-    document: KnowledgeDocumentResponse
-    chunks: list[KnowledgeChunkPreview] = Field(default_factory=list)
+class KnowledgeDocumentBatchPreviewSummary(BaseModel):
+    total: int
+    ready: int
+    same_hash: int
+    same_relative_path: int
+    invalid: int
+
+
+class KnowledgeDocumentBatchPreviewResponse(BaseModel):
+    items: list[KnowledgeDocumentBatchPreviewItem]
+    summary: KnowledgeDocumentBatchPreviewSummary
+
+
+class KnowledgeDocumentBatchImportSummary(BaseModel):
+    total: int
+    imported: int
+    skipped: int
+    replaced: int
+    failed: int
+
+
+class KnowledgeDocumentBatchImportResponse(BaseModel):
+    summary: KnowledgeDocumentBatchImportSummary
 
 
 class KnowledgeIndexRequest(BaseModel):

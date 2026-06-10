@@ -13,6 +13,8 @@ from app.services.knowledge_import import (
     archive_knowledge_document,
     delete_knowledge_document,
     import_knowledge_document,
+    import_knowledge_document_batch,
+    preview_knowledge_document_batch,
     read_knowledge_chunks,
     restore_knowledge_document,
 )
@@ -86,6 +88,231 @@ def test_import_knowledge_document_rejects_unsafe_relative_directory(monkeypatch
         assert "Unsafe relative directory" in str(exc)
     else:
         raise AssertionError("Expected unsafe relative directory rejection")
+
+
+def test_preview_knowledge_document_batch_counts_ready_items_without_returning_them(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    db = _FakeDb()
+    uploads = [
+        UploadFile(filename="first.md", file=BytesIO(b"# First\n\nMeaningful first body.\n")),
+        UploadFile(filename="second.md", file=BytesIO(b"# Second\n\nMeaningful second body.\n")),
+    ]
+
+    result = asyncio.run(
+        preview_knowledge_document_batch(
+            db,
+            uploads,
+            relative_paths=["notes/linux", "notes/web"],
+            client_file_ids=["a", "b"],
+        )
+    )
+
+    assert result.summary.total == 2
+    assert result.summary.ready == 2
+    assert result.items == []
+    assert db.added == []
+    assert db.commits == 0
+
+
+def test_preview_knowledge_document_batch_reports_same_hash(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    existing = _knowledge_document(tmp_path)
+    monkeypatch.setattr("app.services.knowledge_import._find_knowledge_document_by_hash", lambda db, sha256_hash: existing)
+    db = _FakeDb(document=existing)
+    upload = UploadFile(filename="copy.md", file=BytesIO(b"# Copy\n\nMeaningful copied body.\n"))
+
+    result = asyncio.run(preview_knowledge_document_batch(db, [upload], relative_paths=["notes/linux"], client_file_ids=["copy"]))
+
+    assert result.summary.same_hash == 1
+    assert result.items[0].status == "same_hash"
+    assert result.items[0].conflict_type == "same_hash"
+    assert result.items[0].existing_document_id == existing.id
+
+
+def test_preview_knowledge_document_batch_reports_same_relative_path(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    existing = _knowledge_document(tmp_path)
+    monkeypatch.setattr("app.services.knowledge_import._find_knowledge_document_by_hash", lambda db, sha256_hash: None)
+    monkeypatch.setattr("app.services.knowledge_import._find_knowledge_document_by_relative_path", lambda db, relative_path: existing)
+    db = _FakeDb(document=existing)
+    upload = UploadFile(filename="note.md", file=BytesIO(b"# Updated\n\nMeaningful updated body.\n"))
+
+    result = asyncio.run(preview_knowledge_document_batch(db, [upload], relative_paths=["notes/linux"]))
+
+    assert result.summary.same_relative_path == 1
+    assert result.items[0].status == "same_relative_path"
+    assert result.items[0].resolved_relative_path == "notes/linux/note.md"
+    assert result.items[0].existing_relative_path == "notes/note.md"
+
+
+def test_preview_knowledge_document_batch_reports_invalid_extension(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    db = _FakeDb()
+    upload = UploadFile(filename="note.txt", file=BytesIO(b"hello"))
+
+    result = asyncio.run(preview_knowledge_document_batch(db, [upload]))
+
+    assert result.summary.invalid == 1
+    assert result.items[0].status == "invalid"
+    assert result.items[0].conflict_type == "unsupported_file_type"
+
+
+def test_preview_knowledge_document_batch_requires_relative_directory(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    db = _FakeDb()
+    upload = UploadFile(filename="note.md", file=BytesIO(b"# Note\n\nMeaningful body.\n"))
+
+    result = asyncio.run(preview_knowledge_document_batch(db, [upload], relative_paths=[""]))
+
+    assert result.summary.invalid == 1
+    assert result.items[0].status == "invalid"
+    assert result.items[0].conflict_type == "unsafe_relative_path"
+    assert "Relative directory is required" in str(result.items[0].error)
+
+
+def test_preview_knowledge_document_batch_rejects_single_segment_relative_directory(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    db = _FakeDb()
+    upload = UploadFile(filename="note.md", file=BytesIO(b"# Note\n\nMeaningful body.\n"))
+
+    result = asyncio.run(preview_knowledge_document_batch(db, [upload], relative_paths=["boberkurwa"]))
+
+    assert result.summary.invalid == 1
+    assert result.items[0].status == "invalid"
+    assert result.items[0].conflict_type == "unsafe_relative_path"
+    assert "at least two path segments" in str(result.items[0].error)
+
+
+def test_preview_knowledge_document_batch_reports_unsafe_relative_directory(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    db = _FakeDb()
+    upload = UploadFile(filename="note.md", file=BytesIO(b"# Note\n\nMeaningful body.\n"))
+
+    result = asyncio.run(preview_knowledge_document_batch(db, [upload], relative_paths=["../notes"]))
+
+    assert result.summary.invalid == 1
+    assert result.items[0].status == "invalid"
+    assert result.items[0].conflict_type == "unsafe_relative_path"
+
+
+def test_import_knowledge_document_batch_imports_ready_and_skips_marked_items(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    db = _FakeDb()
+    uploads = [
+        UploadFile(filename="first.md", file=BytesIO(b"# First\n\nMeaningful first body.\n")),
+        UploadFile(filename="second.md", file=BytesIO(b"# Second\n\nMeaningful second body.\n")),
+    ]
+
+    result = asyncio.run(
+        import_knowledge_document_batch(
+            db,
+            uploads,
+            relative_paths=["notes/linux", "notes/linux"],
+            client_file_ids=["first", "second"],
+            decisions=["import", "skip"],
+        )
+    )
+
+    assert result.summary.total == 2
+    assert result.summary.imported == 1
+    assert result.summary.skipped == 1
+    assert result.summary.failed == 0
+    assert len(result.items) == 1
+    assert result.items[0].action == "skipped"
+    assert len([item for item in db.added if isinstance(item, KnowledgeDocumentModel)]) == 1
+
+
+def test_import_knowledge_document_batch_replaces_same_relative_path(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    old = _knowledge_document(tmp_path, processing_status="indexed", indexed_chunk_count=2)
+    old_dir = tmp_path / "knowledge" / "documents" / str(old.id)
+    (old_dir / "originals").mkdir(parents=True)
+    (old_dir / "originals" / "original.md").write_text("# Old\n", encoding="utf-8")
+    monkeypatch.setattr("app.services.knowledge_import._find_knowledge_document_by_hash", lambda db, sha256_hash: None)
+    monkeypatch.setattr("app.services.knowledge_import._find_knowledge_document_by_relative_path", lambda db, relative_path: old)
+    deleted_vector_ids = []
+    monkeypatch.setattr("app.services.knowledge_import._delete_knowledge_vector_points", lambda document_id: deleted_vector_ids.append(document_id))
+    db = _FakeDb(document=old)
+    upload = UploadFile(filename="note.md", file=BytesIO(b"# New\n\nMeaningful replacement body.\n"))
+
+    result = asyncio.run(
+        import_knowledge_document_batch(
+            db,
+            [upload],
+            relative_paths=["notes/linux"],
+            client_file_ids=["note"],
+            decisions=["replace"],
+        )
+    )
+
+    assert result.summary.replaced == 1
+    assert result.items[0].action == "replaced"
+    assert result.items[0].replaced_document_id == old.id
+    assert deleted_vector_ids == [old.id]
+    assert not old_dir.exists()
+
+
+def test_import_knowledge_document_batch_fails_invalid_file_without_mutating(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    db = _FakeDb()
+    upload = UploadFile(filename="note.txt", file=BytesIO(b"hello"))
+
+    result = asyncio.run(import_knowledge_document_batch(db, [upload], decisions=["import"]))
+
+    assert result.summary.failed == 1
+    assert result.items[0].action == "failed"
+    assert result.items[0].conflict_type == "unsupported_file_type"
+    assert db.added == []
+    assert db.commits == 0
+
+
+def test_import_knowledge_document_batch_fails_import_decision_on_same_hash(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge_import.get_settings",
+        lambda: SimpleNamespace(data_root=tmp_path, max_upload_bytes=1024 * 1024),
+    )
+    existing = _knowledge_document(tmp_path)
+    monkeypatch.setattr("app.services.knowledge_import._find_knowledge_document_by_hash", lambda db, sha256_hash: existing)
+    db = _FakeDb(document=existing)
+    upload = UploadFile(filename="copy.md", file=BytesIO(b"# Copy\n\nMeaningful body.\n"))
+
+    result = asyncio.run(import_knowledge_document_batch(db, [upload], relative_paths=["notes/linux"], decisions=["import"]))
+
+    assert result.summary.failed == 1
+    assert result.items[0].action == "failed"
+    assert result.items[0].conflict_type == "same_hash"
+    assert result.items[0].existing_document_id == existing.id
+    assert db.commits == 0
 
 
 def test_import_knowledge_document_same_hash_skip_returns_existing_without_mutation(monkeypatch, tmp_path) -> None:

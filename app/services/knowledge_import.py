@@ -52,6 +52,8 @@ class KnowledgeLifecycleError(KnowledgeImportError):
 
 KnowledgeImportAction = Literal["imported", "skipped", "replaced"]
 KnowledgeImportConflictStrategy = Literal["fail", "skip", "replace"]
+KnowledgeBatchPreviewStatus = Literal["ready", "same_hash", "same_relative_path", "invalid"]
+KnowledgeBatchImportAction = Literal["imported", "skipped", "replaced", "failed"]
 
 
 class KnowledgeImportConflictError(KnowledgeImportError):
@@ -75,6 +77,66 @@ class KnowledgeImportResult:
     conflict_type: str | None = None
     existing_document_id: UUID | None = None
     replaced_document_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class KnowledgeBatchPreviewItem:
+    client_file_id: str
+    original_filename: str | None
+    relative_directory: str | None
+    resolved_relative_path: str | None
+    sha256_hash: str | None
+    status: KnowledgeBatchPreviewStatus
+    conflict_type: str | None = None
+    existing_document_id: UUID | None = None
+    existing_original_filename: str | None = None
+    existing_relative_path: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class KnowledgeBatchPreviewSummary:
+    total: int
+    ready: int
+    same_hash: int
+    same_relative_path: int
+    invalid: int
+
+
+@dataclass(frozen=True)
+class KnowledgeBatchPreviewResult:
+    items: list[KnowledgeBatchPreviewItem]
+    summary: KnowledgeBatchPreviewSummary
+
+
+@dataclass(frozen=True)
+class KnowledgeBatchImportItem:
+    client_file_id: str
+    original_filename: str | None
+    resolved_relative_path: str | None
+    action: KnowledgeBatchImportAction
+    decision: str
+    knowledge_document_id: UUID | None = None
+    existing_document_id: UUID | None = None
+    replaced_document_id: UUID | None = None
+    conflict_type: str | None = None
+    warning: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class KnowledgeBatchImportSummary:
+    total: int
+    imported: int
+    skipped: int
+    replaced: int
+    failed: int
+
+
+@dataclass(frozen=True)
+class KnowledgeBatchImportResult:
+    items: list[KnowledgeBatchImportItem]
+    summary: KnowledgeBatchImportSummary
 
 
 @dataclass(frozen=True)
@@ -357,6 +419,48 @@ async def import_knowledge_document(
     return KnowledgeImportResult(document=document, action="imported")
 
 
+async def preview_knowledge_document_batch(
+    db: Session,
+    uploads: list[UploadFile],
+    *,
+    relative_paths: list[str] | None = None,
+    client_file_ids: list[str] | None = None,
+) -> KnowledgeBatchPreviewResult:
+    settings = get_settings()
+    items: list[KnowledgeBatchPreviewItem] = []
+    for index, upload in enumerate(uploads):
+        client_file_id = _batch_value(client_file_ids, index) or f"file_{index + 1}"
+        relative_directory = _batch_value(relative_paths, index)
+        items.append(await _preview_knowledge_document(db, upload, settings.max_upload_bytes, client_file_id, relative_directory))
+    return KnowledgeBatchPreviewResult(
+        items=[item for item in items if item.status != "ready"],
+        summary=_batch_preview_summary(items),
+    )
+
+
+async def import_knowledge_document_batch(
+    db: Session,
+    uploads: list[UploadFile],
+    *,
+    relative_paths: list[str] | None = None,
+    client_file_ids: list[str] | None = None,
+    decisions: list[str] | None = None,
+) -> KnowledgeBatchImportResult:
+    settings = get_settings()
+    items: list[KnowledgeBatchImportItem] = []
+    for index, upload in enumerate(uploads):
+        client_file_id = _batch_value(client_file_ids, index) or f"file_{index + 1}"
+        relative_directory = _batch_value(relative_paths, index)
+        decision = (_batch_value(decisions, index) or "import").strip()
+        preview = await _preview_knowledge_document(db, upload, settings.max_upload_bytes, client_file_id, relative_directory)
+        await upload.seek(0)
+        items.append(await _import_knowledge_document_from_batch_decision(db, upload, relative_directory, decision, preview))
+    return KnowledgeBatchImportResult(
+        items=[item for item in items if item.action != "imported"],
+        summary=_batch_import_summary(items),
+    )
+
+
 def read_knowledge_chunks(document: KnowledgeDocumentModel) -> list[KnowledgeStoredChunk]:
     if not document.chunk_manifest_storage_uri:
         return []
@@ -372,6 +476,221 @@ def read_knowledge_chunks(document: KnowledgeDocumentModel) -> list[KnowledgeSto
                 continue
             rows.append(KnowledgeStoredChunk.from_json_dict(json.loads(stripped)))
     return rows
+
+
+async def _preview_knowledge_document(
+    db: Session,
+    upload: UploadFile,
+    max_upload_bytes: int,
+    client_file_id: str,
+    relative_directory: str | None,
+) -> KnowledgeBatchPreviewItem:
+    original_filename = Path(upload.filename or "").name or None
+    try:
+        _ensure_markdown_upload(upload.filename)
+        resolved_relative_path = _build_import_relative_path(
+            relative_directory,
+            original_filename or "document.md",
+            require_relative_directory=True,
+        )
+        content = await _read_limited_upload(upload, max_upload_bytes)
+        sha256_hash = hashlib.sha256(content).hexdigest()
+    except UnsupportedKnowledgeDocumentTypeError as exc:
+        return KnowledgeBatchPreviewItem(
+            client_file_id=client_file_id,
+            original_filename=original_filename,
+            relative_directory=relative_directory,
+            resolved_relative_path=None,
+            sha256_hash=None,
+            status="invalid",
+            conflict_type="unsupported_file_type",
+            error=str(exc),
+        )
+    except KnowledgeUploadTooLargeError as exc:
+        return KnowledgeBatchPreviewItem(
+            client_file_id=client_file_id,
+            original_filename=original_filename,
+            relative_directory=relative_directory,
+            resolved_relative_path=None,
+            sha256_hash=None,
+            status="invalid",
+            conflict_type="invalid_file",
+            error=str(exc),
+        )
+    except KnowledgeImportError as exc:
+        return KnowledgeBatchPreviewItem(
+            client_file_id=client_file_id,
+            original_filename=original_filename,
+            relative_directory=relative_directory,
+            resolved_relative_path=None,
+            sha256_hash=None,
+            status="invalid",
+            conflict_type="unsafe_relative_path",
+            error=str(exc),
+        )
+
+    duplicate = _find_knowledge_document_by_hash(db, sha256_hash)
+    if duplicate is not None:
+        return _batch_preview_conflict_item(
+            client_file_id,
+            original_filename,
+            relative_directory,
+            resolved_relative_path,
+            sha256_hash,
+            "same_hash",
+            duplicate,
+        )
+
+    path_conflict = _find_knowledge_document_by_relative_path(db, resolved_relative_path)
+    if path_conflict is not None:
+        return _batch_preview_conflict_item(
+            client_file_id,
+            original_filename,
+            relative_directory,
+            resolved_relative_path,
+            sha256_hash,
+            "same_relative_path",
+            path_conflict,
+        )
+
+    return KnowledgeBatchPreviewItem(
+        client_file_id=client_file_id,
+        original_filename=original_filename,
+        relative_directory=_normalize_relative_directory(relative_directory),
+        resolved_relative_path=resolved_relative_path,
+        sha256_hash=sha256_hash,
+        status="ready",
+    )
+
+
+def _batch_preview_conflict_item(
+    client_file_id: str,
+    original_filename: str | None,
+    relative_directory: str | None,
+    resolved_relative_path: str,
+    sha256_hash: str,
+    status: Literal["same_hash", "same_relative_path"],
+    existing_document: KnowledgeDocumentModel,
+) -> KnowledgeBatchPreviewItem:
+    return KnowledgeBatchPreviewItem(
+        client_file_id=client_file_id,
+        original_filename=original_filename,
+        relative_directory=_normalize_relative_directory(relative_directory),
+        resolved_relative_path=resolved_relative_path,
+        sha256_hash=None,
+        status=status,
+        conflict_type=status,
+        existing_document_id=existing_document.id,
+        existing_original_filename=existing_document.original_filename,
+        existing_relative_path=existing_document.relative_path,
+    )
+
+
+def _batch_preview_summary(items: list[KnowledgeBatchPreviewItem]) -> KnowledgeBatchPreviewSummary:
+    return KnowledgeBatchPreviewSummary(
+        total=len(items),
+        ready=sum(1 for item in items if item.status == "ready"),
+        same_hash=sum(1 for item in items if item.status == "same_hash"),
+        same_relative_path=sum(1 for item in items if item.status == "same_relative_path"),
+        invalid=sum(1 for item in items if item.status == "invalid"),
+    )
+
+
+async def _import_knowledge_document_from_batch_decision(
+    db: Session,
+    upload: UploadFile,
+    relative_directory: str | None,
+    decision: str,
+    preview: KnowledgeBatchPreviewItem,
+) -> KnowledgeBatchImportItem:
+    normalized_decision = decision.casefold()
+    if normalized_decision == "keep_existing":
+        normalized_decision = "skip"
+    if normalized_decision not in {"import", "skip", "replace"}:
+        return _batch_import_failed(preview, decision, f"Unsupported batch import decision: {decision}")
+
+    if normalized_decision == "skip":
+        return KnowledgeBatchImportItem(
+            client_file_id=preview.client_file_id,
+            original_filename=preview.original_filename,
+            resolved_relative_path=preview.resolved_relative_path,
+            action="skipped",
+            decision=decision,
+            existing_document_id=preview.existing_document_id,
+            conflict_type=preview.conflict_type,
+            warning="A fájl kihagyva.",
+        )
+
+    if preview.status == "invalid":
+        return _batch_import_failed(preview, decision, preview.error or "A fájl nem importálható.")
+    if normalized_decision == "replace" and preview.status != "same_relative_path":
+        return _batch_import_failed(preview, decision, "Csere csak azonos relatív útvonalú ütközésnél engedélyezett.")
+    if normalized_decision == "import" and preview.status in {"same_hash", "same_relative_path"}:
+        return _batch_import_failed(preview, decision, "Az import döntés nem használható meglévő ütközés mellett.")
+
+    conflict_strategy: KnowledgeImportConflictStrategy = "replace" if normalized_decision == "replace" else "fail"
+    try:
+        result = await import_knowledge_document(
+            db,
+            upload,
+            relative_path=relative_directory,
+            conflict_strategy=conflict_strategy,
+        )
+    except KnowledgeImportConflictError as exc:
+        return _batch_import_failed(preview, decision, str(exc), conflict_type=exc.conflict_type, existing_document_id=exc.existing_document.id)
+    except KnowledgeImportError as exc:
+        return _batch_import_failed(preview, decision, str(exc))
+
+    document = result.document
+    action: KnowledgeBatchImportAction = "replaced" if result.action == "replaced" else "imported"
+    return KnowledgeBatchImportItem(
+        client_file_id=preview.client_file_id,
+        original_filename=document.original_filename,
+        resolved_relative_path=document.relative_path,
+        action=action,
+        decision=decision,
+        knowledge_document_id=document.id,
+        replaced_document_id=result.replaced_document_id,
+        conflict_type=result.conflict_type,
+        warning=result.warning,
+    )
+
+
+def _batch_import_failed(
+    preview: KnowledgeBatchPreviewItem,
+    decision: str,
+    error: str,
+    *,
+    conflict_type: str | None = None,
+    existing_document_id: UUID | None = None,
+) -> KnowledgeBatchImportItem:
+    return KnowledgeBatchImportItem(
+        client_file_id=preview.client_file_id,
+        original_filename=preview.original_filename,
+        resolved_relative_path=preview.resolved_relative_path,
+        action="failed",
+        decision=decision,
+        existing_document_id=existing_document_id or preview.existing_document_id,
+        conflict_type=conflict_type or preview.conflict_type,
+        error=error,
+    )
+
+
+def _batch_import_summary(items: list[KnowledgeBatchImportItem]) -> KnowledgeBatchImportSummary:
+    return KnowledgeBatchImportSummary(
+        total=len(items),
+        imported=sum(1 for item in items if item.action == "imported"),
+        skipped=sum(1 for item in items if item.action == "skipped"),
+        replaced=sum(1 for item in items if item.action == "replaced"),
+        failed=sum(1 for item in items if item.action == "failed"),
+    )
+
+
+def _batch_value(values: list[str] | None, index: int) -> str | None:
+    if values is None or index >= len(values):
+        return None
+    value = values[index]
+    return value if value != "" else None
 
 
 def _find_knowledge_document_by_hash(db: Session, sha256_hash: str) -> KnowledgeDocumentModel | None:
@@ -457,13 +776,17 @@ def _ensure_markdown_upload(filename: str | None) -> None:
         raise UnsupportedKnowledgeDocumentTypeError("Only .md Markdown files can be imported into the knowledge base")
 
 
-def _build_import_relative_path(relative_directory: str | None, filename: str) -> str:
+def _build_import_relative_path(relative_directory: str | None, filename: str, *, require_relative_directory: bool = False) -> str:
     safe_filename = Path(filename).name
     if not safe_filename or safe_filename in {".", ".."}:
         raise KnowledgeImportError("Unsafe knowledge filename")
     directory = _normalize_relative_directory(relative_directory)
     if directory is None:
+        if require_relative_directory:
+            raise KnowledgeImportError("Relative directory is required for knowledge batch import")
         return safe_filename
+    if require_relative_directory:
+        _validate_path_like_relative_directory(directory)
     return PurePath(directory, safe_filename).as_posix()
 
 
@@ -477,6 +800,15 @@ def _normalize_relative_directory(relative_directory: str | None) -> str | None:
     if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
         raise KnowledgeImportError("Unsafe relative directory")
     return pure.as_posix()
+
+
+def _validate_path_like_relative_directory(relative_directory: str) -> None:
+    parts = PurePath(relative_directory).parts
+    if len(parts) < 2:
+        raise KnowledgeImportError("Relative directory must contain at least two path segments")
+    for part in parts:
+        if not any(character.isalnum() for character in part):
+            raise KnowledgeImportError("Relative directory contains an invalid path segment")
 
 
 async def _read_limited_upload(upload: UploadFile, max_upload_bytes: int) -> bytes:

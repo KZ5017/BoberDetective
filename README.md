@@ -136,8 +136,8 @@ PDF/OCR sample checks:
 
 Next:
 
-- Plan the dedicated `Tudásbázis` module as the next larger development slice: Markdown (`.md`) documents should be imported and queried as structured knowledge-base material, not as investigative case files (`Design_documents/21_markdown_knowledge_base_module_plan.md`)
-- Introduce a clean `knowledge_base` / `markdown_note` document kind for that module, with Markdown-aware parsing/chunking and a separate RAG workflow limited to knowledge-base documents
+- Continue hardening the dedicated `Tudásbázis` module: Markdown (`.md`) documents are imported and queried as structured knowledge-base material, not as investigative case files (`Design_documents/21_markdown_knowledge_base_module_plan.md`)
+- The current `Tudásbázis` baseline includes global `knowledge_base` / `markdown_note` storage, Markdown-aware parsing/chunking, separate knowledge indexing/querying, archive/restore/final-delete lifecycle controls, and batch-only Markdown import with conflict preview/decision handling
 - Keep the dedicated `Audit naplo` API/panel backed by `audit_events` as the following larger work surface after the knowledge-base slice
 - Add multi-collection source scopes only where analysis/RAG/knowledge-base workflows need them; the current first analysis/indexing integration uses one selected collection at a time
 - Keep `search_findings`, full-document person seeds, source validation, and contradiction detection as strict auditable workbench workflows beside the freer RAG question-answering layer

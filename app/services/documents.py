@@ -17,6 +17,7 @@ from app.models.document import (
     DocumentChunkModel,
     DocumentModel,
     DocumentPageModel,
+    DocumentSearchEntryModel,
     DocumentTextLayerModel,
 )
 from app.models.source_reference import SourceReferenceModel
@@ -256,6 +257,24 @@ def discard_document(db: Session, case_id: UUID, document_id: UUID, *, reason: s
     DatabaseAuditWriter(db).write(event)
     JsonlAuditWriter(storage).write(event)
 
+    db.execute(
+        delete(DocumentSearchEntryModel).where(
+            DocumentSearchEntryModel.case_id == case_id,
+            DocumentSearchEntryModel.document_id == document.id,
+        )
+    )
+    db.execute(
+        delete(DocumentChunkManifestModel).where(
+            DocumentChunkManifestModel.case_id == case_id,
+            DocumentChunkManifestModel.document_id == document.id,
+        )
+    )
+    db.execute(
+        delete(DocumentTextLayerModel).where(
+            DocumentTextLayerModel.case_id == case_id,
+            DocumentTextLayerModel.document_id == document.id,
+        )
+    )
     if run_ids:
         db.execute(delete(AnalysisRunOutputModel).where(AnalysisRunOutputModel.analysis_run_id.in_(run_ids)))
         db.execute(delete(AnalysisRunInputModel).where(AnalysisRunInputModel.analysis_run_id.in_(run_ids)))

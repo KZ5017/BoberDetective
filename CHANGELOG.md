@@ -1,5 +1,32 @@
 # CHANGELOG.md
 
+## 2026-06-11
+
+### Added
+
+- Added the finalized user-facing batch Markdown import workflow for `Tudásbázis`: the batch import panel is now the only Markdown import surface, supports one or many selected `.md` files, requires a common relative directory, previews only conflict/invalid rows, automatically imports new files, automatically skips same-hash duplicates, and asks for a user decision only when the stored path plus filename already exists with different content.
+- Added compact import-result reporting for batch Markdown imports: the UI shows only imported/replaced/skipped/failed summary counts instead of rendering a full result list after execution.
+
+### Changed
+
+- Retired the public single-file Markdown import API/UI completely. The removed one-file import path no longer competes with the batch workflow; importing one file is handled as a one-file batch.
+- Simplified `Tudásbázis` document cards to follow the shared file-card pattern: the card identity is the stored `path + filename`, status/chunk/index metadata remains visible, and archive/final-delete actions live in selected-document toolbar controls instead of per-card buttons.
+- Reworked the `Tudásbázis` desktop layout into a two-column module: the left column contains `Kérdés a tudásbázishoz`, `Tudásanyag importálás`, and `Markdown tudásanyag`; the right column contains `Aktuális tudásbázis válasz`. Query controls, import preview, document list, empty states, and current-answer placeholders were aligned with the existing workbench UI token system.
+- Polished the `Tudásbázis` mobile layout so import/document-list toolbar buttons stack cleanly and long stored Markdown paths wrap inside cards instead of horizontal-scrolling out of view.
+- Refined the `Teljes iratfeldolgozás` UI: `Irat és feldolgozási profil` and `Iratösszefoglaló` now form the first 1:1 row, `Előkészített munkalista` remains the full-width second row, profile/page-range controls align in one desktop row, guide text noise was removed, placeholder cards use the shared tokenized style, summary content no longer vertically stretches, and mobile controls/buttons stack cleanly.
+- Refined the `Irat rendező` / `Iratgyűjtemények` UI: the selected-collection content no longer uses an unnecessary nested `Gyűjtemény tartalma` panel, no-selection now shows a normal empty state instead of auto-selecting the first collection, collection/document panels have stable height behavior, the document list minimum height was increased, and mobile collection buttons now use full-width rows.
+
+### Fixed
+
+- Fixed safe early document discard/delete for PDF/text-review documents with no chunks. The backend now deletes document search entries, chunk manifests, and text layers before removing related analysis runs, preventing foreign-key failures from `document_text_layers` / `document_search_entries` during `DELETE /api/v1/cases/{case_id}/documents/{document_id}`.
+
+### Verified
+
+- Live backend smoke: imported a native-text PDF into `text_review_required` with `0` chunks, called the document DELETE endpoint, received `204 No Content`, and confirmed the document disappeared from the document list.
+- `.venv/bin/python -m pytest tests/test_document_lifecycle.py tests/test_documents.py tests/test_lexical_index.py tests/test_search.py -q` (`59 passed`, 1 Docling deprecation warning)
+- `npm --prefix frontend run build`
+- `git diff --check`
+
 ## 2026-06-09
 
 ### Added
@@ -7,21 +34,26 @@
 - Added the first backend foundation for the global `Tudásbázis` slice: migration `0046_knowledge_documents`, `KnowledgeDocumentModel`, knowledge Pydantic schemas, deterministic Markdown parser/chunker service, data-root/text-store backed `.md` import service, `/api/v1/knowledge/documents` import/list/detail endpoints, storage-path helpers, and focused parser/import/API tests covering frontmatter, heading paths, code block preservation, invalid encoding, empty Markdown input, manifest writing, and endpoint behavior.
 - Added the first knowledge-base indexing slice: migration `0047_knowledge_index_metadata`, knowledge document embedding/index metadata fields, a separate knowledge Qdrant collection naming path, `app/services/knowledge_indexing.py`, `GET /api/v1/knowledge/index/status`, `POST /api/v1/knowledge/index`, and focused tests proving that knowledge-vector payloads do not use case-file `case_id` payloads or the case chunk collection.
 - Added the first knowledge-only query backend contract: `POST /api/v1/knowledge/query`, `app/services/knowledge_query.py`, keyword/semantic/hybrid knowledge retrieval over `knowledge_documents`, source cards with filename/relative path/heading path, a source-bound Hungarian answer prompt, JSON fallback parsing for the answer payload, and focused tests for endpoint behavior, prompt construction, keyword retrieval, Qdrant knowledge search filtering, and empty-source placeholder answers.
-- Added the first `Tudásbázis` frontend surface: sidebar navigation entry, Markdown import form, knowledge document list/search/selection, knowledge index status and index action, knowledge question form, current answer panel, source cards with filename/relative path/heading path, and document detail/chunk preview panel.
+- Added the first `Tudásbázis` frontend surface: sidebar navigation entry, Markdown import form, knowledge document list/search/selection, selected-document toolbar actions, knowledge index status and index action, knowledge question form, current answer panel, and source cards with filename/relative path/heading path.
 - Documented the current `Tudásbázis` handoff state: user-side live test passed, and the next clean backend slice is knowledge document lifecycle hardening with real delete/archive/reimport semantics, data-root cleanup, Qdrant knowledge-point cleanup, and audit events.
 - Added the first knowledge document lifecycle workflow: archive, restore, and final delete endpoints; Qdrant knowledge-point deletion by `knowledge_document_id`; data-root document directory cleanup on final delete; global audit events; frontend archive/restore/delete controls; and source-selection safeguards so archived Markdown notes are visible but not query/index sources.
-- Documented the planned knowledge import conflict contract: same content hash should skip with warning and no mutation; same `relative_path` with different hash is a replacement conflict requiring explicit user decision; backend should support `conflict_strategy = fail | skip | replace` so later batch imports can reuse the same decision model.
-- Added the first backend import-conflict contract for `Tudásbázis` Markdown imports: multipart import accepts `conflict_strategy=fail|skip|replace`, same-hash conflicts can fail or return a structured skipped response without mutation, same `relative_path` with different hash can be replaced only through explicit `replace`, and replacement imports create the new document before deleting the old data-root/Qdrant/DB record.
-- Added the one-file frontend conflict decision UI for `Tudásbázis` Markdown imports: structured 409 conflicts now show a Hungarian decision panel with `Meglévő megtartása` and, for same-relative-path replacements, `Csere az új fájlra`; same-hash conflicts are shown as already imported and do not offer replacement.
+- Documented the planned knowledge import conflict contract: same content hash should skip with warning and no mutation; same `relative_path` with different hash is a replacement conflict requiring explicit user decision; the eventual public surface should support the same decision model for one or many files.
+- Added the first backend import-conflict foundation for `Tudásbázis` Markdown imports: same-hash conflicts can be skipped without mutation, same `relative_path` with different hash can be replaced only through explicit replacement, and replacement imports create the new document before deleting the old data-root/Qdrant/DB record.
+- Added the first backend batch-preview slice for `Tudásbázis` Markdown imports: `POST /api/v1/knowledge/documents/batch/preview` accepts multiple files with required relative directory values, resolves `relative_directory/original_filename.md`, computes hashes, detects ready/same-hash/same-relative-path/invalid states, returns full summary counts, returns item details only for conflict/invalid rows, and performs no data mutation.
+- Added the backend batch-import endpoint for `Tudásbázis` Markdown imports: `POST /api/v1/knowledge/documents/batch/import` accepts per-file decisions, supports partial success, imports ready files, skips selected files, replaces same-relative-path conflicts only on explicit replace, and returns only imported/skipped/replaced/failed summary counts.
+- Added the first frontend batch import UI for `Tudásbázis`: multi-file selection, required common relative directory input, conflict-only preview list, automatic import for new files, automatic skip for same-hash files, a decision control only for same-relative-path/different-content conflicts, batch import execution, and compact result summary.
 
 ### Changed
 
-- Changed the `Tudásbázis` Markdown import path semantics: the frontend field is now a relative directory path, while the backend stores and compares the full relative file path built from that directory plus the uploaded filename. Empty directory input stores the original filename as the import key.
+- Changed the `Tudásbázis` Markdown import path semantics: the frontend field is now a relative directory path, while the backend stores and compares the full relative file path built from that directory plus the uploaded filename. The public batch import path requires a directory value.
+- Documented the batch/folder Markdown import contract v1: two-step preview/import direction, conflict-only item lists, automatic handling for non-conflicting files, explicit user decisions only for same-relative-path/different-content conflicts, partial-success summaries, safety rules around replacement, and the future batch decision UX.
+- Simplified the `Tudásbázis` document list workflow: imported Markdown cards now show the stored `path + filename` import key plus compact status/index metrics, archive/delete actions moved to selected-document toolbar buttons, batch import clears the selected file input after completion, and the former document detail/chunk-preview API/frontend panel was removed.
+- Retired the public one-file Markdown import API/UI. `POST /api/v1/knowledge/documents/batch/preview` and `POST /api/v1/knowledge/documents/batch/import` are now the only user-facing import path; selecting one file in the batch import UI covers the one-file case.
 
 ### Verified
 
-- `.venv/bin/python -m pytest tests/test_knowledge_query.py tests/test_knowledge_indexing.py tests/test_knowledge_import.py tests/test_knowledge_api.py tests/test_markdown_parser.py tests/test_storage.py tests/test_health.py -q` (`38 passed`)
-- `.venv/bin/python -m pytest -q` (`338 passed`, 1 Docling deprecation warning)
+- `.venv/bin/python -m pytest tests/test_knowledge_query.py tests/test_knowledge_indexing.py tests/test_knowledge_import.py tests/test_knowledge_api.py tests/test_markdown_parser.py tests/test_storage.py tests/test_health.py -q` (`49 passed`)
+- `.venv/bin/python -m pytest -q` (`349 passed`, 1 Docling deprecation warning)
 - `npm --prefix frontend run build`
 - `.venv/bin/python -m alembic upgrade head` / current head `0047_knowledge_index_metadata`
 - `GET /api/v1/knowledge/index/status` live backend smoke returned an empty but valid knowledge index status response.

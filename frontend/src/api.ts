@@ -377,22 +377,6 @@ export type KnowledgeDocumentRead = {
   updated_at: string;
 };
 
-export type KnowledgeChunkPreview = {
-  chunk_index: number;
-  heading_path: string;
-  char_start: number;
-  char_end: number;
-  contains_code_block: boolean;
-  code_languages: string[];
-  quality_flags: string[];
-  text_preview: string;
-};
-
-export type KnowledgeDocumentDetailResponse = {
-  document: KnowledgeDocumentRead;
-  chunks: KnowledgeChunkPreview[];
-};
-
 export type KnowledgeIndexStatusResponse = {
   collection_name: string;
   embedding_model: string;
@@ -414,8 +398,44 @@ export type KnowledgeIndexResponse = {
   embedding_model: string;
 };
 
-export type KnowledgeImportAction = "imported" | "skipped" | "replaced";
-export type KnowledgeImportConflictStrategy = "fail" | "skip" | "replace";
+export type KnowledgeBatchPreviewStatus = "ready" | "same_hash" | "same_relative_path" | "invalid";
+export type KnowledgeBatchImportAction = "imported" | "skipped" | "replaced" | "failed";
+export type KnowledgeBatchImportDecision = "import" | "skip" | "replace" | "keep_existing";
+
+export type KnowledgeBatchPreviewItem = {
+  client_file_id: string;
+  original_filename: string | null;
+  relative_directory: string | null;
+  resolved_relative_path: string | null;
+  sha256_hash: string | null;
+  status: KnowledgeBatchPreviewStatus;
+  conflict_type: string | null;
+  existing_document_id: string | null;
+  existing_original_filename: string | null;
+  existing_relative_path: string | null;
+  error: string | null;
+};
+
+export type KnowledgeBatchPreviewResponse = {
+  items: KnowledgeBatchPreviewItem[];
+  summary: {
+    total: number;
+    ready: number;
+    same_hash: number;
+    same_relative_path: number;
+    invalid: number;
+  };
+};
+
+export type KnowledgeBatchImportResponse = {
+  summary: {
+    total: number;
+    imported: number;
+    skipped: number;
+    replaced: number;
+    failed: number;
+  };
+};
 
 export type KnowledgeUsedSource = {
   knowledge_document_id: string;
@@ -1263,41 +1283,40 @@ export function listKnowledgeDocuments(): Promise<{ data: KnowledgeDocumentRead[
   return request("/knowledge/documents");
 }
 
-export function importKnowledgeDocument(file: File, relativeDirectory?: string, conflictStrategy: KnowledgeImportConflictStrategy = "fail"): Promise<{
-  document: KnowledgeDocumentRead;
-  chunk_count: number;
-  frontmatter_detected: boolean;
-  quality_flags: string[];
-  action: KnowledgeImportAction;
-  warning: string | null;
-  conflict_type: string | null;
-  existing_document_id: string | null;
-  replaced_document_id: string | null;
-}> {
+export function previewKnowledgeDocumentBatch(files: File[], relativeDirectories: string[], clientFileIds: string[]): Promise<KnowledgeBatchPreviewResponse> {
   const formData = new FormData();
-  formData.append("file", file);
-  if (relativeDirectory?.trim()) {
-    formData.append("relative_path", relativeDirectory.trim());
-  }
-  formData.append("conflict_strategy", conflictStrategy);
-  return request("/knowledge/documents", {
+  files.forEach((file, index) => {
+    formData.append("files", file);
+    formData.append("relative_paths", relativeDirectories[index] ?? "");
+    formData.append("client_file_ids", clientFileIds[index] ?? `file_${index + 1}`);
+  });
+  return request("/knowledge/documents/batch/preview", {
     method: "POST",
     body: formData
   });
 }
 
-export function getKnowledgeDocument(documentId: string): Promise<KnowledgeDocumentDetailResponse> {
-  return request(`/knowledge/documents/${documentId}`);
+export function importKnowledgeDocumentBatch(
+  files: File[],
+  relativeDirectories: string[],
+  clientFileIds: string[],
+  decisions: KnowledgeBatchImportDecision[]
+): Promise<KnowledgeBatchImportResponse> {
+  const formData = new FormData();
+  files.forEach((file, index) => {
+    formData.append("files", file);
+    formData.append("relative_paths", relativeDirectories[index] ?? "");
+    formData.append("client_file_ids", clientFileIds[index] ?? `file_${index + 1}`);
+    formData.append("decisions", decisions[index] ?? "import");
+  });
+  return request("/knowledge/documents/batch/import", {
+    method: "POST",
+    body: formData
+  });
 }
 
 export function archiveKnowledgeDocument(documentId: string): Promise<KnowledgeDocumentRead> {
   return request(`/knowledge/documents/${documentId}/archive`, {
-    method: "POST"
-  });
-}
-
-export function restoreKnowledgeDocument(documentId: string): Promise<KnowledgeDocumentRead> {
-  return request(`/knowledge/documents/${documentId}/restore`, {
     method: "POST"
   });
 }
