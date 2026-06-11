@@ -48,12 +48,12 @@ def test_rag_query_request_accepts_collection_scope() -> None:
     assert payload.collection_id == collection_id
     assert payload.answer_mode == "detailed"
     assert payload.retrieval_strategy == "hybrid"
-    assert payload.max_chunks == 45
+    assert payload.max_chunks == 30
 
 
 def test_rag_query_request_caps_max_chunks() -> None:
     with pytest.raises(ValidationError):
-        RagQueryRequest(question="Mit tudunk erről?", max_chunks=91)
+        RagQueryRequest(question="Mit tudunk erről?", max_chunks=61)
 
 
 def test_rag_query_request_rejects_retired_answer_modes() -> None:
@@ -305,7 +305,7 @@ def test_generate_rag_answer_uses_llm_json(monkeypatch) -> None:
             assert messages[0].role == "system"
             assert messages[1].role == "user"
             assert temperature == 0.1
-            assert max_tokens == 2500
+            assert max_tokens is None
             return _FakeCompletion()
 
     monkeypatch.setattr("app.services.rag.LMStudioNativeProvider", _FakeProvider)

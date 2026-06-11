@@ -865,7 +865,7 @@ Input v1:
 {
   "question": "...",
   "retrieval_strategy": "hybrid",
-  "max_chunks": 45,
+  "max_chunks": 30,
   "answer_mode": "detailed"
 }
 ```
@@ -881,7 +881,7 @@ Kesobbi input:
     "tags": ["..."]
   },
   "retrieval_strategy": "hybrid",
-  "max_chunks": 45,
+  "max_chunks": 30,
   "answer_mode": "detailed"
 }
 ```
@@ -904,7 +904,7 @@ Output v1:
   ],
   "retrieval_metadata": {
     "retrieval_strategy": "hybrid",
-    "max_chunks": 45,
+    "max_chunks": 30,
     "selected_chunk_count": 8,
     "embedding_model": "..."
   }
@@ -1561,24 +1561,24 @@ Feladata:
 
 - UTF-8 decode,
 - frontmatter felismeres,
-- heading stack epites,
-- fenced code block felismeres,
-- listablokk/tablabokk/bekezdes blokkositas,
+- Marko/AST alapu Markdown strukturafeldolgozas,
+- heading section epites,
+- fenced code block metadata,
+- lista/tabla/bekezdes/block node metadata,
 - wikilink/tag kigyujtes,
 - quality flag gyujtes,
-- chunk jeloltek eloallitasa.
+- strukturatudatos chunk jeloltek eloallitasa.
 
-Javasolt belso DTO-k:
+Belso DTO-k:
 
 - `ParsedMarkdownDocument`
-- `MarkdownBlock`
-- `MarkdownChunkCandidate`
+- `MarkdownChunk`
 
 Fontos:
 
 ```text
 Ez a service ne irjon adatbazist es ne hivjon LLM-et.
-Csak determinisztikus parse/chunk logika.
+Csak parser/chunk logika; az aktiv implementacio Marko/AST alapu.
 ```
 
 ### 17.6 Knowledge import service
@@ -1786,6 +1786,22 @@ Az elso backend szelet akkor tekintheto kesznek, ha:
 11. Nagyobb sajat Markdown korpusz live smoke es teljesitmeny/UX hardening.
 12. Opcionális folder-selection fejlesztes, ha a bongeszo altal adott relativ
     utak eleg stabilan hasznalhatok.
+13. AST-alapu Markdown chunking v1 a
+    `Design_documents/22_markdown_ast_chunking_plan.md` szerint:
+    Marko/AST parser aktiv alapvonal, regi soralapu parser kivezetve.
+14. Forrasmegjelenites es valaszolvasas hardening:
+    - valaszok biztonsagos Markdown/GFM renderelese,
+    - full-width, kibontható `Felhasznalt Markdown forrasok` panel,
+    - lazy teljes chunk betoltes csak forras megnyitaskor,
+    - teljes Markdown chunk renderelese, nem csonkolt preview,
+    - forraskartya-kereso a mar ismert metadata es a mar megnyitott chunk
+      szovege alapjan.
+15. Retrieval-minosegi hardening:
+    - semantic/hybrid talalatvalasztas attekintese,
+    - Markdown-aware hybrid pontozas heading/code/token jelekkel,
+    - query variansok,
+    - azonos dokumentum/heading kornyezeti chunk bovites,
+    - determinisztikus reranking, ha a sima retrieval tul sok zajt hoz.
 
 ## 19. Statusz
 
@@ -1804,8 +1820,14 @@ batch import UI elerheto tobbfajlos kivalasztassal, kotelezo relativ
 mappautvonallal, konfliktuslista-alapu elonezettel, automatikus
 ujfajl-importtal, automatikus azonos-hash kihagyassal, csak valodi
 same-path/different-content utkozesnel megjeleno dontessel es tomor import
-osszegzessel; user oldali live teszt alapjan a funkcio mukodik, a kovetkezo
-munka inkabb nagyobb korpuszos hardening es kisebb UX finomitas
+osszegzessel; Marko/AST parser v1 az aktiv Markdown parser, a regi soralapu
+parser kivezetve; user oldali live teszt alapjan a funkcio 121 dokumentum /
+2708 chunk korpuszon mukodik; a valaszok es a megnyitott forras-chunkok
+Markdown/GFM renderelese mukodik; a `Felhasznalt Markdown forrasok` panel
+full-width, kibontható, kereso mezovel szurheto, es a teljes chunk szoveget
+lazy endpointon keresztul csak felhasznaloi nyitasra tolti be; a kovetkezo
+konkret munka a semantic/hybrid retrieval-minoseg javitasa, nem altalanos
+parser-retuning
 ```
 
 Kapcsolodo dokumentumok:
@@ -1813,5 +1835,6 @@ Kapcsolodo dokumentumok:
 - `Design_documents/14_work_surface_ui_architecture_plan.md`
 - `Design_documents/16_large_case_document_storage_and_retrieval_plan.md`
 - `Design_documents/20_general_rag_question_answering_plan.md`
+- `Design_documents/22_markdown_ast_chunking_plan.md`
 - `CURRENT_STATE.md`
 - `AI_NOTES.md`

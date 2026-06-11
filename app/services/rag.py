@@ -80,7 +80,7 @@ Elvart JSON forma:
 {"answer_text":"...","source_summary":"...","insufficient_source":false}
 """
 
-RAG_QUERY_MAX_OUTPUT_TOKENS = 2500
+RAG_QUERY_MAX_OUTPUT_TOKENS = None
 RAG_SOURCE_SUMMARY_MAX_CHARS = 320
 
 RAG_DOCUMENT_ANSWER_SYSTEM_PROMPT = RAG_QUERY_SYSTEM_PROMPT + """

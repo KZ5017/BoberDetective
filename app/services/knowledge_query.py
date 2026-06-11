@@ -45,9 +45,9 @@ A valaszmodot az ANSWER_MODE hatarozza meg:
 - detailed: fejtsd ki reszletesen a valaszt, es adj vissza minden erdemi, SOURCE altal alatamasztott informaciot, amely segit a QUERY megvalaszolasaban.
 
 JSON mezok:
-- answer_text: a QUERY-re adott forrashu valasz.
 - source_summary: legfeljebb egy rovid mondat arrol, mely SOURCE blokkok adjak a valasz alapjat. Ne ismeteld meg az answer_text tartalmat. Ha nem ad hozza hasznos informaciot, legyen ures string.
 - insufficient_source: boolean. true, ha a SOURCE nem ad eleg alapot erdemi valaszhoz, kulonben false.
+- answer_text: a QUERY-re adott forrashu valasz.
 
 Csak ervenyes JSON objektumot adj vissza.
 Ne irj magyarazatot, markdown blokkot vagy JSON-on kivuli szoveget.
@@ -56,10 +56,10 @@ A JSON stringeken belüli dupla idézőjeleket escape-eld.
 Sortorest csak JSON escape-kent hasznalhatsz: \\n.
 
 Elvart JSON forma:
-{"answer_text":"...","source_summary":"...","insufficient_source":false}
+{"source_summary":"...","insufficient_source":false,"answer_text":"..."}
 """
 
-KNOWLEDGE_QUERY_MAX_OUTPUT_TOKENS = 2500
+KNOWLEDGE_QUERY_MAX_OUTPUT_TOKENS = None
 KNOWLEDGE_SOURCE_SUMMARY_MAX_CHARS = 320
 KNOWLEDGE_STOPWORDS = {
     "a",
@@ -163,15 +163,32 @@ def parse_knowledge_answer_payload(parsed: dict, answer_mode: str) -> KnowledgeA
     answer_text = str(parsed.get("answer_text") or "").strip()
     if not answer_text:
         raise KnowledgeQueryValidationError("A tudásbázis LLM válasz nem tartalmaz answer_text mezőt")
-    insufficient_source_raw = parsed.get("insufficient_source")
-    if not isinstance(insufficient_source_raw, bool):
-        raise KnowledgeQueryValidationError("A tudásbázis LLM válasz insufficient_source mezője nem boolean")
+    insufficient_source_raw = parsed.get("insufficient_source", False)
+    insufficient_source = _coerce_knowledge_bool(insufficient_source_raw)
+    if insufficient_source is None:
+        raise KnowledgeQueryValidationError("A tudásbázis LLM válasz insufficient_source mezője nem értelmezhető boolean értékként")
     return KnowledgeAnswerPayload(
         answer_text=answer_text,
         source_summary=_normalize_source_summary(str(parsed.get("source_summary") or "").strip()),
-        insufficient_source=insufficient_source_raw,
+        insufficient_source=insufficient_source,
         answer_mode=answer_mode,
     )
+
+
+def _coerce_knowledge_bool(value) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"true", "1", "yes", "igen"}:
+            return True
+        if normalized in {"false", "0", "no", "nem", ""}:
+            return False
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    return None
 
 
 def parse_knowledge_llm_json_object(raw_content: str) -> dict:
@@ -435,15 +452,15 @@ def _recover_knowledge_json_fields(raw_content: str) -> dict | None:
     object_end = cleaned.rfind("}")
     if object_start != -1 and object_end > object_start:
         cleaned = cleaned[object_start : object_end + 1]
-    answer_text = _extract_json_string_field(cleaned, "answer_text", next_field="source_summary")
-    source_summary = _extract_json_string_field(cleaned, "source_summary", next_field="insufficient_source")
+    answer_text = _extract_json_string_field_any(cleaned, "answer_text", next_fields=["source_summary", "insufficient_source"])
+    source_summary = _extract_json_string_field_any(cleaned, "source_summary", next_fields=["insufficient_source"]) or ""
     insufficient_source = _extract_json_bool_field(cleaned, "insufficient_source")
-    if answer_text is None or source_summary is None or insufficient_source is None:
+    if answer_text is None:
         return None
     return {
         "answer_text": answer_text,
         "source_summary": source_summary,
-        "insufficient_source": insufficient_source,
+        "insufficient_source": False if insufficient_source is None else insufficient_source,
     }
 
 
@@ -452,6 +469,24 @@ def _extract_json_string_field(raw_content: str, field_name: str, *, next_field:
     match = re.search(pattern, raw_content, flags=re.DOTALL)
     if match is None:
         return None
+    return _decode_json_string_fragment(match.group(1))
+
+
+def _extract_json_string_field_any(raw_content: str, field_name: str, *, next_fields: list[str]) -> str | None:
+    for next_field in next_fields:
+        value = _extract_json_string_field(raw_content, field_name, next_field=next_field)
+        if value is not None:
+            return value
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*"(.*)"\s*\}}'
+    match = re.search(pattern, raw_content, flags=re.DOTALL)
+    if match is None:
+        pattern = rf'"{re.escape(field_name)}"\s*:\s*"(.*)"\s*$'
+        match = re.search(pattern, raw_content, flags=re.DOTALL)
+        if match is None:
+            pattern = rf'"{re.escape(field_name)}"\s*:\s*"(.*)$'
+            match = re.search(pattern, raw_content, flags=re.DOTALL)
+            if match is None:
+                return None
     return _decode_json_string_fragment(match.group(1))
 
 

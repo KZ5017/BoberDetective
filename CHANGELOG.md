@@ -6,15 +6,26 @@
 
 - Added the finalized user-facing batch Markdown import workflow for `Tudásbázis`: the batch import panel is now the only Markdown import surface, supports one or many selected `.md` files, requires a common relative directory, previews only conflict/invalid rows, automatically imports new files, automatically skips same-hash duplicates, and asks for a user decision only when the stored path plus filename already exists with different content.
 - Added compact import-result reporting for batch Markdown imports: the UI shows only imported/replaced/skipped/failed summary counts instead of rendering a full result list after execution.
+- Added the Marko/AST Markdown parser foundation for `Tudásbázis`, including structural heading-section chunking, code-block-aware section preservation, nested-list metadata, frontmatter, wikilink/tag, and encoding behavior tests.
+- Added safe Markdown/GFM rendering for `Általános iratkérdező` and `Tudásbázis` answers, so lists, bold text, inline code, fenced code blocks, tables, and blockquotes are readable while raw HTML remains disabled.
+- Added lazy full-source inspection for `Tudásbázis` answer sources: `GET /api/v1/knowledge/documents/{knowledge_document_id}/chunks/{chunk_id}` returns a single stored Markdown chunk on demand, and the frontend fetches the full chunk only when the user opens that source card.
+- Added a full-width collapsible `Felhasznált Markdown források` panel with searchable source cards. The panel filters by source metadata and by already opened full chunk text without preloading every source body.
 
 ### Changed
 
+- Changed the active `Tudásbázis` Markdown import parser from the line-based parser to the Marko/AST parser so browser imports now produce structural `markdown_ast_sections_v1` chunks.
+- Promoted the Marko/AST Markdown parser to the single active parser implementation in `app/services/markdown_parser.py` after user-side live testing on 121 Markdown documents / 2708 chunks, and removed the old line-based parser implementation, the separate experimental AST parser module, the old-vs-AST comparison script, and duplicate parser tests.
+- Changed `Szövegrész plafon` defaults/caps for `search_findings`, `Általános iratkérdező`, and `Tudásbázis` query flows from `45/90` to `30/60`.
+- Relaxed `Tudásbázis` LLM answer parsing: `source_summary` and `insufficient_source` are now optional when a valid `answer_text` is present, string/numeric boolean-like values are coerced, and the fallback JSON recovery can salvage answer-only responses with Markdown/code-heavy text.
+- Extended `Tudásbázis` LLM JSON recovery for near-valid responses where the final closing brace is missing after the last `answer_text` string.
+- Removed fixed output-token caps from the active RAG and knowledge-query LLM calls; the model's natural answer length is no longer locally truncated by the service layer.
 - Retired the public single-file Markdown import API/UI completely. The removed one-file import path no longer competes with the batch workflow; importing one file is handled as a one-file batch.
 - Simplified `Tudásbázis` document cards to follow the shared file-card pattern: the card identity is the stored `path + filename`, status/chunk/index metadata remains visible, and archive/final-delete actions live in selected-document toolbar controls instead of per-card buttons.
 - Reworked the `Tudásbázis` desktop layout into a two-column module: the left column contains `Kérdés a tudásbázishoz`, `Tudásanyag importálás`, and `Markdown tudásanyag`; the right column contains `Aktuális tudásbázis válasz`. Query controls, import preview, document list, empty states, and current-answer placeholders were aligned with the existing workbench UI token system.
 - Polished the `Tudásbázis` mobile layout so import/document-list toolbar buttons stack cleanly and long stored Markdown paths wrap inside cards instead of horizontal-scrolling out of view.
 - Refined the `Teljes iratfeldolgozás` UI: `Irat és feldolgozási profil` and `Iratösszefoglaló` now form the first 1:1 row, `Előkészített munkalista` remains the full-width second row, profile/page-range controls align in one desktop row, guide text noise was removed, placeholder cards use the shared tokenized style, summary content no longer vertically stretches, and mobile controls/buttons stack cleanly.
 - Refined the `Irat rendező` / `Iratgyűjtemények` UI: the selected-collection content no longer uses an unnecessary nested `Gyűjtemény tartalma` panel, no-selection now shows a normal empty state instead of auto-selecting the first collection, collection/document panels have stable height behavior, the document list minimum height was increased, and mobile collection buttons now use full-width rows.
+- Documented the next `Tudásbázis` quality target as Markdown-aware semantic/hybrid retrieval hardening: query variants, heading/code/token-aware hybrid scoring, same-document/same-heading context expansion, stable document/heading/chunk ordering, and deterministic reranking if needed.
 
 ### Fixed
 
@@ -24,6 +35,9 @@
 
 - Live backend smoke: imported a native-text PDF into `text_review_required` with `0` chunks, called the document DELETE endpoint, received `204 No Content`, and confirmed the document disappeared from the document list.
 - `.venv/bin/python -m pytest tests/test_document_lifecycle.py tests/test_documents.py tests/test_lexical_index.py tests/test_search.py -q` (`59 passed`, 1 Docling deprecation warning)
+- `.venv/bin/python -m pytest tests/test_markdown_parser.py tests/test_knowledge_import.py -q`
+- `.venv/bin/pytest tests/test_markdown_parser.py tests/test_knowledge_import.py tests/test_knowledge_api.py tests/test_knowledge_query.py tests/test_analysis_modules.py tests/test_rag.py -q`
+- `.venv/bin/pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q` (`22 passed`)
 - `npm --prefix frontend run build`
 - `git diff --check`
 

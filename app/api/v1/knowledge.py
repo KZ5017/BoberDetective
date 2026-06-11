@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.knowledge import KnowledgeDocumentModel
 from app.schemas.knowledge import (
+    KnowledgeChunkDetailResponse,
     KnowledgeDocumentBatchImportResponse,
     KnowledgeDocumentBatchImportSummary,
     KnowledgeDocumentBatchPreviewItem,
@@ -32,6 +34,7 @@ from app.services.knowledge_import import (
     list_knowledge_documents,
     preview_knowledge_document_batch,
     restore_knowledge_document,
+    read_knowledge_chunks,
 )
 from app.services.knowledge_query import KnowledgeQueryValidationError, run_knowledge_query
 
@@ -43,6 +46,32 @@ def get_knowledge_documents(db: Session = Depends(get_db)) -> KnowledgeDocumentL
     return KnowledgeDocumentListResponse(
         data=[KnowledgeDocumentResponse.model_validate(document) for document in list_knowledge_documents(db)]
     )
+
+
+@router.get("/knowledge/documents/{knowledge_document_id}/chunks/{chunk_id}", response_model=KnowledgeChunkDetailResponse)
+def get_knowledge_document_chunk(
+    knowledge_document_id: UUID,
+    chunk_id: str,
+    db: Session = Depends(get_db),
+) -> KnowledgeChunkDetailResponse:
+    document = db.get(KnowledgeDocumentModel, knowledge_document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge document not found")
+    for chunk in read_knowledge_chunks(document):
+        if chunk.chunk_id == chunk_id:
+            return KnowledgeChunkDetailResponse(
+                knowledge_document_id=document.id,
+                original_filename=document.original_filename,
+                relative_path=document.relative_path,
+                chunk_id=chunk.chunk_id,
+                chunk_index=chunk.chunk_index,
+                heading_path=chunk.heading_path,
+                text=chunk.text,
+                contains_code_block=chunk.contains_code_block,
+                code_languages=chunk.code_languages,
+                quality_flags=chunk.quality_flags,
+            )
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge chunk not found")
 
 
 @router.post("/knowledge/documents/batch/preview", response_model=KnowledgeDocumentBatchPreviewResponse)

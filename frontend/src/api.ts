@@ -451,6 +451,19 @@ export type KnowledgeUsedSource = {
   retrieval_match_type: string | null;
 };
 
+export type KnowledgeChunkDetail = {
+  knowledge_document_id: string;
+  original_filename: string;
+  relative_path: string | null;
+  chunk_id: string;
+  chunk_index: number;
+  heading_path: string;
+  text: string;
+  contains_code_block: boolean;
+  code_languages: string[];
+  quality_flags: string[];
+};
+
 export type KnowledgeQueryResponse = {
   answer: {
     answer_text: string;
@@ -1325,6 +1338,10 @@ export function deleteKnowledgeDocument(documentId: string): Promise<void> {
   return request(`/knowledge/documents/${documentId}`, {
     method: "DELETE"
   });
+}
+
+export function getKnowledgeDocumentChunk(documentId: string, chunkId: string): Promise<KnowledgeChunkDetail> {
+  return request(`/knowledge/documents/${documentId}/chunks/${encodeURIComponent(chunkId)}`);
 }
 
 export function getKnowledgeIndexStatus(): Promise<KnowledgeIndexStatusResponse> {

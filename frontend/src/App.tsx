@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Archive,
   CheckCircle2,
@@ -52,6 +54,7 @@ import {
   RagSavedAnswerListItem,
   RagSourceMode,
   RagUsedSource,
+  KnowledgeChunkDetail,
   KnowledgeDocumentRead,
   KnowledgeBatchImportDecision,
   KnowledgeBatchImportResponse,
@@ -99,6 +102,7 @@ import {
   importKnowledgeDocumentBatch,
   indexKnowledgeDocuments,
   getLlmSmoke,
+  getKnowledgeDocumentChunk,
   getKnowledgeIndexStatus,
   listDetachedSourceItems,
   listDocumentCollectionDocuments,
@@ -171,6 +175,16 @@ type DocumentProcessingUnconfirmedDetail = {
   validation_message?: string;
   llm_source_label?: string;
 };
+
+function MarkdownAnswer({ children }: { children: string }) {
+  return (
+    <div className="rag-answer-text markdown-answer">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
+}
 
 const workSurfaceLabels: Record<WorkSurface, string> = {
   document_organizer: "Irat rendező",
@@ -446,7 +460,7 @@ export function App() {
   const [ragCollectionId, setRagCollectionId] = useState("");
   const [ragAnswerMode, setRagAnswerMode] = useState<RagAnswerMode>("detailed");
   const [ragRetrievalStrategy, setRagRetrievalStrategy] = useState<RetrievalStrategy>("hybrid");
-  const [ragMaxChunks, setRagMaxChunks] = useState(45);
+  const [ragMaxChunks, setRagMaxChunks] = useState(30);
   const [ragCurrentResponse, setRagCurrentResponse] = useState<RagQueryResponse | null>(null);
   const [lastRagRun, setLastRagRun] = useState<RagLatestRunSummary | null>(null);
   const [ragSaveTitle, setRagSaveTitle] = useState("");
@@ -469,16 +483,22 @@ export function App() {
   const [knowledgeDocumentIds, setKnowledgeDocumentIds] = useState<string[]>([]);
   const [knowledgeAnswerMode, setKnowledgeAnswerMode] = useState<RagAnswerMode>("detailed");
   const [knowledgeRetrievalStrategy, setKnowledgeRetrievalStrategy] = useState<RetrievalStrategy>("hybrid");
-  const [knowledgeMaxChunks, setKnowledgeMaxChunks] = useState(45);
+  const [knowledgeMaxChunks, setKnowledgeMaxChunks] = useState(30);
   const [knowledgeForceReindex, setKnowledgeForceReindex] = useState(false);
   const [knowledgeIndexStatus, setKnowledgeIndexStatus] = useState<KnowledgeIndexStatusResponse | null>(null);
   const [knowledgeCurrentResponse, setKnowledgeCurrentResponse] = useState<KnowledgeQueryResponse | null>(null);
+  const [knowledgeSourcesPanelOpen, setKnowledgeSourcesPanelOpen] = useState(false);
+  const [knowledgeSourceSearch, setKnowledgeSourceSearch] = useState("");
+  const [expandedKnowledgeSourceKeys, setExpandedKnowledgeSourceKeys] = useState<string[]>([]);
+  const [knowledgeSourceDetails, setKnowledgeSourceDetails] = useState<Record<string, KnowledgeChunkDetail>>({});
+  const [knowledgeSourceLoadingKeys, setKnowledgeSourceLoadingKeys] = useState<string[]>([]);
+  const [knowledgeSourceErrors, setKnowledgeSourceErrors] = useState<Record<string, string>>({});
   const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("case");
   const [analysisDocumentId, setAnalysisDocumentId] = useState("");
   const [analysisDocumentIds, setAnalysisDocumentIds] = useState<string[]>([]);
   const [analysisCollectionId, setAnalysisCollectionId] = useState("");
   const [analysisDocumentSearch, setAnalysisDocumentSearch] = useState("");
-  const [maxChunks, setMaxChunks] = useState(45);
+  const [maxChunks, setMaxChunks] = useState(30);
   const [batchSize, setBatchSize] = useState(3);
   const [claimReviewScope, setClaimReviewScope] = useState<ClaimReviewScope>("reviewable");
   const [contradictionCandidateLimit, setContradictionCandidateLimit] = useState(5);
@@ -721,6 +741,11 @@ export function App() {
     knowledgeQuestion.trim().length > 0 &&
     activeKnowledgeDocuments.length > 0 &&
     (knowledgeRetrievalStrategy === "keyword" || Boolean(knowledgeIndexStatus?.is_ready));
+  const showKnowledgeIndexMissingError =
+    knowledgeQuestion.trim().length > 0 &&
+    knowledgeRetrievalStrategy !== "keyword" &&
+    Boolean(knowledgeIndexStatus) &&
+    !knowledgeIndexStatus?.is_ready;
   const reportFilters = useMemo<ReviewReportFilterValues>(
     () => ({
       objectType: objectType || undefined,
@@ -1219,6 +1244,39 @@ export function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Tudásbázis indexállapot lekérdezése sikertelen.");
       return null;
+    }
+  }
+
+  function knowledgeSourceKey(source: KnowledgeUsedSource) {
+    return `${source.knowledge_document_id}:${source.chunk_id}`;
+  }
+
+  async function toggleKnowledgeSource(source: KnowledgeUsedSource) {
+    const key = knowledgeSourceKey(source);
+    if (expandedKnowledgeSourceKeys.includes(key)) {
+      setExpandedKnowledgeSourceKeys((current) => current.filter((item) => item !== key));
+      return;
+    }
+    setExpandedKnowledgeSourceKeys((current) => (current.includes(key) ? current : [...current, key]));
+    if (knowledgeSourceDetails[key] || knowledgeSourceLoadingKeys.includes(key)) {
+      return;
+    }
+    setKnowledgeSourceLoadingKeys((current) => (current.includes(key) ? current : [...current, key]));
+    setKnowledgeSourceErrors((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    try {
+      const detail = await getKnowledgeDocumentChunk(source.knowledge_document_id, source.chunk_id);
+      setKnowledgeSourceDetails((current) => ({ ...current, [key]: detail }));
+    } catch (err) {
+      setKnowledgeSourceErrors((current) => ({
+        ...current,
+        [key]: err instanceof Error ? err.message : "A Markdown forrásszövegrész betöltése sikertelen."
+      }));
+    } finally {
+      setKnowledgeSourceLoadingKeys((current) => current.filter((item) => item !== key));
     }
   }
 
@@ -2167,6 +2225,12 @@ export function App() {
         retrieval_strategy: knowledgeRetrievalStrategy,
         max_chunks: knowledgeMaxChunks
       });
+      setKnowledgeSourcesPanelOpen(false);
+      setKnowledgeSourceSearch("");
+      setExpandedKnowledgeSourceKeys([]);
+      setKnowledgeSourceDetails({});
+      setKnowledgeSourceLoadingKeys([]);
+      setKnowledgeSourceErrors({});
       setKnowledgeCurrentResponse(response);
       setNotice("Tudásbázis válasz elkészült.");
       setLastActionSummary(
@@ -4224,26 +4288,101 @@ export function App() {
     if (sources.length === 0) {
       return <p className="muted">A válaszhoz nem tartozik megjeleníthető tudásbázis-forrás.</p>;
     }
+    const normalizedSearch = knowledgeSourceSearch.trim().toLocaleLowerCase("hu-HU");
+    const visibleSources = normalizedSearch
+      ? sources.filter((source) => {
+          const key = knowledgeSourceKey(source);
+          const detail = knowledgeSourceDetails[key];
+          const searchableText = [
+            source.relative_path,
+            source.original_filename,
+            source.heading_path,
+            `${source.chunk_index}. szövegrész`,
+            source.retrieval_match_type ? labelRetrievalStrategy(source.retrieval_match_type as RetrievalStrategy) : "",
+            source.retrieval_score !== null ? source.retrieval_score.toFixed(3) : "",
+            source.contains_code_block ? "kódblokk" : "",
+            ...(detail?.code_languages ?? []),
+            detail?.text ?? ""
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLocaleLowerCase("hu-HU");
+          return searchableText.includes(normalizedSearch);
+        })
+      : sources;
     return (
-      <div className="rag-source-list">
-        {sources.map((source, index) => (
-          <article key={`${source.chunk_id}-${index}`} className="compact-item rag-source-card">
-            <div className="item-card-header">
-              <div>
-                <strong>{source.original_filename}</strong>
-                <div className="metrics">
-                  {source.relative_path && <span>{source.relative_path}</span>}
-                  {source.heading_path && <span>{source.heading_path}</span>}
-                  <span>{source.chunk_index}. szövegrész</span>
-                  {source.retrieval_match_type && <span>{labelRetrievalStrategy(source.retrieval_match_type as RetrievalStrategy)}</span>}
-                  {source.retrieval_score !== null && <span>relevancia {source.retrieval_score.toFixed(3)}</span>}
-                  {source.contains_code_block && <span>kódblokk</span>}
+      <>
+        <div className="knowledge-source-toolbar">
+          <input
+            type="search"
+            value={knowledgeSourceSearch}
+            onChange={(event) => setKnowledgeSourceSearch(event.target.value)}
+            placeholder="Keresés a felhasznált forrásokban"
+          />
+          <span className="metrics">
+            <span>{visibleSources.length}/{sources.length} megjelenítve</span>
+          </span>
+        </div>
+        {visibleSources.length === 0 ? (
+          <div className="rag-empty-state">
+            <strong>Nincs megjeleníthető forrás</strong>
+            <span>A keresés nem talált egyezést a felhasznált Markdown források között.</span>
+          </div>
+        ) : (
+          <div className="rag-source-list knowledge-source-list">
+            {visibleSources.map((source, index) => (
+              <article key={`${source.chunk_id}-${index}`} className="compact-item rag-source-card knowledge-source-card">
+                <div className="item-card-header">
+                  <div>
+                    <strong>{source.relative_path ?? source.original_filename}</strong>
+                    <div className="metrics">
+                      {source.relative_path && <span>{source.original_filename}</span>}
+                      {source.heading_path && <span>{source.heading_path}</span>}
+                      <span>{source.chunk_index}. szövegrész</span>
+                      {source.retrieval_match_type && <span>{labelRetrievalStrategy(source.retrieval_match_type as RetrievalStrategy)}</span>}
+                      {source.retrieval_score !== null && <span>relevancia {source.retrieval_score.toFixed(3)}</span>}
+                      {source.contains_code_block && <span>kódblokk</span>}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            <blockquote>{source.quote_preview}</blockquote>
-          </article>
-        ))}
+                {renderKnowledgeSourceDetail(source)}
+              </article>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  function renderKnowledgeSourceDetail(source: KnowledgeUsedSource) {
+    const key = knowledgeSourceKey(source);
+    const isOpen = expandedKnowledgeSourceKeys.includes(key);
+    const isLoading = knowledgeSourceLoadingKeys.includes(key);
+    const detail = knowledgeSourceDetails[key];
+    const error = knowledgeSourceErrors[key];
+    return (
+      <div className="knowledge-source-detail">
+        <button className="secondary-button" onClick={() => toggleKnowledgeSource(source)} disabled={isLoading}>
+          {isOpen ? "Szövegrész bezárása" : "Szövegrész megnyitása"}
+        </button>
+        {isOpen && (
+          <div className="knowledge-source-expanded">
+            {isLoading && <p className="muted">Szövegrész betöltése...</p>}
+            {error && <p className="error-text">{error}</p>}
+            {detail && (
+              <>
+                <div className="metrics">
+                  <span>{detail.text.length} karakter</span>
+                  {detail.contains_code_block && <span>kódblokk</span>}
+                  {detail.code_languages.map((language) => <span key={language}>{language}</span>)}
+                </div>
+                <div className="knowledge-source-full-text markdown-source-text">
+                  <MarkdownAnswer>{detail.text}</MarkdownAnswer>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -4301,9 +4440,9 @@ export function App() {
                     <input
                       type="number"
                       min={1}
-                      max={90}
+                      max={60}
                       value={knowledgeMaxChunks}
-                      onChange={(event) => setKnowledgeMaxChunks(clampNumberInput(event.target.value, 1, 90, 45))}
+                      onChange={(event) => setKnowledgeMaxChunks(clampNumberInput(event.target.value, 1, 60, 30))}
                     />
                   </label>
                 </div>
@@ -4316,17 +4455,11 @@ export function App() {
                     placeholder="Írd be, mire szeretnél választ kapni kizárólag az importált Markdown tudásbázis alapján."
                   />
                 </label>
-                <p className="field-hint">
-                  Ha nincs kijelölt dokumentum, a rendszer a teljes tudásbázisban keres. Szemantikus vagy hybrid módhoz előbb indexelni kell.
-                </p>
-                {!canRunKnowledgeQuery && knowledgeQuestion.trim().length > 0 && (
-                  <p className="error-text">
-                    {activeKnowledgeDocuments.length === 0
-                      ? "Nincs aktív tudásbázis dokumentum."
-                      : knowledgeRetrievalStrategy === "keyword"
-                        ? ""
-                        : "A kijelölt tudásbázis-forrásokhoz hiányzik az aktuális index."}
-                  </p>
+                {knowledgeQuestion.trim().length > 0 && activeKnowledgeDocuments.length === 0 && (
+                  <p className="error-text">Nincs aktív tudásbázis dokumentum.</p>
+                )}
+                {showKnowledgeIndexMissingError && (
+                  <p className="error-text">A kijelölt tudásbázis-forrásokhoz hiányzik az aktuális index.</p>
                 )}
                 <button onClick={handleRunKnowledgeQuery} disabled={!canRunKnowledgeQuery}>
                   <Play size={18} /> Kérdezés indítása
@@ -4540,23 +4673,35 @@ export function App() {
                     <span>{knowledgeCurrentResponse.retrieval_metadata.selected_chunk_count} szövegrész</span>
                     {knowledgeCurrentResponse.answer.insufficient_source && <span>Nincs elég forrás</span>}
                   </div>
-                  <p className="rag-answer-text">{knowledgeCurrentResponse.answer.answer_text}</p>
+                  <MarkdownAnswer>{knowledgeCurrentResponse.answer.answer_text}</MarkdownAnswer>
                   {knowledgeCurrentResponse.answer.source_summary && (
                     <div className="module-note">
                       Forrásalap: <strong>{knowledgeCurrentResponse.answer.source_summary}</strong>
                     </div>
                   )}
                 </article>
-                <section className="rag-sources-panel knowledge-sources-panel">
-                  <div className="section-heading">
-                    <strong>Felhasznált Markdown források</strong>
-                    <span className="status-pill">{knowledgeCurrentResponse.used_sources.length}</span>
-                  </div>
-                  {renderKnowledgeUsedSources(knowledgeCurrentResponse.used_sources)}
-                </section>
               </div>
             )}
           </section>
+          {knowledgeCurrentResponse && (
+            <section className="panel knowledge-used-sources-panel">
+              <div className="section-heading">
+                <h2>Felhasznált Markdown források</h2>
+                <span className="status-pill">{knowledgeCurrentResponse.used_sources.length}</span>
+              </div>
+              <details
+                className="knowledge-used-sources-disclosure"
+                open={knowledgeSourcesPanelOpen}
+                onToggle={(event) => setKnowledgeSourcesPanelOpen(event.currentTarget.open)}
+              >
+                <summary>
+                  Források megtekintése
+                  <span>{knowledgeCurrentResponse.used_sources.length} szövegrész</span>
+                </summary>
+                {knowledgeSourcesPanelOpen && renderKnowledgeUsedSources(knowledgeCurrentResponse.used_sources)}
+              </details>
+            </section>
+          )}
         </section>
 
       </section>
@@ -4713,9 +4858,9 @@ export function App() {
                   <input
                     type="number"
                     min={1}
-                    max={90}
+                    max={60}
                     value={ragMaxChunks}
-                    onChange={(event) => setRagMaxChunks(clampNumberInput(event.target.value, 1, 90, 45))}
+                    onChange={(event) => setRagMaxChunks(clampNumberInput(event.target.value, 1, 60, 30))}
                   />
                 </label>
                 <label>
@@ -4814,7 +4959,7 @@ export function App() {
                   )}
                   {ragCurrentResponse.answer.insufficient_source && <span>Nincs elég forrás</span>}
                 </div>
-                <p className="rag-answer-text">{ragCurrentResponse.answer.answer_text}</p>
+                <MarkdownAnswer>{ragCurrentResponse.answer.answer_text}</MarkdownAnswer>
                 {ragCurrentResponse.answer.source_summary && (
                   <div className="module-note">
                     Forrásalap: <strong>{ragCurrentResponse.answer.source_summary}</strong>
@@ -4870,7 +5015,7 @@ export function App() {
                 </div>
                 <strong>{selectedRagAnswer.title || selectedRagAnswer.question}</strong>
                 <p className="field-hint">{selectedRagAnswer.question}</p>
-                <p className="rag-answer-text">{selectedRagAnswer.answer_text}</p>
+                <MarkdownAnswer>{selectedRagAnswer.answer_text}</MarkdownAnswer>
                 {selectedRagAnswer.source_summary && (
                   <div className="module-note">
                     Forrásalap: <strong>{selectedRagAnswer.source_summary}</strong>
@@ -5685,9 +5830,9 @@ export function App() {
                   <input
                     type="number"
                     min={1}
-                    max={90}
+                    max={60}
                     value={maxChunks}
-                    onChange={(event) => setMaxChunks(clampNumberInput(event.target.value, 1, 90, 45))}
+                    onChange={(event) => setMaxChunks(clampNumberInput(event.target.value, 1, 60, 30))}
                   />
                 </label>
                 <label>

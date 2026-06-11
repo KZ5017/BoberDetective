@@ -2242,6 +2242,91 @@ pre {
   min-height: 100%;
 }
 
+.knowledge-used-sources-panel {
+  grid-column: 1 / -1;
+}
+
+.knowledge-used-sources-disclosure {
+  display: grid;
+  gap: var(--layout-card-gap);
+}
+
+.knowledge-used-sources-disclosure summary {
+  align-items: center;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  cursor: pointer;
+  display: flex;
+  font-size: var(--text-detail-size);
+  font-weight: var(--font-weight-medium);
+  gap: var(--layout-inline-gap);
+  justify-content: space-between;
+  padding: var(--layout-compact-padding);
+}
+
+.knowledge-source-toolbar {
+  align-items: center;
+  display: grid;
+  gap: var(--layout-card-gap);
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.knowledge-source-toolbar input {
+  width: 100%;
+}
+
+.knowledge-source-toolbar .metrics {
+  justify-content: end;
+  white-space: nowrap;
+}
+
+.knowledge-source-list {
+  max-height: 44rem;
+  padding-right: 0.25rem;
+  margin-top: var(--layout-card-gap);
+}
+
+.knowledge-source-card {
+  align-content: start;
+}
+
+.knowledge-source-detail {
+  display: grid;
+  gap: var(--layout-card-gap);
+}
+
+.knowledge-source-detail > button {
+  justify-self: start;
+}
+
+.knowledge-source-expanded {
+  display: grid;
+  gap: var(--layout-card-gap);
+}
+
+.knowledge-source-full-text {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--text-detail-size);
+  line-height: 1.55;
+  margin: 0;
+  max-height: 34rem;
+  overflow: auto;
+  padding: var(--layout-compact-padding);
+  word-break: break-word;
+}
+
+.markdown-source-text .rag-answer-text {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
 .rag-query-panel,
 .rag-saved-panel {
   min-height: 0;
@@ -2352,7 +2437,84 @@ pre {
   font-size: var(--text-detail-size);
   line-height: 1.62;
   margin: 0;
-  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.markdown-answer {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.markdown-answer :where(p, ul, ol, pre, blockquote, table) {
+  margin: 0;
+}
+
+.markdown-answer :where(ul, ol) {
+  display: grid;
+  gap: 0.35rem;
+  padding-left: 1.25rem;
+}
+
+.markdown-answer :where(li) {
+  padding-left: 0.1rem;
+}
+
+.markdown-answer :where(strong) {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.markdown-answer :where(code) {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.92em;
+  padding: 0.05rem 0.25rem;
+}
+
+.markdown-answer :where(pre) {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  line-height: 1.5;
+  overflow-x: auto;
+  padding: var(--layout-compact-padding);
+  white-space: pre;
+}
+
+.markdown-answer :where(pre code) {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  display: block;
+  padding: 0;
+}
+
+.markdown-answer :where(blockquote) {
+  border-left: 3px solid var(--color-border-strong);
+  color: var(--color-text-soft);
+  padding-left: var(--layout-compact-padding);
+}
+
+.markdown-answer :where(a) {
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.markdown-answer :where(table) {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+}
+
+.markdown-answer :where(th, td) {
+  border: 1px solid var(--color-border-soft);
+  padding: 0.35rem 0.45rem;
+  text-align: left;
 }
 
 .rag-save-panel {

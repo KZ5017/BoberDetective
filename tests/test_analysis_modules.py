@@ -43,11 +43,11 @@ def test_analysis_module_request_rejects_legacy_limit_field() -> None:
 def test_analysis_module_request_uses_updated_chunk_cap_defaults() -> None:
     request = AnalysisModuleRunRequest(query="fokusz")
 
-    assert request.max_chunks == 45
+    assert request.max_chunks == 30
     assert request.batch_size == 3
-    assert AnalysisModuleRunRequest(query="fokusz", max_chunks=90).max_chunks == 90
+    assert AnalysisModuleRunRequest(query="fokusz", max_chunks=60).max_chunks == 60
     with pytest.raises(ValidationError):
-        AnalysisModuleRunRequest(query="fokusz", max_chunks=91)
+        AnalysisModuleRunRequest(query="fokusz", max_chunks=61)
 
 
 @pytest.mark.parametrize(

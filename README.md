@@ -137,7 +137,9 @@ PDF/OCR sample checks:
 Next:
 
 - Continue hardening the dedicated `Tudásbázis` module: Markdown (`.md`) documents are imported and queried as structured knowledge-base material, not as investigative case files (`Design_documents/21_markdown_knowledge_base_module_plan.md`)
-- The current `Tudásbázis` baseline includes global `knowledge_base` / `markdown_note` storage, Markdown-aware parsing/chunking, separate knowledge indexing/querying, archive/restore/final-delete lifecycle controls, and batch-only Markdown import with conflict preview/decision handling
+- The current `Tudásbázis` baseline includes global `knowledge_base` / `markdown_note` storage, Marko/AST Markdown parsing/chunking, separate knowledge indexing/querying, archive/restore/final-delete lifecycle controls, batch-only Markdown import with conflict preview/decision handling, Markdown-rendered answers, and lazy full-source inspection from the `Felhasznált Markdown források` panel
+- Next knowledge-base quality target: improve semantic/hybrid source selection with Markdown-aware retrieval signals before doing further parser retuning
+- The active `Tudásbázis` Markdown parser is the Marko/AST-based `markdown_ast_sections_v1` parser (`Design_documents/22_markdown_ast_chunking_plan.md`), so real Markdown structure drives chunking quality instead of line-level heuristics
 - Keep the dedicated `Audit naplo` API/panel backed by `audit_events` as the following larger work surface after the knowledge-base slice
 - Add multi-collection source scopes only where analysis/RAG/knowledge-base workflows need them; the current first analysis/indexing integration uses one selected collection at a time
 - Keep `search_findings`, full-document person seeds, source validation, and contradiction detection as strict auditable workbench workflows beside the freer RAG question-answering layer
@@ -183,6 +185,8 @@ See:
 - `Design_documents/18_keyword_search_text_store_migration_plan.md`
 - `Design_documents/19_document_taxonomy_retirement_plan.md`
 - `Design_documents/20_general_rag_question_answering_plan.md`
+- `Design_documents/21_markdown_knowledge_base_module_plan.md`
+- `Design_documents/22_markdown_ast_chunking_plan.md`
 
 ## Handoff notes
 
@@ -249,5 +253,5 @@ Frontend:
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
 - Current UI workflows: case create/list, multi-file TXT/PDF import without import-time taxonomy selection, document list, document lifecycle actions, page/chunk drill-down, OCR recommendation, explicit PDF text review and chunk creation, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
-- Active `search_findings` UI supports selected-document and whole-case source scopes with required focus text, `Szovegresz plafon` defaulting to 30 and capped at 50, retrieval strategy, and batch controls. Selected-document mode searches the full selected document.
+- Active `search_findings` UI supports selected-document and whole-case source scopes with required focus text, `Szovegresz plafon` defaulting to 30 and capped at 60, retrieval strategy, and batch controls. Selected-document mode searches the full selected document.
 - Raw-chunk analysis can choose keyword, semantic, or hybrid source retrieval after chunk indexing

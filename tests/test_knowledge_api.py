@@ -4,8 +4,10 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.db.session import get_db
 from app.main import create_app
 from app.services.knowledge_indexing import KnowledgeIndexResult, KnowledgeIndexStatus
+from app.services.knowledge_import import KnowledgeStoredChunk
 
 
 def test_list_knowledge_documents(monkeypatch) -> None:
@@ -19,6 +21,43 @@ def test_list_knowledge_documents(monkeypatch) -> None:
     assert len(data) == 1
     assert data[0]["id"] == str(document.id)
     assert data[0]["original_filename"] == "note.md"
+
+
+def test_get_knowledge_document_chunk_returns_full_stored_text(monkeypatch) -> None:
+    document = _document()
+    chunk = KnowledgeStoredChunk(
+        chunk_id="chunk-a",
+        chunk_index=2,
+        heading_path="API > ULTIMATE-GET",
+        heading_level=2,
+        char_start=10,
+        char_end=120,
+        text="Teljes Markdown szövegrész.\n\n```cmd\ncopy a b\n```\n\nVége.",
+        contains_code_block=True,
+        code_languages=["cmd"],
+        wikilinks=[],
+        tags=[],
+        frontmatter_tags=[],
+        quality_flags=["ast_node:fenced_code"],
+    )
+
+    class _FakeSession:
+        def get(self, model, item_id):
+            assert item_id == document.id
+            return document
+
+    monkeypatch.setattr("app.api.v1.knowledge.read_knowledge_chunks", lambda item: [chunk])
+
+    app = create_app()
+    app.dependency_overrides[get_db] = lambda: _FakeSession()
+    response = TestClient(app).get(f"/api/v1/knowledge/documents/{document.id}/chunks/chunk-a")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["text"] == chunk.text
+    assert body["heading_path"] == "API > ULTIMATE-GET"
+    assert body["code_languages"] == ["cmd"]
 
 
 def test_post_knowledge_document_batch_preview_maps_response(monkeypatch) -> None:
@@ -216,8 +255,8 @@ def _document(*, chunk_count: int = 1, frontmatter_json: dict | None = None) -> 
         document_kind="markdown_note",
         processing_status="processed",
         language_code=None,
-        parser_name="markdown_line_parser",
-        parser_version="markdown_line_parser_v1",
+        parser_name="markdown_marko_ast_parser",
+        parser_version="markdown_marko_ast_parser_v1",
         chunk_count=chunk_count,
         char_count=24,
         frontmatter_json=frontmatter_json or {},

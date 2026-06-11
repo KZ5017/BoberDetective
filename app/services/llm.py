@@ -513,7 +513,7 @@ class LMStudioNativeProvider:
         messages: list[LLMChatMessage],
         *,
         temperature: float = 0.1,
-        max_tokens: int = 800,
+        max_tokens: int | None = 800,
     ) -> LLMChatCompletion:
         client = self._client or self._build_client()
         close_client = self._client is None

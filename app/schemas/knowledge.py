@@ -118,7 +118,7 @@ class KnowledgeQueryRequest(BaseModel):
     document_ids: list[UUID] = Field(default_factory=list)
     answer_mode: KnowledgeAnswerMode = "detailed"
     retrieval_strategy: KnowledgeRetrievalStrategy = "hybrid"
-    max_chunks: int = Field(default=45, ge=1, le=90)
+    max_chunks: int = Field(default=30, ge=1, le=60)
 
 
 class KnowledgeUsedSource(BaseModel):
@@ -133,6 +133,19 @@ class KnowledgeUsedSource(BaseModel):
     code_languages: list[str] = Field(default_factory=list)
     retrieval_score: float | None = None
     retrieval_match_type: str | None = None
+
+
+class KnowledgeChunkDetailResponse(BaseModel):
+    knowledge_document_id: UUID
+    original_filename: str
+    relative_path: str | None = None
+    chunk_id: str
+    chunk_index: int
+    heading_path: str = ""
+    text: str
+    contains_code_block: bool = False
+    code_languages: list[str] = Field(default_factory=list)
+    quality_flags: list[str] = Field(default_factory=list)
 
 
 class KnowledgeRetrievalMetadata(BaseModel):

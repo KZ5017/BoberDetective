@@ -133,12 +133,29 @@ def test_build_knowledge_query_user_prompt_includes_heading_sources() -> None:
     assert "SUID szöveg." in prompt
 
 
-def test_parse_knowledge_answer_payload_requires_boolean_insufficient_source() -> None:
-    with pytest.raises(Exception):
-        parse_knowledge_answer_payload(
-            {"answer_text": "Válasz.", "source_summary": "", "insufficient_source": "false"},
-            "detailed",
-        )
+def test_knowledge_system_prompt_puts_answer_text_last() -> None:
+    from app.services.knowledge_query import KNOWLEDGE_QUERY_SYSTEM_PROMPT
+
+    expected_shape = '{"source_summary":"...","insufficient_source":false,"answer_text":"..."}'
+    assert expected_shape in KNOWLEDGE_QUERY_SYSTEM_PROMPT
+    assert KNOWLEDGE_QUERY_SYSTEM_PROMPT.index("- source_summary:") < KNOWLEDGE_QUERY_SYSTEM_PROMPT.index("- answer_text:")
+
+
+def test_parse_knowledge_answer_payload_accepts_string_insufficient_source() -> None:
+    payload = parse_knowledge_answer_payload(
+        {"answer_text": "Válasz.", "source_summary": "", "insufficient_source": "false"},
+        "detailed",
+    )
+
+    assert payload.insufficient_source is False
+
+
+def test_parse_knowledge_answer_payload_defaults_missing_optional_fields() -> None:
+    payload = parse_knowledge_answer_payload({"answer_text": "Válasz."}, "detailed")
+
+    assert payload.answer_text == "Válasz."
+    assert payload.source_summary == ""
+    assert payload.insufficient_source is False
 
 
 def test_parse_knowledge_llm_json_object_recovers_unescaped_newline() -> None:
@@ -148,6 +165,50 @@ def test_parse_knowledge_llm_json_object_recovers_unescaped_newline() -> None:
 
     assert parsed["answer_text"] == "Első sor\nMásodik sor"
     assert parsed["insufficient_source"] is False
+
+
+def test_parse_knowledge_llm_json_object_accepts_answer_text_only() -> None:
+    parsed = parse_knowledge_llm_json_object('{"answer_text":"Válasz sok `cmd` és \\\\ karakterrel."}')
+    payload = parse_knowledge_answer_payload(parsed, "detailed")
+
+    assert payload.answer_text == "Válasz sok `cmd` és \\ karakterrel."
+    assert payload.source_summary == ""
+    assert payload.insufficient_source is False
+
+
+def test_parse_knowledge_llm_json_object_recovers_answer_text_without_optional_fields() -> None:
+    parsed = parse_knowledge_llm_json_object('{"answer_text":"Első sor\nMásodik sor "idézett" résszel"}')
+    payload = parse_knowledge_answer_payload(parsed, "detailed")
+
+    assert "Első sor" in payload.answer_text
+    assert "idézett" in payload.answer_text
+    assert payload.insufficient_source is False
+
+
+def test_parse_knowledge_llm_json_object_recovers_missing_final_brace() -> None:
+    parsed = parse_knowledge_llm_json_object(
+        '{"source_summary":"Kerberos források.","insufficient_source":false,"answer_text":"AS-REP Roasting\\nGolden Ticket"'
+    )
+    payload = parse_knowledge_answer_payload(parsed, "detailed")
+
+    assert payload.source_summary == "Kerberos források."
+    assert payload.insufficient_source is False
+    assert payload.answer_text == "AS-REP Roasting\nGolden Ticket"
+
+
+def test_parse_knowledge_llm_json_object_recovers_unterminated_final_answer_text() -> None:
+    parsed = parse_knowledge_llm_json_object(
+        '{"source_summary":"API forrás.","insufficient_source":false,"answer_text":"Példa:\\n\\n```http\n'
+        "GET /api/key HTTP/1.1\n"
+        "Host: 127.0.0.1\n"
+        "```"
+    )
+    payload = parse_knowledge_answer_payload(parsed, "detailed")
+
+    assert payload.source_summary == "API forrás."
+    assert payload.insufficient_source is False
+    assert "GET /api/key HTTP/1.1" in payload.answer_text
+    assert payload.answer_text.endswith("```")
 
 
 def test_run_knowledge_query_returns_placeholder_without_sources(monkeypatch) -> None:
@@ -184,7 +245,7 @@ def _query_response():
         ],
         retrieval_metadata=KnowledgeRetrievalMetadata(
             retrieval_strategy="keyword",
-            max_chunks=45,
+            max_chunks=30,
             selected_chunk_count=1,
             document_count=1,
         ),

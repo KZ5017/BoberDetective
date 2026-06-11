@@ -1,4 +1,4 @@
-from app.services.markdown_parser import parse_markdown_bytes, parse_markdown_text
+from app.services.markdown_parser import PARSER_VERSION, parse_markdown_bytes, parse_markdown_text
 
 
 def test_parse_markdown_keeps_frontmatter_heading_path_and_metadata() -> None:
@@ -27,11 +27,13 @@ Lasd meg: [[Linux PrivEsc|SUID technikak]] #privsec
     assert chunk.wikilinks == ["Linux PrivEsc"]
     assert chunk.tags == ["privsec"]
     assert "`find / -perm -4000`" in chunk.text
+    assert PARSER_VERSION == "markdown_marko_ast_parser_v1"
 
 
-def test_parse_markdown_keeps_fenced_code_block_together() -> None:
+def test_parse_markdown_keeps_heading_section_with_code_context_together() -> None:
     parsed = parse_markdown_text(
         """# Commands
+## Basic checks
 
 Intro paragraph.
 
@@ -45,10 +47,37 @@ Closing paragraph.
 """
     )
 
-    code_chunks = [chunk for chunk in parsed.chunks if chunk.contains_code_block]
-    assert len(code_chunks) == 1
-    assert code_chunks[0].code_languages == ["bash"]
-    assert "whoami\nid\nuname -a" in code_chunks[0].text
+    assert len(parsed.chunks) == 1
+    chunk = parsed.chunks[0]
+    assert chunk.heading_path == "Commands > Basic checks"
+    assert chunk.contains_code_block is True
+    assert chunk.code_languages == ["bash"]
+    assert "Intro paragraph." in chunk.text
+    assert "whoami\nid\nuname -a" in chunk.text
+    assert "Closing paragraph." in chunk.text
+    assert any(flag == "ast_node:fenced_code" for flag in chunk.quality_flags)
+
+
+def test_parse_markdown_keeps_nested_list_in_one_section_chunk() -> None:
+    parsed = parse_markdown_text(
+        """# Web
+## Checklist
+
+- recon
+  - subdomain enumeration
+  - technology fingerprinting
+- validation
+  - verify source
+"""
+    )
+
+    assert len(parsed.chunks) == 1
+    chunk = parsed.chunks[0]
+    assert chunk.heading_path == "Web > Checklist"
+    assert "- recon" in chunk.text
+    assert "subdomain enumeration" in chunk.text
+    assert any(flag == "ast_node:list" for flag in chunk.quality_flags)
+    assert any(flag == "ast_node:list_item" for flag in chunk.quality_flags)
 
 
 def test_parse_markdown_reports_invalid_encoding() -> None:

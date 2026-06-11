@@ -18,7 +18,7 @@ class RagQueryRequest(BaseModel):
     collection_id: UUID | None = None
     answer_mode: RagAnswerMode = "detailed"
     retrieval_strategy: RagRetrievalStrategy = "hybrid"
-    max_chunks: int = Field(default=45, ge=1, le=90)
+    max_chunks: int = Field(default=30, ge=1, le=60)
     include_sources: bool = True
 
     @model_validator(mode="after")

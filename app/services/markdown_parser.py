@@ -4,15 +4,15 @@ from dataclasses import dataclass, field
 import re
 from typing import Any
 
+import marko
+from marko import block
 
-PARSER_NAME = "markdown_line_parser"
-PARSER_VERSION = "markdown_line_parser_v1"
-CHUNKING_STRATEGY = "markdown_heading_blocks_v1"
 
-TARGET_CHARS = 4000
+PARSER_NAME = "markdown_marko_ast_parser"
+PARSER_VERSION = "markdown_marko_ast_parser_v1"
+CHUNKING_STRATEGY = "markdown_ast_sections_v1"
+
 HARD_MAX_CHARS = 8000
-OVERSIZED_CODE_BLOCK_CHARS = 8000
-
 FATAL_QUALITY_FLAGS = {"invalid_encoding", "empty_markdown", "no_text_content"}
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
@@ -66,26 +66,26 @@ class ParsedMarkdownDocument:
         return any(flag in FATAL_QUALITY_FLAGS for flag in self.quality_flags)
 
 
-@dataclass
-class _Block:
+@dataclass(frozen=True)
+class _Section:
     text: str
     heading_path: str
     heading_level: int | None
     char_start: int
     char_end: int
-    block_type: str
-    contains_code_block: bool = False
-    code_languages: list[str] = field(default_factory=list)
-    quality_flags: list[str] = field(default_factory=list)
 
 
-@dataclass
-class _OpenBlock:
-    lines: list[str]
+@dataclass(frozen=True)
+class _ChunkCandidate:
+    text: str
     heading_path: str
     heading_level: int | None
     char_start: int
-    block_type: str
+    char_end: int
+    node_types: list[str]
+    contains_code_block: bool
+    code_languages: list[str]
+    quality_flags: list[str]
 
 
 def parse_markdown_bytes(data: bytes) -> ParsedMarkdownDocument:
@@ -118,8 +118,9 @@ def parse_markdown_text(text: str) -> ParsedMarkdownDocument:
 
     frontmatter, frontmatter_raw, content_start = _extract_frontmatter(normalized, quality_flags)
     frontmatter_tags = _frontmatter_tags(frontmatter)
-    blocks, headings = _build_blocks(normalized, content_start, quality_flags)
-    chunks = _chunks_from_blocks(blocks, frontmatter_tags)
+    sections, headings = _source_sections(normalized, content_start, quality_flags)
+    candidates = _section_candidates(sections, quality_flags)
+    chunks = _chunks_from_candidates(candidates, frontmatter_tags)
 
     if not chunks and "empty_markdown" not in quality_flags:
         quality_flags.append("no_text_content")
@@ -142,10 +143,7 @@ def _extract_frontmatter(text: str, quality_flags: list[str]) -> tuple[dict[str,
         quality_flags.append("frontmatter_parse_failed")
         return {}, "", 0
     marker_end = text.find("\n", end_marker + 1)
-    if marker_end == -1:
-        marker_end = len(text)
-    else:
-        marker_end += 1
+    marker_end = len(text) if marker_end == -1 else marker_end + 1
     raw = text[4:end_marker]
     return _parse_simple_frontmatter(raw, quality_flags), raw, marker_end
 
@@ -172,11 +170,7 @@ def _parse_simple_frontmatter(raw: str, quality_flags: list[str]) -> dict[str, A
             if not value:
                 result[key] = []
             elif value.startswith("[") and value.endswith("]"):
-                result[key] = [
-                    _strip_quotes(item.strip())
-                    for item in value[1:-1].split(",")
-                    if item.strip()
-                ]
+                result[key] = [_strip_quotes(item.strip()) for item in value[1:-1].split(",") if item.strip()]
             else:
                 result[key] = _strip_quotes(value)
     except Exception:
@@ -200,14 +194,17 @@ def _frontmatter_tags(frontmatter: dict[str, Any]) -> list[str]:
     return []
 
 
-def _build_blocks(text: str, start_offset: int, quality_flags: list[str]) -> tuple[list[_Block], list[dict[str, Any]]]:
-    blocks: list[_Block] = []
+def _source_sections(
+    text: str,
+    start_offset: int,
+    quality_flags: list[str],
+) -> tuple[list[_Section], list[dict[str, Any]]]:
+    sections: list[_Section] = []
     headings: list[dict[str, Any]] = []
     heading_stack: list[tuple[int, str]] = []
-    current: _OpenBlock | None = None
-    in_code = False
-    code_fence = ""
-    code_language = ""
+    current_start: int | None = None
+    current_heading_path = ""
+    current_heading_level: int | None = None
 
     offset = 0
     for raw_line in text.splitlines(keepends=True):
@@ -218,197 +215,104 @@ def _build_blocks(text: str, start_offset: int, quality_flags: list[str]) -> tup
             continue
 
         line = raw_line.rstrip("\n")
-        stripped = line.strip()
-
-        if in_code:
-            assert current is not None
-            current.lines.append(raw_line)
-            if stripped.startswith(code_fence):
-                block = _close_block(current, line_end)
-                block.contains_code_block = True
-                block.code_languages = [code_language] if code_language else []
-                if len(block.text) > OVERSIZED_CODE_BLOCK_CHARS:
-                    block.quality_flags.append("oversized_code_block")
-                    quality_flags.append("oversized_code_block")
-                blocks.append(block)
-                current = None
-                in_code = False
-                code_fence = ""
-                code_language = ""
-            continue
-
-        fence_match = _FENCE_RE.match(stripped)
-        if fence_match:
-            if current is not None:
-                blocks.append(_close_block(current, line_start))
-            code_fence = fence_match.group(1)
-            code_language = fence_match.group(2).strip()
-            current = _OpenBlock(
-                lines=[raw_line],
-                heading_path=_heading_path(heading_stack),
-                heading_level=heading_stack[-1][0] if heading_stack else None,
-                char_start=line_start,
-                block_type="code",
-            )
-            in_code = True
-            continue
-
         heading_match = _HEADING_RE.match(line)
         if heading_match:
-            if current is not None:
-                blocks.append(_close_block(current, line_start))
-                current = None
+            if current_start is not None and line_start > current_start:
+                _append_section(
+                    sections,
+                    _Section(
+                        text=text[current_start:line_start].strip(),
+                        heading_path=current_heading_path,
+                        heading_level=current_heading_level,
+                        char_start=current_start,
+                        char_end=line_start,
+                    ),
+                )
             level = len(heading_match.group(1))
             title = heading_match.group(2).strip()
             heading_stack = [item for item in heading_stack if item[0] < level]
             heading_stack.append((level, title))
+            current_heading_path = _heading_path(heading_stack)
+            current_heading_level = level
+            current_start = line_start
             headings.append(
                 {
                     "level": level,
                     "title": title,
-                    "heading_path": _heading_path(heading_stack),
+                    "heading_path": current_heading_path,
                     "char_start": line_start,
                 }
             )
-            continue
+        elif current_start is None and line.strip():
+            current_start = line_start
+            current_heading_path = _heading_path(heading_stack)
+            current_heading_level = heading_stack[-1][0] if heading_stack else None
 
-        if not stripped:
-            if current is not None:
-                blocks.append(_close_block(current, line_start))
-                current = None
-            continue
-
-        block_type = _block_type(line)
-        if current is None:
-            current = _OpenBlock(
-                lines=[raw_line],
-                heading_path=_heading_path(heading_stack),
-                heading_level=heading_stack[-1][0] if heading_stack else None,
-                char_start=line_start,
-                block_type=block_type,
-            )
-        elif current.block_type == block_type:
-            current.lines.append(raw_line)
-        else:
-            blocks.append(_close_block(current, line_start))
-            current = _OpenBlock(
-                lines=[raw_line],
-                heading_path=_heading_path(heading_stack),
-                heading_level=heading_stack[-1][0] if heading_stack else None,
-                char_start=line_start,
-                block_type=block_type,
-            )
-
-    if current is not None:
-        block = _close_block(current, len(text))
-        if in_code:
-            block.contains_code_block = True
-            block.code_languages = [code_language] if code_language else []
-            block.quality_flags.append("unclosed_code_block")
-            quality_flags.append("unclosed_code_block")
-        blocks.append(block)
-    return blocks, headings
-
-
-def _block_type(line: str) -> str:
-    stripped = line.strip()
-    if stripped.startswith(("- ", "* ", "+ ")) or re.match(r"^\d+[.)]\s+", stripped):
-        return "list"
-    if stripped.startswith("|") and stripped.endswith("|"):
-        return "table"
-    return "paragraph"
-
-
-def _close_block(block: _OpenBlock, char_end: int) -> _Block:
-    text = "".join(block.lines).strip()
-    return _Block(
-        text=text,
-        heading_path=block.heading_path,
-        heading_level=block.heading_level,
-        char_start=block.char_start,
-        char_end=char_end,
-        block_type=block.block_type,
-    )
-
-
-def _chunks_from_blocks(blocks: list[_Block], frontmatter_tags: list[str]) -> list[MarkdownChunk]:
-    chunks: list[MarkdownChunk] = []
-    current: list[_Block] = []
-
-    def flush() -> None:
-        if not current:
-            return
-        chunks.extend(_split_chunk_blocks(current, len(chunks), frontmatter_tags))
-        current.clear()
-
-    for block in blocks:
-        if not block.text.strip():
-            continue
-        if len(block.text) > HARD_MAX_CHARS or block.contains_code_block:
-            flush()
-            chunks.extend(_split_chunk_blocks([block], len(chunks), frontmatter_tags))
-            continue
-        current_len = sum(len(item.text) + 2 for item in current)
-        if current and (current_len + len(block.text) > TARGET_CHARS or block.heading_path != current[-1].heading_path):
-            flush()
-        current.append(block)
-    flush()
-    return [
-        MarkdownChunk(
-            chunk_index=index,
-            text=chunk.text,
-            heading_path=chunk.heading_path,
-            heading_level=chunk.heading_level,
-            char_start=chunk.char_start,
-            char_end=chunk.char_end,
-            contains_code_block=chunk.contains_code_block,
-            code_languages=chunk.code_languages,
-            wikilinks=chunk.wikilinks,
-            tags=chunk.tags,
-            frontmatter_tags=chunk.frontmatter_tags,
-            quality_flags=chunk.quality_flags,
+    if current_start is not None and len(text) > current_start:
+        _append_section(
+            sections,
+            _Section(
+                text=text[current_start:].strip(),
+                heading_path=current_heading_path,
+                heading_level=current_heading_level,
+                char_start=current_start,
+                char_end=len(text),
+            ),
         )
-        for index, chunk in enumerate(chunks)
-    ]
+    if not headings and not sections and text[start_offset:].strip():
+        quality_flags.append("ast_no_sections")
+    return [section for section in sections if section.text.strip()], headings
 
 
-def _split_chunk_blocks(blocks: list[_Block], start_index: int, frontmatter_tags: list[str]) -> list[MarkdownChunk]:
-    del start_index
-    text = "\n\n".join(block.text for block in blocks).strip()
-    first = blocks[0]
-    last = blocks[-1]
-    contains_code = any(block.contains_code_block for block in blocks)
-    quality_flags = _unique(flag for block in blocks for flag in block.quality_flags)
-    code_languages = _unique(lang for block in blocks for lang in block.code_languages if lang)
-    if contains_code or len(text) <= HARD_MAX_CHARS:
-        return [
-            MarkdownChunk(
-                chunk_index=0,
-                text=text,
-                heading_path=first.heading_path,
-                heading_level=first.heading_level,
-                char_start=first.char_start,
-                char_end=last.char_end,
-                contains_code_block=contains_code,
-                code_languages=code_languages,
-                wikilinks=_extract_wikilinks(text),
-                tags=_extract_tags(text),
-                frontmatter_tags=frontmatter_tags,
-                quality_flags=quality_flags,
+def _append_section(sections: list[_Section], section: _Section) -> None:
+    if not section.text.strip() or _is_heading_only_section(section.text):
+        return
+    sections.append(section)
+
+
+def _is_heading_only_section(text: str) -> bool:
+    non_empty_lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return len(non_empty_lines) == 1 and _HEADING_RE.match(non_empty_lines[0]) is not None
+
+
+def _section_candidates(sections: list[_Section], quality_flags: list[str]) -> list[_ChunkCandidate]:
+    candidates: list[_ChunkCandidate] = []
+    for section in sections:
+        node_types = _marko_node_types(section.text, quality_flags)
+        code_languages = _code_languages(section.text)
+        contains_code = "fenced_code" in node_types or "code_block" in node_types or bool(code_languages)
+        section_flags: list[str] = []
+        if len(section.text) <= HARD_MAX_CHARS:
+            candidates.append(
+                _ChunkCandidate(
+                    text=section.text,
+                    heading_path=section.heading_path,
+                    heading_level=section.heading_level,
+                    char_start=section.char_start,
+                    char_end=section.char_end,
+                    node_types=node_types,
+                    contains_code_block=contains_code,
+                    code_languages=code_languages,
+                    quality_flags=section_flags,
+                )
             )
-        ]
-    return _split_large_text_block(first, last, text, frontmatter_tags, quality_flags)
+            continue
+        section_flags.append("oversized_ast_section")
+        quality_flags.append("oversized_ast_section")
+        candidates.extend(_split_oversized_section(section, node_types, contains_code, code_languages, section_flags))
+    return candidates
 
 
-def _split_large_text_block(
-    first: _Block,
-    last: _Block,
-    text: str,
-    frontmatter_tags: list[str],
+def _split_oversized_section(
+    section: _Section,
+    node_types: list[str],
+    contains_code: bool,
+    code_languages: list[str],
     quality_flags: list[str],
-) -> list[MarkdownChunk]:
-    chunks: list[MarkdownChunk] = []
+) -> list[_ChunkCandidate]:
+    candidates: list[_ChunkCandidate] = []
     cursor = 0
+    text = section.text
     while cursor < len(text):
         end = min(cursor + HARD_MAX_CHARS, len(text))
         if end < len(text):
@@ -417,22 +321,95 @@ def _split_large_text_block(
                 end = split_at
         part = text[cursor:end].strip()
         if part:
-            chunks.append(
-                MarkdownChunk(
-                    chunk_index=0,
+            candidates.append(
+                _ChunkCandidate(
                     text=part,
-                    heading_path=first.heading_path,
-                    heading_level=first.heading_level,
-                    char_start=first.char_start + cursor,
-                    char_end=first.char_start + end if end < len(text) else last.char_end,
-                    wikilinks=_extract_wikilinks(part),
-                    tags=_extract_tags(part),
-                    frontmatter_tags=frontmatter_tags,
+                    heading_path=section.heading_path,
+                    heading_level=section.heading_level,
+                    char_start=section.char_start + cursor,
+                    char_end=section.char_start + end if end < len(text) else section.char_end,
+                    node_types=node_types,
+                    contains_code_block=contains_code,
+                    code_languages=code_languages,
                     quality_flags=quality_flags,
                 )
             )
         cursor = max(end, cursor + 1)
-    return chunks
+    return candidates
+
+
+def _chunks_from_candidates(candidates: list[_ChunkCandidate], frontmatter_tags: list[str]) -> list[MarkdownChunk]:
+    return [
+        MarkdownChunk(
+            chunk_index=index,
+            text=candidate.text,
+            heading_path=candidate.heading_path,
+            heading_level=candidate.heading_level,
+            char_start=candidate.char_start,
+            char_end=candidate.char_end,
+            contains_code_block=candidate.contains_code_block,
+            code_languages=candidate.code_languages,
+            wikilinks=_extract_wikilinks(candidate.text),
+            tags=_extract_tags(candidate.text),
+            frontmatter_tags=frontmatter_tags,
+            quality_flags=_candidate_quality_flags(candidate),
+        )
+        for index, candidate in enumerate(candidates)
+    ]
+
+
+def _candidate_quality_flags(candidate: _ChunkCandidate) -> list[str]:
+    return _unique([*candidate.quality_flags, *[f"ast_node:{node_type}" for node_type in candidate.node_types]])
+
+
+def _marko_node_types(markdown_text: str, quality_flags: list[str]) -> list[str]:
+    try:
+        document = marko.parse(markdown_text)
+    except Exception:
+        quality_flags.append("marko_parse_failed")
+        return []
+    return _unique(_node_type_name(node) for node in _walk_marko_nodes(document) if not isinstance(node, block.BlankLine))
+
+
+def _walk_marko_nodes(node: Any):
+    yield node
+    children = getattr(node, "children", None)
+    if isinstance(children, list):
+        for child in children:
+            yield from _walk_marko_nodes(child)
+
+
+def _node_type_name(node: Any) -> str:
+    if isinstance(node, block.Document):
+        return "document"
+    if isinstance(node, block.Heading):
+        return "heading"
+    if isinstance(node, block.Paragraph):
+        return "paragraph"
+    if isinstance(node, block.List):
+        return "list"
+    if isinstance(node, block.ListItem):
+        return "list_item"
+    if isinstance(node, block.FencedCode):
+        return "fenced_code"
+    if isinstance(node, block.CodeBlock):
+        return "code_block"
+    if isinstance(node, block.Quote):
+        return "blockquote"
+    if isinstance(node, block.ThematicBreak):
+        return "thematic_break"
+    if node.__class__.__name__.lower().endswith("table"):
+        return "table"
+    return node.__class__.__name__.lower()
+
+
+def _code_languages(text: str) -> list[str]:
+    languages: list[str] = []
+    for line in text.splitlines():
+        match = _FENCE_RE.match(line.strip())
+        if match and match.group(2).strip():
+            languages.append(match.group(2).strip())
+    return _unique(languages)
 
 
 def _heading_path(stack: list[tuple[int, str]]) -> str:
@@ -456,3 +433,7 @@ def _unique(values) -> list:
         seen.add(value)
         result.append(value)
     return result
+
+
+def has_fatal_quality_flags(flags: list[str]) -> bool:
+    return any(flag in FATAL_QUALITY_FLAGS for flag in flags)

@@ -173,8 +173,8 @@ Aktualis alapertelmezesek:
 
 ```text
 retrieval_strategy = hybrid
-max_chunks default = 45
-max_chunks hard cap = 90
+max_chunks default = 30
+max_chunks hard cap = 60
 ```
 
 Tobbdokumentumos RAG valaszgeneraltas:
@@ -1499,7 +1499,7 @@ Javasolt request:
   "collection_id": "...",
   "answer_mode": "detailed",
   "retrieval_strategy": "hybrid",
-  "max_chunks": 45,
+  "max_chunks": 30,
   "include_sources": true
 }
 ```
@@ -1549,7 +1549,7 @@ Javasolt response:
   ],
   "retrieval_metadata": {
     "retrieval_strategy": "hybrid",
-    "max_chunks": 45,
+    "max_chunks": 30,
     "selected_chunk_count": 8,
     "embedding_model": "...",
     "collection_name": "..."
@@ -1735,7 +1735,7 @@ Kesobbi opcionális mezok:
   "collection_id": "...",
   "answer_mode": "detailed",
   "retrieval_strategy": "hybrid",
-  "max_chunks": 45,
+  "max_chunks": 30,
   "resolved_document_ids": ["..."]
 }
 ```
@@ -1900,7 +1900,7 @@ Elso korben ne legyen automatikus indexeles a kerdezes kozben.
 Javasolt elso backend default:
 
 ```text
-max_chunks = 45
+max_chunks = 30
 ```
 
 Javasolt backend cap:
