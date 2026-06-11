@@ -1797,11 +1797,13 @@ Az elso backend szelet akkor tekintheto kesznek, ha:
     - forraskartya-kereso a mar ismert metadata es a mar megnyitott chunk
       szovege alapjan.
 15. Retrieval-minosegi hardening:
+    - reszletes terv: `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md`,
     - semantic/hybrid talalatvalasztas attekintese,
     - Markdown-aware hybrid pontozas heading/code/token jelekkel,
-    - query variansok,
     - azonos dokumentum/heading kornyezeti chunk bovites,
-    - determinisztikus reranking, ha a sima retrieval tul sok zajt hoz.
+    - section-aware context expansion heading-relevans seedekbol,
+    - dokumentumszintu, capelt score es source packing,
+    - determinisztikus reranking csak kesobbi opcio, ha a source packing utan is tul sok zaj marad.
 
 ## 19. Statusz
 
@@ -1826,8 +1828,11 @@ parser kivezetve; user oldali live teszt alapjan a funkcio 121 dokumentum /
 Markdown/GFM renderelese mukodik; a `Felhasznalt Markdown forrasok` panel
 full-width, kibontható, kereso mezovel szurheto, es a teljes chunk szoveget
 lazy endpointon keresztul csak felhasznaloi nyitasra tolti be; a kovetkezo
-konkret munka a semantic/hybrid retrieval-minoseg javitasa, nem altalanos
-parser-retuning
+konkret munka a semantic/hybrid retrieval-minoseg live validalasa es
+finomhangolasa, nem altalanos parser-retuning; reszletes implementacios
+tervek:
+`Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md` es
+`Design_documents/24_markdown_section_aware_retrieval_packing_plan.md`
 ```
 
 Kapcsolodo dokumentumok:

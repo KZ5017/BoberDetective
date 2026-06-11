@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from uuid import UUID
 import json
 import re
@@ -12,21 +11,25 @@ from app.core.config import get_settings
 from app.models.knowledge import KnowledgeDocumentModel
 from app.schemas.knowledge import (
     KnowledgeAnswerPayload,
-    KnowledgeIndexRequest,
     KnowledgeQueryRequest,
     KnowledgeQueryResponse,
     KnowledgeRetrievalMetadata,
     KnowledgeUsedSource,
 )
 from app.services.analysis_module_common import AnalysisModuleError, parse_llm_json_object
-from app.services.knowledge_import import KnowledgeStoredChunk, read_knowledge_chunks
-from app.services.knowledge_indexing import (
-    KnowledgeIndexError,
-    QdrantKnowledgeIndex,
-    get_knowledge_index_status,
-    knowledge_collection_name,
+from app.services.knowledge_indexing import knowledge_collection_name
+from app.services.knowledge_retrieval import (
+    KnowledgeRetrievalError as KnowledgeQueryError,
+    KnowledgeRetrievalValidationError as KnowledgeQueryValidationError,
+    KnowledgeRetrievedChunk,
+    context_seed_limit,
+    expand_context_neighbors,
+    keyword_knowledge_search,
+    merge_hybrid_hits,
+    order_retrieved_chunks_for_llm,
+    semantic_knowledge_search,
 )
-from app.services.llm import LLMChatMessage, LLMProviderError, LMStudioNativeProvider, get_llm_provider
+from app.services.llm import LLMChatMessage, LLMProviderError, LMStudioNativeProvider
 
 
 KNOWLEDGE_QUERY_SYSTEM_PROMPT = """Forrashu tudasbazis-kerdezo komponens vagy.
@@ -61,49 +64,6 @@ Elvart JSON forma:
 
 KNOWLEDGE_QUERY_MAX_OUTPUT_TOKENS = None
 KNOWLEDGE_SOURCE_SUMMARY_MAX_CHARS = 320
-KNOWLEDGE_STOPWORDS = {
-    "a",
-    "az",
-    "egy",
-    "és",
-    "es",
-    "vagy",
-    "hogy",
-    "mit",
-    "mi",
-    "milyen",
-    "hogyan",
-    "mikor",
-    "hol",
-    "van",
-    "vannak",
-    "kell",
-    "lehet",
-    "tudok",
-    "tudunk",
-    "keress",
-    "keresd",
-    "adj",
-    "valasz",
-    "válasz",
-}
-
-
-class KnowledgeQueryError(Exception):
-    pass
-
-
-class KnowledgeQueryValidationError(KnowledgeQueryError):
-    pass
-
-
-@dataclass(frozen=True)
-class KnowledgeRetrievedChunk:
-    label: str
-    document: KnowledgeDocumentModel
-    chunk: KnowledgeStoredChunk
-    retrieval_score: float
-    match_type: str
 
 
 def run_knowledge_query(db: Session, payload: KnowledgeQueryRequest) -> KnowledgeQueryResponse:
@@ -124,7 +84,7 @@ def run_knowledge_query(db: Session, payload: KnowledgeQueryRequest) -> Knowledg
     answer = (
         _placeholder_answer(payload)
         if not retrieved_chunks
-        else _generate_knowledge_answer(payload, _order_retrieved_chunks_for_llm(retrieved_chunks))
+        else _generate_knowledge_answer(payload, order_retrieved_chunks_for_llm(retrieved_chunks))
     )
     return KnowledgeQueryResponse(
         answer=answer,
@@ -139,12 +99,15 @@ def select_knowledge_source_chunks(db: Session, payload: KnowledgeQueryRequest) 
     if not documents:
         return []
     if payload.retrieval_strategy == "keyword":
-        return _keyword_knowledge_search(documents, payload.question, payload.max_chunks)
+        return keyword_knowledge_search(documents, payload.question, payload.max_chunks)
+    seed_limit = context_seed_limit(payload.max_chunks)
     if payload.retrieval_strategy == "semantic":
-        return _semantic_knowledge_search(db, documents, payload.question, payload.max_chunks)
-    keyword_hits = _keyword_knowledge_search(documents, payload.question, payload.max_chunks)
-    semantic_hits = _semantic_knowledge_search(db, documents, payload.question, payload.max_chunks)
-    return _merge_hybrid_hits(keyword_hits, semantic_hits, payload.max_chunks)
+        semantic_hits = semantic_knowledge_search(db, documents, payload.question, seed_limit)
+        return expand_context_neighbors(documents, semantic_hits, payload.max_chunks, query=payload.question)
+    keyword_hits = keyword_knowledge_search(documents, payload.question, seed_limit)
+    semantic_hits = semantic_knowledge_search(db, documents, payload.question, seed_limit)
+    hybrid_hits = merge_hybrid_hits(keyword_hits, semantic_hits, seed_limit, query=payload.question)
+    return expand_context_neighbors(documents, hybrid_hits, payload.max_chunks, query=payload.question)
 
 
 def build_knowledge_query_user_prompt(
@@ -243,133 +206,6 @@ def _knowledge_documents(db: Session, document_ids: list[UUID]) -> list[Knowledg
     return list(db.execute(stmt).scalars())
 
 
-def _keyword_knowledge_search(
-    documents: list[KnowledgeDocumentModel],
-    query: str,
-    limit: int,
-) -> list[KnowledgeRetrievedChunk]:
-    terms = _query_terms(query)
-    exact = " ".join(query.casefold().split())
-    candidates: list[KnowledgeRetrievedChunk] = []
-    for document in documents:
-        for chunk in read_knowledge_chunks(document):
-            text = " ".join(chunk.text.casefold().split())
-            score = 0.0
-            if exact and exact in text:
-                score += 2.5
-            score += sum(1.0 for term in terms if term in text)
-            if score <= 0:
-                continue
-            candidates.append(
-                KnowledgeRetrievedChunk(
-                    label="",
-                    document=document,
-                    chunk=chunk,
-                    retrieval_score=round(score, 6),
-                    match_type="keyword",
-                )
-            )
-    ranked = sorted(
-        candidates,
-        key=lambda item: (
-            -item.retrieval_score,
-            item.document.relative_path or item.document.original_filename,
-            item.chunk.chunk_index,
-        ),
-    )[:limit]
-    return _relabel(ranked)
-
-
-def _semantic_knowledge_search(
-    db: Session,
-    documents: list[KnowledgeDocumentModel],
-    query: str,
-    limit: int,
-) -> list[KnowledgeRetrievedChunk]:
-    status = get_knowledge_index_status(db, KnowledgeIndexRequest(document_ids=[item.id for item in documents]))
-    if status.chunk_count == 0:
-        return []
-    if not status.is_ready:
-        raise KnowledgeQueryValidationError(
-            "A szemantikus vagy hybrid tudásbázis kereséshez előbb indexelni kell a kijelölt tudásbázis dokumentumokat "
-            f"az aktuális embedding modellel ({status.embedding_model}). "
-            f"Indexelve: {status.indexed_chunk_count}/{status.chunk_count}."
-        )
-    settings = get_settings()
-    try:
-        embedding_result = get_llm_provider(settings).embeddings(settings.llm_embedding_model, [query])
-        semantic_hits = QdrantKnowledgeIndex(settings).search(
-            query_embedding=embedding_result.embeddings[0],
-            limit=limit,
-            document_ids=[item.id for item in documents],
-        )
-    except (LLMProviderError, KnowledgeIndexError) as exc:
-        raise KnowledgeQueryValidationError(str(exc)) from exc
-    documents_by_id = {document.id: document for document in documents}
-    chunks_by_document = {document.id: {chunk.chunk_id: chunk for chunk in read_knowledge_chunks(document)} for document in documents}
-    retrieved: list[KnowledgeRetrievedChunk] = []
-    for hit in semantic_hits:
-        document = documents_by_id.get(hit.knowledge_document_id)
-        chunk = chunks_by_document.get(hit.knowledge_document_id, {}).get(hit.chunk_id)
-        if document is None or chunk is None:
-            continue
-        retrieved.append(KnowledgeRetrievedChunk("", document, chunk, hit.score, hit.match_type))
-    return _relabel(retrieved)
-
-
-def _merge_hybrid_hits(
-    keyword_hits: list[KnowledgeRetrievedChunk],
-    semantic_hits: list[KnowledgeRetrievedChunk],
-    limit: int,
-) -> list[KnowledgeRetrievedChunk]:
-    candidates: dict[tuple[UUID, str], KnowledgeRetrievedChunk] = {}
-    max_keyword_score = max((hit.retrieval_score for hit in keyword_hits), default=0.0)
-    for hit in keyword_hits:
-        score = (hit.retrieval_score / max_keyword_score) * 0.35 if max_keyword_score > 0 else 0.0
-        candidates[(hit.document.id, hit.chunk.chunk_id)] = KnowledgeRetrievedChunk(
-            "",
-            hit.document,
-            hit.chunk,
-            round(score, 6),
-            "keyword",
-        )
-    for hit in semantic_hits:
-        key = (hit.document.id, hit.chunk.chunk_id)
-        semantic_score = min(1.0, max(0.0, hit.retrieval_score)) * 0.55
-        existing = candidates.get(key)
-        if existing is None:
-            candidates[key] = KnowledgeRetrievedChunk("", hit.document, hit.chunk, round(semantic_score, 6), "semantic")
-        else:
-            candidates[key] = KnowledgeRetrievedChunk(
-                "",
-                hit.document,
-                hit.chunk,
-                round(existing.retrieval_score + semantic_score + 0.2, 6),
-                "hybrid",
-            )
-    ranked = sorted(
-        candidates.values(),
-        key=lambda item: (
-            -item.retrieval_score,
-            item.document.relative_path or item.document.original_filename,
-            item.chunk.chunk_index,
-        ),
-    )[:limit]
-    return _relabel(ranked)
-
-
-def _order_retrieved_chunks_for_llm(retrieved_chunks: list[KnowledgeRetrievedChunk]) -> list[KnowledgeRetrievedChunk]:
-    ordered = sorted(
-        retrieved_chunks,
-        key=lambda item: (
-            item.document.relative_path or item.document.original_filename,
-            item.document.original_filename,
-            item.chunk.chunk_index,
-        ),
-    )
-    return _relabel(ordered)
-
-
 def _build_knowledge_source_blocks(retrieved_chunks: list[KnowledgeRetrievedChunk]) -> str:
     blocks: list[str] = []
     for index, retrieved in enumerate(retrieved_chunks, start=1):
@@ -415,28 +251,6 @@ def _placeholder_answer(payload: KnowledgeQueryRequest) -> KnowledgeAnswerPayloa
         insufficient_source=True,
         answer_mode=payload.answer_mode,
     )
-
-
-def _query_terms(query: str) -> list[str]:
-    terms: list[str] = []
-    for term in re.findall(r"[\wáéíóöőúüűÁÉÍÓÖŐÚÜŰ'-]+", query.casefold()):
-        if len(term) < 2 or term in KNOWLEDGE_STOPWORDS:
-            continue
-        terms.append(term)
-    return list(dict.fromkeys(terms))
-
-
-def _relabel(retrieved_chunks: list[KnowledgeRetrievedChunk]) -> list[KnowledgeRetrievedChunk]:
-    return [
-        KnowledgeRetrievedChunk(
-            label=f"source_{index}",
-            document=retrieved.document,
-            chunk=retrieved.chunk,
-            retrieval_score=retrieved.retrieval_score,
-            match_type=retrieved.match_type,
-        )
-        for index, retrieved in enumerate(retrieved_chunks, start=1)
-    ]
 
 
 def _normalize_source_summary(value: str) -> str:

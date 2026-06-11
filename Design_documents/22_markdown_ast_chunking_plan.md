@@ -474,6 +474,12 @@ elsosorban az hatarozza meg, hogy milyen chunkok kerulnek az LLM ele.
 
 Javasolt kovetkezo szelet:
 
+Reszletes implementacios terv:
+
+```text
+Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md
+```
+
 1. Pontosan dokumentalni es tesztekkel korulvenni, hogy a `semantic` es
    `hybrid` Tudasbazis retrieval jelenleg milyen sorrendben es milyen score
    alapjan valaszt chunkokat.
@@ -484,22 +490,17 @@ Javasolt kovetkezo szelet:
    - technikai token overlap,
    - pontos kifejezes egyezes,
    - keyword/semantic score kombinacio.
-3. Query variansok:
-   - a felhasznaloi kerdes termeszetes nyelvu alakja maradjon elso query,
-   - determinisztikus technikai/kulcsszo jellegu variansok bovitsék a
-     candidate setet,
-   - a vegso kimenet deduplikalt legyen.
-4. Kontextusbovites:
+3. Kontextusbovites:
    - egy jo talalat melle opcionálisan beemelheto az elozo/kovetkezo chunk,
      ha ugyanabban a dokumentumban es ugyanazon vagy kompatibilis heading alatt
      van,
    - kulonosen hasznos magyarazat + kodblokk + kovetkezmeny jellegu
      jegyzeteknel.
-5. Vegso sorrend:
+4. Vegso sorrend:
    - a retrieval tovabbra is relevancia szerint valasszon,
    - az LLM-nek adott SOURCE blokkok viszont maradjanak dokumentum /
      heading / chunk sorrendben, hogy a modell osszefuggo kontextust lasson.
-6. Reranking csak akkor keruljon be, ha a fenti determinisztikus jelek
+5. Reranking csak akkor keruljon be, ha a fenti determinisztikus jelek
    kevesnek bizonyulnak.
 
 Nem cel:

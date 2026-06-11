@@ -10,6 +10,9 @@
 - Added safe Markdown/GFM rendering for `Általános iratkérdező` and `Tudásbázis` answers, so lists, bold text, inline code, fenced code blocks, tables, and blockquotes are readable while raw HTML remains disabled.
 - Added lazy full-source inspection for `Tudásbázis` answer sources: `GET /api/v1/knowledge/documents/{knowledge_document_id}/chunks/{chunk_id}` returns a single stored Markdown chunk on demand, and the frontend fetches the full chunk only when the user opens that source card.
 - Added a full-width collapsible `Felhasznált Markdown források` panel with searchable source cards. The panel filters by source metadata and by already opened full chunk text without preloading every source body.
+- Added `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md` as the detailed plan for the next `Tudásbázis` quality slice: baseline retrieval tests, Markdown-aware hybrid scoring, same-document/same-heading context expansion, and optional deterministic reranking. Backend-generated query variants were explicitly excluded from this plan.
+- Added `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md` for the next `Tudásbázis` quality step: Markdown section-aware retrieval packing with heading/section seeds, section expansion, capped document scoring, and document-score-based source packing while preserving natural chunk order inside each document.
+- Added the first baseline retrieval tests, Markdown-aware hybrid scoring, and context-neighbor expansion for `Tudásbázis`: semantic hit mapping, current hybrid score behavior, stable LLM input ordering, heading-path/exact-query/technical-token/code-language/code-block scoring signals, same-document/same-heading previous/next chunk expansion, and safeguards that keep keyword mode unchanged.
 
 ### Changed
 
@@ -25,7 +28,13 @@
 - Polished the `Tudásbázis` mobile layout so import/document-list toolbar buttons stack cleanly and long stored Markdown paths wrap inside cards instead of horizontal-scrolling out of view.
 - Refined the `Teljes iratfeldolgozás` UI: `Irat és feldolgozási profil` and `Iratösszefoglaló` now form the first 1:1 row, `Előkészített munkalista` remains the full-width second row, profile/page-range controls align in one desktop row, guide text noise was removed, placeholder cards use the shared tokenized style, summary content no longer vertically stretches, and mobile controls/buttons stack cleanly.
 - Refined the `Irat rendező` / `Iratgyűjtemények` UI: the selected-collection content no longer uses an unnecessary nested `Gyűjtemény tartalma` panel, no-selection now shows a normal empty state instead of auto-selecting the first collection, collection/document panels have stable height behavior, the document list minimum height was increased, and mobile collection buttons now use full-width rows.
-- Documented the next `Tudásbázis` quality target as Markdown-aware semantic/hybrid retrieval hardening: query variants, heading/code/token-aware hybrid scoring, same-document/same-heading context expansion, stable document/heading/chunk ordering, and deterministic reranking if needed.
+- Documented the next `Tudásbázis` quality target as Markdown-aware semantic/hybrid retrieval hardening: heading/code/token-aware hybrid scoring, same-document/same-heading context expansion, stable document/heading/chunk ordering, and deterministic reranking if needed.
+- Implemented backend-controlled `Tudásbázis` context-neighbor expansion for semantic/hybrid searches. The selected source cap remains a hard `max_chunks` limit; a reserved share can be filled with previous/next chunks from the same document when heading paths are identical or compatible. Added context chunks use `retrieval_match_type=context_neighbor`, are deduplicated, and never cross documents.
+- Refactored `Tudásbázis` retrieval helpers out of `knowledge_query.py` into `app/services/knowledge_retrieval.py` without intended behavior change, preparing the codebase for the section-aware retrieval packing implementation.
+- Added explicit heading relevance scoring primitives for the upcoming section-aware packing work. Matching headings now produce a structured `HeadingRelevanceScore`, and heading level contributes a bounded bonus only when the heading matches the query.
+- Added section expansion v1 for semantic/hybrid `Tudásbázis` retrieval: heading-relevant seeds can now include multiple following chunks from the same compatible heading branch, with per-seed and global `max_chunks` caps. Section-expanded chunks are labeled as `section_context`; direct `context_neighbor` expansion remains as fallback.
+- Added document-level source packing v1 for `Tudásbázis` retrieval: selected candidates are deduplicated by document/chunk, scored per document from the top candidate scores plus a capped coverage bonus, ordered by document score, and packed in natural chunk order inside each document before LLM prompting.
+- Added `expansion_priority` based forward context expansion for `Tudásbázis`: semantic/hybrid seeds now decide context rights from retrieval score plus heading, path/filename, and technical/code hints. High-priority seeds can pull up to 10 following compatible chunks, medium-priority seeds up to 6, while low-priority seeds stay unexpanded.
 
 ### Fixed
 
@@ -36,6 +45,8 @@
 - Live backend smoke: imported a native-text PDF into `text_review_required` with `0` chunks, called the document DELETE endpoint, received `204 No Content`, and confirmed the document disappeared from the document list.
 - `.venv/bin/python -m pytest tests/test_document_lifecycle.py tests/test_documents.py tests/test_lexical_index.py tests/test_search.py -q` (`59 passed`, 1 Docling deprecation warning)
 - `.venv/bin/python -m pytest tests/test_markdown_parser.py tests/test_knowledge_import.py -q`
+- `.venv/bin/python -m pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q` (`45 passed`)
+- `.venv/bin/python -m pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q` (`38 passed`)
 - `.venv/bin/pytest tests/test_markdown_parser.py tests/test_knowledge_import.py tests/test_knowledge_api.py tests/test_knowledge_query.py tests/test_analysis_modules.py tests/test_rag.py -q`
 - `.venv/bin/pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q` (`22 passed`)
 - `npm --prefix frontend run build`
@@ -67,7 +78,7 @@
 ### Verified
 
 - `.venv/bin/python -m pytest tests/test_knowledge_query.py tests/test_knowledge_indexing.py tests/test_knowledge_import.py tests/test_knowledge_api.py tests/test_markdown_parser.py tests/test_storage.py tests/test_health.py -q` (`49 passed`)
-- `.venv/bin/python -m pytest -q` (`349 passed`, 1 Docling deprecation warning)
+- `.venv/bin/python -m pytest -q` (`377 passed`, 1 Docling deprecation warning)
 - `npm --prefix frontend run build`
 - `.venv/bin/python -m alembic upgrade head` / current head `0047_knowledge_index_metadata`
 - `GET /api/v1/knowledge/index/status` live backend smoke returned an empty but valid knowledge index status response.

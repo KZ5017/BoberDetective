@@ -138,7 +138,7 @@ Next:
 
 - Continue hardening the dedicated `Tudásbázis` module: Markdown (`.md`) documents are imported and queried as structured knowledge-base material, not as investigative case files (`Design_documents/21_markdown_knowledge_base_module_plan.md`)
 - The current `Tudásbázis` baseline includes global `knowledge_base` / `markdown_note` storage, Marko/AST Markdown parsing/chunking, separate knowledge indexing/querying, archive/restore/final-delete lifecycle controls, batch-only Markdown import with conflict preview/decision handling, Markdown-rendered answers, and lazy full-source inspection from the `Felhasznált Markdown források` panel
-- Next knowledge-base quality target: improve semantic/hybrid source selection with Markdown-aware retrieval signals before doing further parser retuning
+- Current knowledge-base quality target: `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md` is implemented through baseline retrieval tests, Markdown-aware hybrid scoring, same-document/same-heading context expansion, and the first `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md` slice. Semantic/hybrid knowledge retrieval now uses heading-aware section expansion, `expansion_priority` based forward context for strong non-heading seeds, and capped document-level source packing while preserving natural chunk order inside each selected document.
 - The active `Tudásbázis` Markdown parser is the Marko/AST-based `markdown_ast_sections_v1` parser (`Design_documents/22_markdown_ast_chunking_plan.md`), so real Markdown structure drives chunking quality instead of line-level heuristics
 - Keep the dedicated `Audit naplo` API/panel backed by `audit_events` as the following larger work surface after the knowledge-base slice
 - Add multi-collection source scopes only where analysis/RAG/knowledge-base workflows need them; the current first analysis/indexing integration uses one selected collection at a time
@@ -187,6 +187,8 @@ See:
 - `Design_documents/20_general_rag_question_answering_plan.md`
 - `Design_documents/21_markdown_knowledge_base_module_plan.md`
 - `Design_documents/22_markdown_ast_chunking_plan.md`
+- `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md`
+- `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md`
 
 ## Handoff notes
 
