@@ -435,6 +435,205 @@ sorrendet megorzi. A célzott Kubernetes/kubectl cheatsheet jellegu esetekben
 az alacsonyabb nyers semantic score-u, de heading/path alapjan erosen relevans
 kapu chunkok is eleg kontextust kaphatnak maguk utan.
 
+## 12b. Live tesztbol feltart heading-meta gap
+
+Egy OWASP Top 10 cheat-sheet live teszt feltart egy fontos hianyzo esetet.
+
+QUERY:
+
+```text
+OWASP Top 10 - Cheat Sheet (2021)
+```
+
+A dokumentumban a lenyegi fo heading:
+
+```text
+## OWASP Top 10 - Cheat Sheet (2021)
+```
+
+A Marko/AST parser ezt helyesen felismeri es a `text_layer.json` `headings`
+listajaba teszi, valamint a kovetkezo A01-A10 chunkok `heading_path`
+ertekebe beemeli. Viszont a fo heading nem jelenik meg onallo chunk `text`
+ertekkent.
+
+A retrieval ezert a bevezeto chunkot talalta meg, mert abban szovegkent
+szerepelt az `OWASP Top 10 (2021)` es a `cheat-sheet`. Ez a chunk azonban
+`heading_path=""` erteku, ezert a jelenlegi expansion szabaly nem lep at a
+kovetkezo fo heading ala.
+
+Kovetkezmeny:
+
+- a valodi A01-A10 tartalom letezik chunkokban,
+- a fo heading metaadatkent letezik,
+- a SOURCE listaba megis csak a bevezeto chunk kerulhet be,
+- az LLM nem kapja meg a temahoz tartozo teljes cheat-sheet kontextust.
+
+Ez legalabb harom kulon, de osszefuggo resproblema:
+
+1. **Meta-heading nem teljes erteku retrieval anchor.**
+   - A fo heading csak `heading_path`/`headings` adatban latszik, de nem
+     viselkedik onallo seedkent.
+
+2. **A keyword/hybrid scoring nem hasznalja eleg erosen a `heading_path`
+   mezot.**
+   - Az A01-A10 chunkok relevansak, mert a `heading_path` tartalmazza a
+     keresett fo cimet, akkor is, ha a chunk sajat `text` mezoben mar csak
+     az A01/A02... tartalom van.
+
+3. **Pre-heading seed nem tud atlepni a kovetkezo relevans heading ala.**
+   - Ha egy magas score-u bevezeto chunk kozvetlenul egy query-matching
+     heading elott all, akkor a kovetkezo heading alatti szekciot is
+     expansion candidate-kent kell kezelni.
+
+## 12c. V2 javitasi terv: heading anchor es pre-heading bridge
+
+Cel:
+
+```text
+Ha a query egy Markdown fo headingre vagy section cimre illeszkedik, akkor a
+retrieval ne csak a cimet/bevezetot talalja meg, hanem a heading ala tartozo
+erdemleges chunkokat is atadja az LLM-nek.
+```
+
+### 12c.1 Heading path scoring erosites
+
+A keyword es hybrid jeloltek pontozasa hasznalja teljes erteku forraskent:
+
+- `chunk.text`,
+- `chunk.heading_path`,
+- `document.relative_path`,
+- `document.original_filename`.
+
+Elvaras:
+
+- exact query vagy jelentos query-term overlap a `heading_path` mezoben
+  adjon eros, de bounded bonuszt,
+- ha a query egy heading-path prefixre illeszkedik, az alatta levo chunkok
+  legyenek jo seed/section candidate-ek,
+- a heading score tovabbra se legyen eleg onmagaban teljesen idegen
+  dokumentumok beemelesere.
+
+### 12c.2 Meta-heading anchor kepzese
+
+Nem kell feltetlenul uj adatbazis- vagy fajlformatum.
+
+Elso implementacios irany:
+
+- a meglévő `KnowledgeStoredChunk.heading_path` adatokbol derivaltan kezeljuk
+  a fo heading egyezest,
+- ha tobb chunk `heading_path` erteke ugyanazzal a query-matching headinggel
+  indul, ezek egy logikai section candidate csoportot alkotnak,
+- nem kell onallo synthetic chunkot letrehozni az LLM SOURCE listaba, ha a
+  source blokkban a chunk `heading_path` is megjelenik.
+
+Kesobbi opcionális irany:
+
+- synthetic `heading_anchor` candidate belso retrieval objektumkent, amely
+  nem mentodik kulon chunkkent, csak arra szolgal, hogy a heading alatti
+  chunkokat osszefogja.
+
+### 12c.3 Pre-heading bridge
+
+Ha egy seed chunk:
+
+- magas `expansion_priority` erteku,
+- `heading_path` ures vagy nem egyezo,
+- es kozvetlenul utana query-matching heading path alatti chunkok kovetkeznek,
+
+akkor a kovetkezo heading ala tartozo chunkok bovitesi candidate-ek legyenek.
+
+Ez kifejezetten az olyan dokumentumokra fontos, ahol:
+
+- van egy rovid bevezeto,
+- utana jon a valodi `##` fo cim,
+- majd alatta sok `###` reszszakasz.
+
+Fekek:
+
+- csak ugyanazon dokumentumon belul,
+- csak kozvetlenul kovetkezo heading agra,
+- csak akkor, ha a kovetkezo heading path maga is egyezik a queryvel,
+- `max_chunks` tovabbra is kemeny plafon,
+- dokumentumon belul `chunk_index` sorrend marad.
+
+### 12c.4 SOURCE blokk heading kontextus
+
+A promptba adott SOURCE blokkban a chunk szovege mellett jelenjen meg a
+Markdown heading path is, amikor van ilyen.
+
+Pelda:
+
+```text
+source_3
+Dokumentum: ...
+Heading: OWASP Top 10 - Cheat Sheet (2021) > A01: Broken Access Control
+Szoveg:
+...
+```
+
+Ez nem valtoztatja meg a source-id/used-source objektumokat, csak az LLM
+szamara teszi lathatova azt a kontextust, amely jelenleg csak backend
+metaadatkent el.
+
+### 12c.5 Tesztesetek
+
+Minimum uj tesztek:
+
+1. Fo heading csak `heading_path` metaadatban szerepel, de query egyezik vele:
+   az alatta levo A01/A02... chunkok bekerulnek.
+2. Magas score-u bevezeto chunk kozvetlenul query-matching heading elott all:
+   a kovetkezo heading ala hidal a bovites.
+3. Ures headingu bevezeto ne hidaljon at idegen vagy nem egyezo heading ala.
+4. A SOURCE blokk tartalmazza a `heading_path` mezot, ha van.
+5. `max_chunks` plafon tovabbra is ervenyes.
+6. Dokumentumon belul a vegso SOURCE sorrend tovabbra is `chunk_index`
+   szerinti.
+
+### 12c.6 Implementacios sorrend
+
+Javasolt sorrend:
+
+1. Tesztben reprodukalni az OWASP Top 10 esetet kis synthetic chunk listaval.
+   `ELKESZULT`
+2. Heading-path scoring/selection erosites a meglévő retrieval helperben.
+   `ELKESZULT`
+3. Pre-heading bridge helper bevezetese az expansion fazisba.
+   `ELKESZULT`
+4. SOURCE blokk heading megjelenites a prompt-epitesnel.
+   `MAR MEGLEVŐ, TESZTTEL ROGZITVE`
+5. Celzott knowledge query teszt futtatas.
+   `ELKESZULT`
+6. Live OWASP teszt ujrafuttatasa.
+   `KOVETKEZO USER-SIDE LIVE TESZT`
+
+### 12c.7 Implementalt v2 reszletek
+
+Az elso v2 javitas a meglévő section-aware retrieval retegre epul, nem csereli
+le azt.
+
+Implementalt valtozasok:
+
+- `keyword_knowledge_search` most a chunk szovege mellett a `heading_path`,
+  `relative_path` es `original_filename` mezoket is figyelembe veszi.
+- Exact query egyezes es query-term overlap a `heading_path` mezoben eros,
+  de bounded relevanciajelet ad.
+- Magas priority, ures `heading_path`-u seed chunk eseteben az expansion
+  megprobal atlepni a kozvetlenul kovetkezo query-matching heading agra.
+- A pre-heading bridge csak ugyanazon dokumentumon belul mukodik, csak
+  kovetkezo chunkokra, es csak addig, amig a kovetkezo chunkok headingje
+  tovabbra is illeszkedik a queryre.
+- A bridge-bol szarmazo chunkok `retrieval_match_type=heading_bridge`
+  jelolest kapnak.
+- A SOURCE blokkban a `heading_path` mező lathatosagat teszt rogzitette, hogy
+  az LLM ne veszitse el a Markdown strukturakontextust.
+
+Verifikacio:
+
+```text
+.venv/bin/python -m pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q
+49 passed
+```
+
 ## 13. Nyitott kerdesek
 
 1. Mi legyen a section expansion maximalis tavolsaga?

@@ -103,6 +103,36 @@ def test_keyword_knowledge_search_uses_markdown_chunks(monkeypatch) -> None:
     assert hits[0].match_type == "keyword"
 
 
+def test_keyword_knowledge_search_uses_heading_path_as_retrieval_evidence(monkeypatch) -> None:
+    document = _document(original_filename="OWASP_TOP_10.md", relative_path="General_knowledge/OWASP_TOP_10.md")
+    chunks = [
+        _chunk(
+            "Szia! Bevezető szöveg OWASP Top 10 (2021) cheat-sheet stílusban.",
+            chunk_index=0,
+            heading_path="",
+            heading_level=None,
+        ),
+        _chunk(
+            "### **A01: Broken Access Control**\nUsers can act outside of intended permissions.",
+            chunk_index=1,
+            heading_path="OWASP Top 10 – Cheat Sheet (2021) > **A01: Broken Access Control**",
+            heading_level=3,
+        ),
+        _chunk(
+            "### **A02: Cryptographic Failures**\nSensitive data is exposed.",
+            chunk_index=2,
+            heading_path="OWASP Top 10 – Cheat Sheet (2021) > **A02: Cryptographic Failures**",
+            heading_level=3,
+        ),
+    ]
+    monkeypatch.setattr("app.services.knowledge_retrieval.read_knowledge_chunks", lambda item: chunks)
+
+    hits = keyword_knowledge_search([document], "OWASP Top 10 – Cheat Sheet (2021)", 10)
+
+    assert [hit.chunk.chunk_index for hit in hits] == [1, 2, 0]
+    assert hits[0].retrieval_score > hits[2].retrieval_score
+
+
 def test_semantic_knowledge_search_maps_qdrant_hits_to_markdown_chunks(monkeypatch) -> None:
     document = _document()
     first_chunk = _chunk("Első szövegrész.", chunk_index=0)
@@ -206,6 +236,25 @@ def test_hybrid_merge_adds_markdown_heading_bonus_when_query_matches_heading() -
 
     assert [hit.chunk.chunk_id for hit in hits] == [heading_match.chunk_id, text_match.chunk_id]
     assert hits[0].retrieval_score > hits[1].retrieval_score
+
+
+def test_knowledge_user_prompt_exposes_heading_path_context() -> None:
+    document = _document(original_filename="OWASP_TOP_10.md", relative_path="General_knowledge/OWASP_TOP_10.md")
+    chunk = _chunk(
+        "### **A01: Broken Access Control**\nUsers can act outside of intended permissions.",
+        chunk_index=1,
+        heading_path="OWASP Top 10 – Cheat Sheet (2021) > **A01: Broken Access Control**",
+        heading_level=3,
+    )
+
+    prompt = build_knowledge_query_user_prompt(
+        "OWASP Top 10 – Cheat Sheet (2021)",
+        "detailed",
+        [KnowledgeRetrievedChunk("source_1", document, chunk, 0.9, "section_context")],
+    )
+
+    assert "heading_path: OWASP Top 10 – Cheat Sheet (2021) > **A01: Broken Access Control**" in prompt
+    assert "### **A01: Broken Access Control**" in prompt
 
 
 def test_heading_relevance_score_rewards_higher_level_matching_heading() -> None:
@@ -485,6 +534,61 @@ def test_context_expansion_prefers_section_context_for_heading_seed(monkeypatch)
 
     assert [hit.chunk.chunk_index for hit in expanded] == [0, 1, 2]
     assert [hit.match_type for hit in expanded] == ["semantic", "section_context", "section_context"]
+
+
+def test_context_expansion_bridges_pre_heading_seed_to_next_matching_heading(monkeypatch) -> None:
+    document = _document(original_filename="OWASP_TOP_10.md", relative_path="General_knowledge/OWASP_TOP_10.md")
+    intro = _chunk(
+        "Szia! Íme egy OWASP Top 10 (2021) cheat-sheet stílusú összefoglaló.",
+        chunk_index=0,
+        heading_path="",
+        heading_level=None,
+    )
+    first = _chunk(
+        "### **A01: Broken Access Control**\nUsers can act outside of intended permissions.",
+        chunk_index=1,
+        heading_path="OWASP Top 10 – Cheat Sheet (2021) > **A01: Broken Access Control**",
+        heading_level=3,
+    )
+    second = _chunk(
+        "### **A02: Cryptographic Failures**\nSensitive data is exposed.",
+        chunk_index=2,
+        heading_path="OWASP Top 10 – Cheat Sheet (2021) > **A02: Cryptographic Failures**",
+        heading_level=3,
+    )
+    outside = _chunk(
+        "Másik jegyzet.",
+        chunk_index=3,
+        heading_path="Docker > Basics",
+        heading_level=2,
+    )
+    monkeypatch.setattr("app.services.knowledge_retrieval.read_knowledge_chunks", lambda item: [intro, first, second, outside])
+
+    expanded = expand_context_neighbors(
+        [document],
+        [KnowledgeRetrievedChunk("source_1", document, intro, 1.04, "hybrid")],
+        8,
+        query="OWASP Top 10 – Cheat Sheet (2021)",
+    )
+
+    assert [hit.chunk.chunk_index for hit in expanded] == [0, 1, 2]
+    assert [hit.match_type for hit in expanded] == ["hybrid", "heading_bridge", "heading_bridge"]
+
+
+def test_context_expansion_does_not_bridge_pre_heading_seed_to_unrelated_heading(monkeypatch) -> None:
+    document = _document()
+    intro = _chunk("OWASP említés egy bevezetőben.", chunk_index=0, heading_path="", heading_level=None)
+    unrelated = _chunk("Docker alapok.", chunk_index=1, heading_path="Docker > Basics", heading_level=2)
+    monkeypatch.setattr("app.services.knowledge_retrieval.read_knowledge_chunks", lambda item: [intro, unrelated])
+
+    expanded = expand_context_neighbors(
+        [document],
+        [KnowledgeRetrievedChunk("source_1", document, intro, 1.04, "hybrid")],
+        8,
+        query="OWASP Top 10 – Cheat Sheet (2021)",
+    )
+
+    assert [hit.chunk.chunk_index for hit in expanded] == [0]
 
 
 def test_context_neighbor_expansion_skips_incompatible_heading(monkeypatch) -> None:

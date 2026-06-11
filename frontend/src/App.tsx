@@ -4224,7 +4224,7 @@ export function App() {
                 <div className="metrics">
                   <span>{source.page_number ? `${source.page_number}. oldal` : "oldal nélkül"}</span>
                   <span>{source.chunk_index}. szövegrész</span>
-                  {source.retrieval_match_type && <span>{labelRetrievalStrategy(source.retrieval_match_type as RetrievalStrategy)}</span>}
+                  {source.retrieval_match_type && <span>{labelRetrievalMatchType(source.retrieval_match_type)}</span>}
                   {source.retrieval_score !== null && <span>relevancia {source.retrieval_score.toFixed(3)}</span>}
                 </div>
               </div>
@@ -4298,7 +4298,7 @@ export function App() {
             source.original_filename,
             source.heading_path,
             `${source.chunk_index}. szövegrész`,
-            source.retrieval_match_type ? labelRetrievalStrategy(source.retrieval_match_type as RetrievalStrategy) : "",
+            source.retrieval_match_type ? labelRetrievalMatchType(source.retrieval_match_type) : "",
             source.retrieval_score !== null ? source.retrieval_score.toFixed(3) : "",
             source.contains_code_block ? "kódblokk" : "",
             ...(detail?.code_languages ?? []),
@@ -4339,7 +4339,7 @@ export function App() {
                       {source.relative_path && <span>{source.original_filename}</span>}
                       {source.heading_path && <span>{source.heading_path}</span>}
                       <span>{source.chunk_index}. szövegrész</span>
-                      {source.retrieval_match_type && <span>{labelRetrievalStrategy(source.retrieval_match_type as RetrievalStrategy)}</span>}
+                      {source.retrieval_match_type && <span>{labelRetrievalMatchType(source.retrieval_match_type)}</span>}
                       {source.retrieval_score !== null && <span>relevancia {source.retrieval_score.toFixed(3)}</span>}
                       {source.contains_code_block && <span>kódblokk</span>}
                     </div>
@@ -7695,9 +7695,12 @@ function renderAnalysisInputPayload(payload: Record<string, unknown>) {
 
 function labelRetrievalMatchType(value: unknown) {
   const labels: Record<string, string> = {
-    keyword: "kulcsszavas talalat",
-    semantic: "szemantikus talalat",
-    hybrid: "hybrid talalat"
+    keyword: "Kulcsszavas",
+    semantic: "Szemantikus",
+    hybrid: "Hybrid",
+    section_context: "Szekciókörnyezet",
+    context_neighbor: "Környezeti szövegrész",
+    heading_bridge: "Cím alatti szövegrész"
   };
   return labels[String(value)] ?? String(value);
 }

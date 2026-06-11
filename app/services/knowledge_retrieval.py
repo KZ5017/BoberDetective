@@ -125,10 +125,23 @@ def keyword_knowledge_search(
     for document in documents:
         for chunk in read_knowledge_chunks(document):
             text = " ".join(chunk.text.casefold().split())
+            heading_text = " ".join(chunk.heading_path.casefold().split())
+            path_text = " ".join(
+                part
+                for part in [
+                    document.relative_path or "",
+                    document.original_filename or "",
+                ]
+                if part
+            ).casefold()
             score = 0.0
             if exact and exact in text:
                 score += 2.5
-            score += sum(1.0 for term in terms if term in text)
+            if exact and exact in heading_text:
+                score += 3.0
+            score += sum(1.0 for term in terms if text_contains_term(text, term))
+            score += sum(1.2 for term in terms if text_contains_term(heading_text, term))
+            score += min(1.5, sum(0.25 for term in terms if text_contains_term(path_text, term)))
             if score <= 0:
                 continue
             candidates.append(
@@ -404,9 +417,21 @@ def expand_context_neighbors(
         if per_seed_limit <= 0:
             continue
         section_context = section_context_for_seed(chunks, seed.chunk, query, per_seed_limit=per_seed_limit)
-        expansion_chunks = section_context or context_neighbors_for_seed(chunks, seed.chunk, per_seed_limit=per_seed_limit)
-        match_type = "section_context" if section_context else "context_neighbor"
-        score_factor = 0.72 if section_context else 0.65
+        heading_bridge_context = [] if section_context else heading_bridge_context_for_seed(chunks, seed.chunk, query, per_seed_limit=per_seed_limit)
+        expansion_chunks = (
+            section_context
+            or heading_bridge_context
+            or context_neighbors_for_seed(chunks, seed.chunk, per_seed_limit=per_seed_limit)
+        )
+        if section_context:
+            match_type = "section_context"
+            score_factor = 0.72
+        elif heading_bridge_context:
+            match_type = "heading_bridge"
+            score_factor = 0.7
+        else:
+            match_type = "context_neighbor"
+            score_factor = 0.65
         for distance, neighbor in enumerate(expansion_chunks, start=1):
             if added >= neighbor_budget:
                 break
@@ -499,6 +524,43 @@ def section_context_for_seed(
     context_chunks: list[KnowledgeStoredChunk] = []
     for candidate in chunks[seed_position + 1 :]:
         if not compatible_heading_path(seed_chunk.heading_path, candidate.heading_path):
+            break
+        context_chunks.append(candidate)
+        if len(context_chunks) >= per_seed_limit:
+            break
+    return context_chunks
+
+
+def heading_bridge_context_for_seed(
+    chunks: list[KnowledgeStoredChunk],
+    seed_chunk: KnowledgeStoredChunk,
+    query: str,
+    *,
+    per_seed_limit: int = KNOWLEDGE_MEDIUM_EXPANSION_LIMIT,
+) -> list[KnowledgeStoredChunk]:
+    if per_seed_limit <= 0 or not query.strip():
+        return []
+    if seed_chunk.heading_path.strip():
+        return []
+    index_by_chunk_id = {chunk.chunk_id: index for index, chunk in enumerate(chunks)}
+    seed_position = index_by_chunk_id.get(seed_chunk.chunk_id)
+    if seed_position is None:
+        return []
+
+    first_matching: KnowledgeStoredChunk | None = None
+    for candidate in chunks[seed_position + 1 :]:
+        if not candidate.heading_path.strip():
+            continue
+        if not score_heading_relevance(candidate, query).is_heading_seed:
+            return []
+        first_matching = candidate
+        break
+    if first_matching is None:
+        return []
+
+    context_chunks: list[KnowledgeStoredChunk] = []
+    for candidate in chunks[index_by_chunk_id[first_matching.chunk_id] :]:
+        if not score_heading_relevance(candidate, query).is_heading_seed:
             break
         context_chunks.append(candidate)
         if len(context_chunks) >= per_seed_limit:

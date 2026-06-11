@@ -25,6 +25,7 @@ Read these first:
 - `Design_documents/21_markdown_knowledge_base_module_plan.md`
 - `Design_documents/22_markdown_ast_chunking_plan.md`
 - `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md`
+- `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md`
 
 Then run:
 
@@ -38,7 +39,7 @@ Expected current baseline:
 ```text
 pytest full suite, latest known: 377 passed
 latest targeted document-discard regression slice: 59 passed
-latest targeted knowledge query/API slice: 28 passed
+latest targeted knowledge query/API slice: 49 passed
 alembic: 0047_knowledge_index_metadata (head)
 npm --prefix frontend run build: passed
 ```
@@ -101,6 +102,7 @@ npm --prefix frontend run build: passed
 - `Tudásbázis` LLM answer parsing is intentionally more tolerant than strict investigative object parsing: when `answer_text` is present, missing `source_summary` defaults to an empty string, missing `insufficient_source` defaults to `false`, string/numeric boolean-like values are coerced, and fallback parsing can recover answer-only JSON with Markdown/code-heavy text.
 - `Tudásbázis` answer/source rendering is now practical for large Markdown answers: answer text uses safe Markdown/GFM rendering, the `Felhasznált Markdown források` panel is full-width and collapsible, source cards show metadata first, full chunk text is fetched lazily through `GET /api/v1/knowledge/documents/{knowledge_document_id}/chunks/{chunk_id}` only when a source is opened, opened source text renders as Markdown, and a local search field filters visible source cards.
 - Current `Tudásbázis` retrieval quality baseline: `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md` is implemented through baseline tests, first Markdown-aware scoring, same-document/same-heading context expansion, and the first `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md` implementation slice. Backend-generated query variants were explicitly removed from the plan.
+- Current `Tudásbázis` retrieval v2 hardening slice is implemented for the OWASP-style heading-meta gap: top-level Markdown headings that exist through `heading_path`/`text_layer.headings` metadata now influence keyword/hybrid retrieval, and high-priority pre-heading intro chunks can bridge into the immediately following query-matching heading branch. Bridge-expanded chunks use `retrieval_match_type=heading_bridge`, shown in the frontend as a Hungarian source-origin chip. The SOURCE prompt heading-path visibility is covered by regression test.
 - The first baseline retrieval test slice from that plan is complete: current semantic hit mapping, hybrid keyword/semantic/overlap score behavior, stable tie ordering, and LLM input ordering by document/path/chunk are covered in `tests/test_knowledge_query.py`.
 - The first Markdown-aware hybrid scoring slice is complete: hybrid retrieval now adds bounded bonuses for exact query matches, heading path matches, technical token overlap, code language matches, and code-block presence when the query supports a technical/code-oriented interpretation. Keyword mode and standalone semantic retrieval remain unchanged.
 - `Tudásbázis` semantic/hybrid retrieval now has section-aware context expansion: heading-relevant seeds can pull in multiple following chunks from the same compatible heading branch. Added section chunks use `retrieval_match_type=section_context`; direct `context_neighbor` remains as fallback for non-heading seeds. Expansion never crosses document boundaries and respects the hard `max_chunks` cap.
@@ -108,7 +110,7 @@ npm --prefix frontend run build: passed
 - `Tudásbázis` expansion now uses a separate `expansion_priority`, not just raw semantic/hybrid score. It combines retrieval score, heading relevance, path/filename topic hints, and technical/code hints. Heading seeds remain privileged, but strong non-heading seeds can also pull forward context from following compatible chunks: high priority can bring up to 10 following chunks, medium priority up to 6, and low priority gets no automatic context. This directly targets cases where retrieval finds a relevant short paragraph or heading-like gateway but the useful Markdown body sits after it.
 - Preparatory refactor for that step is complete: `app/services/knowledge_retrieval.py` now owns keyword/semantic/hybrid retrieval, Markdown-aware scoring, context-neighbor expansion, heading helpers, and LLM input ordering helpers. `app/services/knowledge_query.py` remains the higher-level query orchestration and LLM-answer parser.
 - Heading/section seed scoring has started: `HeadingRelevanceScore` makes heading query matches and heading-level bonus explicit. The level bonus is bounded and applies only to headings that actually match the query, so unrelated high-level headings are not rewarded.
-- Latest focused knowledge-retrieval verification: `.venv/bin/python -m pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q` returned `45 passed`.
+- Latest focused knowledge-retrieval verification: `.venv/bin/python -m pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q` returned `49 passed`.
 - Current RAG answer generation defaults to `hybrid` retrieval, `max_chunks=30`, max `60`, and document-isolated generation when multiple documents contribute selected chunks: retrieval still selects chunks by relevance, selected chunks are reordered by document/page/chunk, each contributing document gets a separate document-level LLM partial answer, and a final synthesis LLM call answers from those partial answers. Single-document RAG still uses one direct LLM call. Responses expose `retrieval_metadata.document_answer_count` so the UI can show how many document partial answers contributed.
 - `Általános iratkérdező` now has an `Ügy munkapad`-style top status row: a RAG-scoped `Szemantikus index állapot` card plus a persistent `Utolsó iratkérdező keresés` card backed by `GET /api/v1/cases/{case_id}/rag/latest-run-summary`. Case-scope RAG can now operate over the full case or an explicit selected-document subset through `document_ids`; the frontend exposes this with the same checkbox/radio document selector pattern used by `Elemzés`. Saved RAG answers preserve and display `source_summary`, saved-answer opening scrolls to the detail panel, and full-document `Fókuszba teszem` handoff now lands on the `Elemzés` panel after filling the focus.
 - Full case deletion is available through `DELETE /api/v1/cases/{case_id}` and the frontend `Ügy végleges törlése` action. It deletes case-owned DB rows, requests Qdrant point deletion by `case_id`, removes the case data-root directory, and writes a surviving global `case_deleted` audit event.
