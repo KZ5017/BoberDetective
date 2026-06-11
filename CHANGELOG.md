@@ -26,6 +26,7 @@
 - Simplified `Tudásbázis` document cards to follow the shared file-card pattern: the card identity is the stored `path + filename`, status/chunk/index metadata remains visible, and archive/final-delete actions live in selected-document toolbar controls instead of per-card buttons.
 - Reworked the `Tudásbázis` desktop layout into a two-column module: the left column contains `Kérdés a tudásbázishoz`, `Tudásanyag importálás`, and `Markdown tudásanyag`; the right column contains `Aktuális tudásbázis válasz`. Query controls, import preview, document list, empty states, and current-answer placeholders were aligned with the existing workbench UI token system.
 - Polished the `Tudásbázis` mobile layout so import/document-list toolbar buttons stack cleanly and long stored Markdown paths wrap inside cards instead of horizontal-scrolling out of view.
+- Tightened the mobile `Tudásbázis` Markdown answer/source layout: the mobile media query now keeps long Markdown text, inline code, fenced code blocks, tables, links, paths, source-card metadata, and opened source chunks inside their cards/panels instead of allowing horizontal overflow.
 - Refined the `Teljes iratfeldolgozás` UI: `Irat és feldolgozási profil` and `Iratösszefoglaló` now form the first 1:1 row, `Előkészített munkalista` remains the full-width second row, profile/page-range controls align in one desktop row, guide text noise was removed, placeholder cards use the shared tokenized style, summary content no longer vertically stretches, and mobile controls/buttons stack cleanly.
 - Refined the `Irat rendező` / `Iratgyűjtemények` UI: the selected-collection content no longer uses an unnecessary nested `Gyűjtemény tartalma` panel, no-selection now shows a normal empty state instead of auto-selecting the first collection, collection/document panels have stable height behavior, the document list minimum height was increased, and mobile collection buttons now use full-width rows.
 - Documented the next `Tudásbázis` quality target as Markdown-aware semantic/hybrid retrieval hardening: heading/code/token-aware hybrid scoring, same-document/same-heading context expansion, stable document/heading/chunk ordering, and deterministic reranking if needed.
@@ -50,6 +51,7 @@
 - `.venv/bin/pytest tests/test_markdown_parser.py tests/test_knowledge_import.py tests/test_knowledge_api.py tests/test_knowledge_query.py tests/test_analysis_modules.py tests/test_rag.py -q`
 - `.venv/bin/pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q` (`22 passed`)
 - `npm --prefix frontend run build`
+- `npm --prefix frontend run build` after mobile Markdown source wrapping changes
 - `git diff --check`
 
 ## 2026-06-09

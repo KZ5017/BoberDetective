@@ -3602,6 +3602,77 @@ pre {
     max-height: 24rem;
   }
 
+  .knowledge-answer-panel,
+  .knowledge-used-sources-panel,
+  .knowledge-used-sources-disclosure,
+  .knowledge-source-toolbar,
+  .knowledge-source-list,
+  .knowledge-source-card,
+  .knowledge-source-detail,
+  .knowledge-source-expanded,
+  .knowledge-source-full-text,
+  .markdown-source-text,
+  .rag-answer-card,
+  .rag-answer-text,
+  .markdown-answer {
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .knowledge-used-sources-disclosure summary,
+  .knowledge-source-toolbar {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .knowledge-source-toolbar .metrics {
+    justify-content: start;
+    white-space: normal;
+  }
+
+  .knowledge-source-detail > button {
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  .knowledge-source-list {
+    max-height: 30rem;
+    overflow: auto;
+    padding-right: 0;
+  }
+
+  .knowledge-source-full-text {
+    max-height: 28rem;
+  }
+
+  .markdown-answer :where(p, li, blockquote, th, td, code, a, strong) {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .markdown-answer :where(ul, ol) {
+    padding-left: 1rem;
+  }
+
+  .markdown-answer :where(pre) {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+  }
+
+  .markdown-answer :where(pre code) {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .markdown-answer :where(table) {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
   .analysis-process-row {
     gap: 0.45rem;
   }
