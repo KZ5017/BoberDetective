@@ -193,9 +193,9 @@ def test_hybrid_merge_baseline_combines_keyword_semantic_and_overlap_scores() ->
     assert [hit.chunk.chunk_id for hit in hits] == [overlap_chunk.chunk_id, semantic_chunk.chunk_id, keyword_chunk.chunk_id]
     assert [hit.match_type for hit in hits] == ["hybrid", "semantic", "keyword"]
     assert [hit.label for hit in hits] == ["source_1", "source_2", "source_3"]
-    assert hits[0].retrieval_score == 0.99
-    assert hits[1].retrieval_score == 0.495
-    assert hits[2].retrieval_score == 0.175
+    assert hits[0].retrieval_score == 1.03
+    assert hits[1].retrieval_score == 0.315
+    assert hits[2].retrieval_score == 0.275
 
 
 def test_hybrid_merge_baseline_uses_stable_path_and_chunk_tiebreakers() -> None:
@@ -310,16 +310,25 @@ def test_expansion_priority_uses_heading_path_and_filename_beyond_raw_semantic_s
 
     priority = expansion_priority(hit, "Adj egy részletes cheatsheetet kubernetes támadásra")
 
-    assert priority >= 0.8
+    assert priority >= 0.7
     assert expansion_context_limit_for_seed(hit, "Adj egy részletes cheatsheetet kubernetes támadásra") == 10
+
+
+def test_high_expansion_priority_gets_larger_forward_context() -> None:
+    document = _document()
+    chunk = _chunk("Kubernetes támadás cheatsheet.", chunk_index=1, heading_path="Kubernetes > Offensive")
+    hit = KnowledgeRetrievedChunk("", document, chunk, 0.82, "hybrid")
+
+    assert expansion_priority(hit, "kubernetes támadás") >= 0.9
+    assert expansion_context_limit_for_seed(hit, "kubernetes támadás") == 15
 
 
 def test_medium_expansion_priority_gets_limited_forward_context() -> None:
     document = _document()
     chunk = _chunk("CMD fájlmásolás rövid találat.", chunk_index=1, heading_path="Windows > CMD")
-    hit = KnowledgeRetrievedChunk("", document, chunk, 0.62, "semantic")
+    hit = KnowledgeRetrievedChunk("", document, chunk, 0.72, "semantic")
 
-    assert expansion_context_limit_for_seed(hit, "általános kérdés") == 6
+    assert expansion_context_limit_for_seed(hit, "általános kérdés") == 10
 
 
 def test_low_expansion_priority_gets_no_context() -> None:
@@ -479,6 +488,52 @@ def test_context_neighbor_expansion_adds_same_heading_neighbors(monkeypatch) -> 
     assert [hit.match_type for hit in expanded] == ["semantic", "context_neighbor"]
 
 
+def test_context_expansion_does_not_spend_budget_on_low_score_seed(monkeypatch) -> None:
+    document = _document()
+    seed_chunk = _chunk("Gyenge találat.", chunk_index=1, heading_path="Windows > CMD")
+    next_chunk = _chunk("Következő chunk.", chunk_index=2, heading_path="Windows > CMD")
+    monkeypatch.setattr("app.services.knowledge_retrieval.read_knowledge_chunks", lambda item: [seed_chunk, next_chunk])
+
+    expanded = expand_context_neighbors(
+        [document],
+        [KnowledgeRetrievedChunk("source_1", document, seed_chunk, 0.42, "semantic")],
+        8,
+        query="általános kérdés",
+    )
+
+    assert [hit.chunk.chunk_index for hit in expanded] == [1]
+
+
+def test_context_expansion_allows_low_raw_score_with_strong_heading_priority(monkeypatch) -> None:
+    document = _document(
+        original_filename="2_KubeCTL_detailed.md",
+        relative_path="Technologies_AND_Softwares/Kubernetes/2_KubeCTL_detailed.md",
+    )
+    seed_chunk = _chunk(
+        "kubectl OFFENSIVE SECURITY CHEATSHEET",
+        chunk_index=1,
+        heading_path="kubectl OFFENSIVE SECURITY CHEATSHEET",
+        heading_level=1,
+    )
+    next_chunk = _chunk(
+        "kubectl auth can-i --list",
+        chunk_index=2,
+        heading_path="kubectl OFFENSIVE SECURITY CHEATSHEET > Enumeration",
+        heading_level=2,
+    )
+    monkeypatch.setattr("app.services.knowledge_retrieval.read_knowledge_chunks", lambda item: [seed_chunk, next_chunk])
+
+    expanded = expand_context_neighbors(
+        [document],
+        [KnowledgeRetrievedChunk("source_1", document, seed_chunk, 0.337, "semantic")],
+        8,
+        query="Adj egy részletes cheatsheetet kubernetes támadásra",
+    )
+
+    assert [hit.chunk.chunk_index for hit in expanded] == [1, 2]
+    assert [hit.match_type for hit in expanded] == ["semantic", "section_context"]
+
+
 def test_section_context_for_heading_seed_collects_following_compatible_chunks() -> None:
     seed = _chunk("Kubernetes címszakasz.", chunk_index=0, heading_path="Kubernetes", heading_level=1)
     child = _chunk("kubectl leírás.", chunk_index=1, heading_path="Kubernetes > kubectl", heading_level=2)
@@ -633,7 +688,7 @@ def test_context_neighbor_expansion_respects_max_chunks(monkeypatch) -> None:
     assert [hit.chunk.chunk_index for hit in expanded] == [0, 1, 2, 3]
 
 
-def test_semantic_selection_reserves_room_for_context_neighbors(monkeypatch) -> None:
+def test_semantic_selection_uses_larger_candidate_pool_before_context_packing(monkeypatch) -> None:
     document = _document()
     seed_chunk = _chunk("CMD copy parancs.", chunk_index=1, heading_path="Windows > CMD")
     captured = {}
@@ -652,7 +707,7 @@ def test_semantic_selection_reserves_room_for_context_neighbors(monkeypatch) -> 
         KnowledgeQueryRequest(question="CMD fájlmásolás", retrieval_strategy="semantic", max_chunks=8),
     )
 
-    assert captured["limit"] == 4
+    assert captured["limit"] == 30
     assert [hit.chunk.chunk_index for hit in hits] == [1]
 
 

@@ -5,12 +5,13 @@
 ### Changed
 
 - Implemented the first `Tudásbázis` retrieval v2 hardening slice for the OWASP Top 10 cheat-sheet heading-meta case: keyword/hybrid retrieval now treats `heading_path`, relative path, and filename as retrieval evidence, and high-priority pre-heading intro chunks can bridge into the immediately following query-matching heading branch with `retrieval_match_type=heading_bridge`.
+- Implemented the next `Tudásbázis` retrieval tuning slice from the section-aware packing plan: hybrid retrieval now weights keyword evidence more strongly than semantic evidence, semantic/hybrid retrieval starts from a larger candidate pool, seed/context splitting happens after final candidate scoring, expansion cutoff applies only to expansion seeds, and high-confidence seeds can pull more forward Markdown context.
 - Added Hungarian frontend labels for the expanded `Tudásbázis` source-origin types (`heading_bridge`, `section_context`, `context_neighbor`) so source cards show readable chips instead of backend-internal values.
 - Updated `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md`, `AI_NOTES.md`, and `CURRENT_STATE.md` with the implemented heading-path scoring / pre-heading bridge behavior and verification state.
 
 ### Verified
 
-- `.venv/bin/python -m pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q` (`49 passed`)
+- `.venv/bin/python -m pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q` (`52 passed`)
 - `npm --prefix frontend run build`
 
 ## 2026-06-11

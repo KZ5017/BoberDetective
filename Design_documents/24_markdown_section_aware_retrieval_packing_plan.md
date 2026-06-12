@@ -634,6 +634,177 @@ Verifikacio:
 49 passed
 ```
 
+## 12d. Implementalt tuning: kesobbi seed/context vagas es keyword-dominans hybrid
+
+A live tesztek alapjan a jelenlegi irany jo, de a relevans tartalom aranya
+tovabb javithato volt. Ez a tuning-szelet stabil jelenlegi allapotkent
+rogziti, hogy kevesebb, de erosebb seed chunkbol indulunk, es tobb keretet
+hagyunk a seedek utani Markdown kontextusnak.
+
+### 12d.1 Problema
+
+A jelenlegi semantic/hybrid utvonalon a seed/context arany koran beleszol a
+retrievalbe:
+
+```python
+neighbor_budget = int(max_chunks * 0.55)
+seed_limit = max_chunks - neighbor_budget
+```
+
+Ez azt jelenti, hogy a keyword/semantic/hybrid lekeres mar eleve csokkentett
+seed limitet kap. Igy elofordulhat, hogy a vegso score szerinti rangsor
+letrejotte elott vagunk el hasznos candidate-eket.
+
+Masik tapasztalat: Markdown tudasbazisnal a konkret query-termek, headingek,
+fajlnevek, utvonalak, parancsnevek es technikai tokenek gyakran fontosabbak,
+mint a puszta szemantikus hasonlosag. Ezert hybrid modban a keyword oldalt
+erdemes erosebbre venni.
+
+### 12d.2 Implementalt hybrid score arany
+
+Jelenlegi arany:
+
+```text
+keyword normalizalt suly: max 0.35
+semantic suly: max 0.55
+keyword+semantic overlap: +0.2
+Markdown-aware bonusz: max 0.35
+```
+
+Implementalt arany:
+
+```text
+keyword normalizalt suly: max 0.55
+semantic suly: max 0.35
+keyword+semantic overlap: +0.2
+Markdown-aware bonusz: max 0.35
+```
+
+Indoklas:
+
+- Markdown jegyzetekben a cimek, technikai tokenek es konkret parancsok
+  erosebb relevanciajelek lehetnek, mint a szemantikus hasonlosag.
+- A semantic komponens tovabbra is megmarad, de nem dominalhatja tul a
+  pontosabb textualis/strukturalt jeleket.
+
+### 12d.3 Seed/context arany kesobbre mozgatasa
+
+Cel: a seed/context keretmegosztas ne a nyers retrieval lekeres elott, hanem
+azutan tortenjen, hogy a candidate-ek vegso score-ja mar kialakult.
+
+Implementalt irany:
+
+1. Keyword es semantic oldalon nagyobb candidate poolbol dolgozunk.
+   - Pelda: ne a vegso `seed_limit`, hanem legalabb `max_chunks` vagy
+     `max(max_chunks, 30)` legyen az elso candidate limit.
+2. Hybrid merge es Markdown-aware bonusz utan alakuljon ki a vegso candidate
+   score.
+3. Csak ezutan dontunk arrol, mennyi seed es mennyi context ferhet be.
+
+Implementalt arany:
+
+```python
+seed_limit = max(1, int(max_chunks * 0.34))
+context_budget = max_chunks - seed_limit
+```
+
+Ez gyakorlatban:
+
+```text
+max_chunks=30 -> kb. 10 seed + 20 context
+max_chunks=9  -> kb. 3 seed + 6 context
+```
+
+Ez jobban illeszkedik ahhoz a celhoz, hogy a legjobb talalatok kore nagyobb
+osszefuggo Markdown kontextust adjunk az LLM-nek.
+
+### 12d.4 Score cutoff csak expansion seedre
+
+Nem akarunk minden alacsonyabb score-u chunkot automatikusan kidobni, mert a
+score kulonbozo retrieval modokban nem teljesen ugyanazt jelenti.
+
+Ezert az elso tuningban a cutoff ne teljes candidate-kidobas legyen, hanem
+csak expansion-seed szuro.
+
+Implementalt szabaly:
+
+```text
+score >= 0.66 -> lehet expansion seed
+score < 0.66, de expansion_priority >= 0.70 -> lehet expansion seed
+score < 0.66 es expansion_priority < 0.70 -> onmagaban meg bekerulhet, de
+                                             nem huzhat maga utan nagy
+                                             forward contextet
+```
+
+Indoklas:
+
+- Igy a gyengebb, de esetleg hasznos chunkok nem vesznek el teljesen.
+- Viszont csak eros candidate-ek hasznalhatjak el a draga context budgetet.
+- A low raw score, de heading/path/technical jelek miatt eros seedek tovabbra
+  kepesek kontextust huzni, hogy a `kubectl OFFENSIVE SECURITY CHEATSHEET`
+  jellegu esetek ne regresszaljanak.
+
+### 12d.5 Expansion kuszobok emelese
+
+Jelenlegi szabaly:
+
+```text
+priority >= 0.80 -> seed + max 10 kovetkezo kompatibilis chunk
+priority >= 0.60 -> seed + max 6 kovetkezo kompatibilis chunk
+alatta -> nincs automatikus forward context
+```
+
+Implementalt szabaly:
+
+```text
+priority >= 0.90 -> seed + max 15 kovetkezo kompatibilis chunk
+priority >= 0.70 -> seed + max 10 kovetkezo kompatibilis chunk
+alatta -> nincs automatikus forward context
+```
+
+Indoklas:
+
+- Az eros seedek mogotti teljesebb Markdown section gyakran tobbet er, mint
+  sok kulonallo kozepes seed.
+- A magasabb kuszob ellensulyozza a nagyobb context limitet.
+
+### 12d.6 Fekek
+
+A tuning utan is maradjanak meg ezek a szabalyok:
+
+- `max_chunks` tovabbra is kemeny plafon.
+- Expansion nem lephet at masik dokumentumba.
+- Heading/section expansion csak kompatibilis heading agban haladhat.
+- Pre-heading bridge csak kozvetlenul kovetkezo query-matching heading agra
+  lephet at.
+- Vegso LLM sorrend tovabbra is dokumentumscore szerint, dokumentumon belul
+  `chunk_index` szerint tortenik.
+
+### 12d.7 Implementacios allapot
+
+1. Tesztben rogzitve, hogy hybrid scoringban a keyword oldal erosebb sulyt
+   kap. `ELKESZULT`
+2. Tesztben rogzitve, hogy a semantic/hybrid lekeres nagyobb candidate poolbol
+   indul, es a seed/context vagas kesobb tortenik. `ELKESZULT`
+3. Bevezetve az expansion-seed cutoff ugy, hogy alacsonyabb score-u chunk
+   onmagaban meg ne vesszen el, es eros heading/path/technical priority mellett
+   tovabbra is bovulhet. `ELKESZULT`
+4. Atallitva az expansion kuszobok es limitek. `ELKESZULT`
+5. Celzott knowledge query tesztek futtatva. `ELKESZULT`
+6. Elso user-side live visszajelzes: a valaszminoseg es a forrasvalasztas
+   erzekelhetoen javult. Tovabbi hasznos live regression kerdesek:
+   - OWASP Top 10 cheat-sheet,
+   - Kubernetes/kubectl offensive cheatsheet,
+   - CMD-only fajlmasolas,
+   - legalabb egy altalanosabb, nem technikai kerdes.
+
+Verifikacio:
+
+```text
+.venv/bin/python -m pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q
+52 passed
+```
+
 ## 13. Nyitott kerdesek
 
 1. Mi legyen a section expansion maximalis tavolsaga?

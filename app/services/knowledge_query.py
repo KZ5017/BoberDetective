@@ -22,11 +22,11 @@ from app.services.knowledge_retrieval import (
     KnowledgeRetrievalError as KnowledgeQueryError,
     KnowledgeRetrievalValidationError as KnowledgeQueryValidationError,
     KnowledgeRetrievedChunk,
-    context_seed_limit,
     expand_context_neighbors,
     keyword_knowledge_search,
     merge_hybrid_hits,
     order_retrieved_chunks_for_llm,
+    retrieval_candidate_limit,
     semantic_knowledge_search,
 )
 from app.services.llm import LLMChatMessage, LLMProviderError, LMStudioNativeProvider
@@ -100,13 +100,13 @@ def select_knowledge_source_chunks(db: Session, payload: KnowledgeQueryRequest) 
         return []
     if payload.retrieval_strategy == "keyword":
         return keyword_knowledge_search(documents, payload.question, payload.max_chunks)
-    seed_limit = context_seed_limit(payload.max_chunks)
+    candidate_limit = retrieval_candidate_limit(payload.max_chunks)
     if payload.retrieval_strategy == "semantic":
-        semantic_hits = semantic_knowledge_search(db, documents, payload.question, seed_limit)
+        semantic_hits = semantic_knowledge_search(db, documents, payload.question, candidate_limit)
         return expand_context_neighbors(documents, semantic_hits, payload.max_chunks, query=payload.question)
-    keyword_hits = keyword_knowledge_search(documents, payload.question, seed_limit)
-    semantic_hits = semantic_knowledge_search(db, documents, payload.question, seed_limit)
-    hybrid_hits = merge_hybrid_hits(keyword_hits, semantic_hits, seed_limit, query=payload.question)
+    keyword_hits = keyword_knowledge_search(documents, payload.question, candidate_limit)
+    semantic_hits = semantic_knowledge_search(db, documents, payload.question, candidate_limit)
+    hybrid_hits = merge_hybrid_hits(keyword_hits, semantic_hits, candidate_limit, query=payload.question)
     return expand_context_neighbors(documents, hybrid_hits, payload.max_chunks, query=payload.question)
 
 

@@ -14,12 +14,13 @@ from app.services.knowledge_indexing import KnowledgeIndexError, QdrantKnowledge
 from app.services.llm import LLMProviderError, get_llm_provider
 
 
-KNOWLEDGE_CONTEXT_NEIGHBOR_RATIO = 0.55
+KNOWLEDGE_CONTEXT_NEIGHBOR_RATIO = 0.66
 KNOWLEDGE_SECTION_CONTEXT_PER_SEED_LIMIT = 10
-KNOWLEDGE_HIGH_EXPANSION_THRESHOLD = 0.8
-KNOWLEDGE_MEDIUM_EXPANSION_THRESHOLD = 0.6
-KNOWLEDGE_HIGH_EXPANSION_LIMIT = 10
-KNOWLEDGE_MEDIUM_EXPANSION_LIMIT = 6
+KNOWLEDGE_EXPANSION_SEED_SCORE_THRESHOLD = 0.66
+KNOWLEDGE_HIGH_EXPANSION_THRESHOLD = 0.9
+KNOWLEDGE_MEDIUM_EXPANSION_THRESHOLD = 0.7
+KNOWLEDGE_HIGH_EXPANSION_LIMIT = 15
+KNOWLEDGE_MEDIUM_EXPANSION_LIMIT = 10
 KNOWLEDGE_DOCUMENT_SCORE_TOP_HITS = 3
 KNOWLEDGE_DOCUMENT_COVERAGE_BONUS_PER_CHUNK = 0.03
 KNOWLEDGE_DOCUMENT_COVERAGE_BONUS_MAX = 0.18
@@ -211,7 +212,7 @@ def merge_hybrid_hits(
     candidates: dict[tuple[UUID, str], KnowledgeRetrievedChunk] = {}
     max_keyword_score = max((hit.retrieval_score for hit in keyword_hits), default=0.0)
     for hit in keyword_hits:
-        score = (hit.retrieval_score / max_keyword_score) * 0.35 if max_keyword_score > 0 else 0.0
+        score = (hit.retrieval_score / max_keyword_score) * 0.55 if max_keyword_score > 0 else 0.0
         candidates[(hit.document.id, hit.chunk.chunk_id)] = KnowledgeRetrievedChunk(
             "",
             hit.document,
@@ -221,7 +222,7 @@ def merge_hybrid_hits(
         )
     for hit in semantic_hits:
         key = (hit.document.id, hit.chunk.chunk_id)
-        semantic_score = min(1.0, max(0.0, hit.retrieval_score)) * 0.55
+        semantic_score = min(1.0, max(0.0, hit.retrieval_score)) * 0.35
         existing = candidates.get(key)
         if existing is None:
             candidates[key] = KnowledgeRetrievedChunk("", hit.document, hit.chunk, round(semantic_score, 6), "semantic")
@@ -377,14 +378,26 @@ def technical_query_terms(query: str) -> set[str]:
 
 
 def context_seed_limit(limit: int) -> int:
-    neighbor_budget = context_neighbor_budget(limit)
-    return max(1, limit - neighbor_budget)
+    if limit <= 1:
+        return max(1, limit)
+    return max(1, int(limit * (1 - KNOWLEDGE_CONTEXT_NEIGHBOR_RATIO)))
 
 
 def context_neighbor_budget(limit: int) -> int:
     if limit < 4:
         return 0
-    return min(max(1, int(limit * KNOWLEDGE_CONTEXT_NEIGHBOR_RATIO)), max(0, limit - 1))
+    return max(0, limit - context_seed_limit(limit))
+
+
+def retrieval_candidate_limit(limit: int) -> int:
+    return max(limit, 30)
+
+
+def can_expand_seed(hit: KnowledgeRetrievedChunk, query: str) -> bool:
+    return (
+        hit.retrieval_score >= KNOWLEDGE_EXPANSION_SEED_SCORE_THRESHOLD
+        or expansion_priority(hit, query) >= KNOWLEDGE_MEDIUM_EXPANSION_THRESHOLD
+    )
 
 
 def expand_context_neighbors(
@@ -396,7 +409,8 @@ def expand_context_neighbors(
 ) -> list[KnowledgeRetrievedChunk]:
     if not seed_hits:
         return []
-    neighbor_budget = min(context_neighbor_budget(limit), max(0, limit - len(seed_hits)))
+    seed_limit = context_seed_limit(limit)
+    neighbor_budget = context_neighbor_budget(limit)
     if neighbor_budget <= 0:
         return pack_retrieved_chunks_by_document(seed_hits, limit)
 
@@ -406,10 +420,11 @@ def expand_context_neighbors(
         for document in documents
         if document.id in seed_document_ids
     }
-    selected: list[KnowledgeRetrievedChunk] = list(seed_hits[:limit])
+    selected: list[KnowledgeRetrievedChunk] = list(seed_hits)
     selected_keys = {(hit.document.id, hit.chunk.chunk_id) for hit in selected}
     added = 0
-    for seed in seed_hits:
+    expansion_seeds = [hit for hit in seed_hits if can_expand_seed(hit, query)][:seed_limit]
+    for seed in expansion_seeds:
         if added >= neighbor_budget:
             break
         chunks = chunks_by_document.get(seed.document.id, [])
