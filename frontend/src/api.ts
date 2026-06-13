@@ -205,6 +205,60 @@ export type SourceReferenceRead = {
   created_at: string;
 };
 
+export type RelationshipGraphNodeStatus = {
+  review_status: string | null;
+  source_validation_status: string | null;
+};
+
+export type RelationshipGraphNode = {
+  id: string;
+  type: string;
+  label: string;
+  subtitle: string | null;
+  status: RelationshipGraphNodeStatus;
+  metadata: Record<string, unknown>;
+};
+
+export type RelationshipGraphEdge = {
+  id: string;
+  type: string;
+  source: string;
+  target: string;
+  label: string;
+  metadata: Record<string, unknown>;
+};
+
+export type RelationshipGraphWarning = {
+  code: string;
+  message: string;
+};
+
+export type RelationshipGraphLimits = {
+  max_nodes: number;
+  max_edges: number;
+  node_count: number;
+  edge_count: number;
+  truncated: boolean;
+};
+
+export type RelationshipGraphFocusObject = {
+  object_type: string;
+  object_id: string;
+};
+
+export type RelationshipGraph = {
+  case_id: string;
+  focus_node_id: string;
+  focus_object_type: string;
+  focus_object_id: string;
+  focus_node_ids: string[];
+  focus_objects: RelationshipGraphFocusObject[];
+  nodes: RelationshipGraphNode[];
+  edges: RelationshipGraphEdge[];
+  warnings: RelationshipGraphWarning[];
+  limits: RelationshipGraphLimits;
+};
+
 export type ResearchFindingRead = {
   id: string;
   case_id: string;
@@ -1624,6 +1678,22 @@ export function getReviewReport(caseId: string, filters: ReviewReportFilterValue
   }
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   return request(`/cases/${caseId}/review-report${suffix}`);
+}
+
+export function getRelationshipGraphForObjects(
+  caseId: string,
+  payload: {
+    focus_objects: RelationshipGraphFocusObject[];
+    include_shared_sources?: boolean;
+    max_nodes?: number;
+    max_edges?: number;
+  }
+): Promise<RelationshipGraph> {
+  return request(`/cases/${caseId}/graph/objects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
 }
 
 export function createExport(

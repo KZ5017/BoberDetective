@@ -17,6 +17,7 @@ from app.api.v1.knowledge import router as knowledge_router
 from app.api.v1.manual_entries import router as manual_entries_router
 from app.api.v1.missing_items import router as missing_items_router
 from app.api.v1.rag import router as rag_router
+from app.api.v1.relationship_graph import router as relationship_graph_router
 from app.api.v1.review_report import router as review_report_router
 from app.api.v1.research_findings import router as research_findings_router
 from app.api.v1.search import router as search_router
@@ -41,6 +42,7 @@ api_router.include_router(knowledge_router, tags=["knowledge"])
 api_router.include_router(manual_entries_router, tags=["manual-entries"])
 api_router.include_router(missing_items_router, tags=["missing-items"])
 api_router.include_router(rag_router, tags=["rag"])
+api_router.include_router(relationship_graph_router, tags=["relationship-graph"])
 api_router.include_router(review_report_router, tags=["review-report"])
 api_router.include_router(research_findings_router, tags=["research-findings"])
 api_router.include_router(search_router, tags=["search"])

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -63,6 +63,10 @@ import {
   KnowledgeIndexStatusResponse,
   KnowledgeQueryResponse,
   KnowledgeUsedSource,
+  RelationshipGraph,
+  RelationshipGraphEdge,
+  RelationshipGraphFocusObject,
+  RelationshipGraphNode,
   ResearchFindingLatestRunSummary,
   ResearchFindingRead,
   ReviewReport,
@@ -96,6 +100,7 @@ import {
   getChunkIndexStatus,
   getLatestResearchFindingRunSummary,
   getLatestRagRunSummary,
+  getRelationshipGraphForObjects,
   getRagAnswer,
   getReviewReport,
   importDocument,
@@ -149,6 +154,8 @@ import {
   updateReviewReportItemText
 } from "./api";
 
+const RelationshipFlowCanvas = lazy(() => import("./RelationshipFlowCanvas"));
+
 const modules = ["search_findings", "detect_contradiction_candidates"];
 
 const objectTypes = [
@@ -166,7 +173,7 @@ const analysisSourceModes: AnalysisSourceMode[] = ["case", "document", "collecti
 const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
 const retrievalStrategies: RetrievalStrategy[] = ["keyword", "semantic", "hybrid"];
 const ragAnswerModes: RagAnswerMode[] = ["short", "detailed"];
-const workSurfaces = ["document_organizer", "case_workbench", "full_document_processing", "general_rag", "knowledge_base", "audit_log"] as const;
+const workSurfaces = ["document_organizer", "case_workbench", "relationship_map", "full_document_processing", "general_rag", "knowledge_base", "audit_log"] as const;
 
 type WorkSurface = (typeof workSurfaces)[number];
 
@@ -189,6 +196,7 @@ function MarkdownAnswer({ children }: { children: string }) {
 const workSurfaceLabels: Record<WorkSurface, string> = {
   document_organizer: "Irat rendező",
   case_workbench: "Ügy munkapad",
+  relationship_map: "Kapcsolati térkép",
   full_document_processing: "Teljes iratfeldolgozás",
   general_rag: "Általános iratkérdező",
   knowledge_base: "Tudásbázis",
@@ -201,6 +209,30 @@ type SearchableSelectOption = {
   searchText?: string;
   disabled?: boolean;
 };
+
+type RelationshipGraphLayerKey = "document_node" | "page_node" | "source_chunk" | "source_reference" | "related_objects" | "contradictions";
+
+type RelationshipGraphLayerState = Record<RelationshipGraphLayerKey, boolean>;
+
+const relationshipGraphLayerLabels: Record<RelationshipGraphLayerKey, string> = {
+  document_node: "Irat",
+  page_node: "Oldal",
+  source_chunk: "Szövegrész",
+  source_reference: "Forráshivatkozás",
+  related_objects: "Kapcsolódó objektumok",
+  contradictions: "Ellentmondások"
+};
+
+const defaultRelationshipGraphLayers: RelationshipGraphLayerState = {
+  document_node: true,
+  page_node: false,
+  source_chunk: false,
+  source_reference: true,
+  related_objects: false,
+  contradictions: false
+};
+
+const maxRelationshipFocusObjects = 20;
 
 type AiOperationStatus = {
   label: string;
@@ -262,6 +294,7 @@ const busyLabels: Record<string, string> = {
   "knowledge-archive": "Tudásbázis dokumentum archiválása",
   "knowledge-restore": "Tudásbázis dokumentum visszaállítása",
   "knowledge-delete": "Tudásbázis dokumentum törlése",
+  "relationship-graph": "Kapcsolati térkép betöltése",
   "full-document-profiles": "Teljes iratfeldolgozási profilok betöltése",
   "full-document-items": "Teljes iratfeldolgozási munkalista betöltése",
   "full-document-run": "Teljes iratfeldolgozás futtatása",
@@ -322,6 +355,12 @@ const objectTypeLabels: Record<string, string> = {
   entity: "Entitás",
   contradiction_candidate: "Ellentmondásjelölt",
   missing_item_candidate: "Hiányzó iratjelölt",
+  source_reference: "Forráshivatkozás",
+  document: "Irat",
+  page: "Oldal",
+  chunk: "Szövegrész",
+  analysis_run: "Elemzési futás",
+  research_finding: "Kutatási találat",
   export: "Export"
 };
 
@@ -492,6 +531,13 @@ export function App() {
   const [knowledgeSourceDetails, setKnowledgeSourceDetails] = useState<Record<string, KnowledgeChunkDetail>>({});
   const [knowledgeSourceLoadingKeys, setKnowledgeSourceLoadingKeys] = useState<string[]>([]);
   const [knowledgeSourceErrors, setKnowledgeSourceErrors] = useState<Record<string, string>>({});
+  const [relationshipGraphObjectType, setRelationshipGraphObjectType] = useState("");
+  const [relationshipGraphFocusKeys, setRelationshipGraphFocusKeys] = useState<string[]>([]);
+  const [relationshipGraphObjectSearch, setRelationshipGraphObjectSearch] = useState("");
+  const [relationshipGraph, setRelationshipGraph] = useState<RelationshipGraph | null>(null);
+  const [relationshipGraphLayers, setRelationshipGraphLayers] = useState<RelationshipGraphLayerState>(defaultRelationshipGraphLayers);
+  const [selectedRelationshipEdgeId, setSelectedRelationshipEdgeId] = useState<string | null>(null);
+  const [selectedRelationshipNodeId, setSelectedRelationshipNodeId] = useState<string | null>(null);
   const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("case");
   const [analysisDocumentId, setAnalysisDocumentId] = useState("");
   const [analysisDocumentIds, setAnalysisDocumentIds] = useState<string[]>([]);
@@ -766,6 +812,47 @@ export function App() {
     if (!queryText) return report.items;
     return report.items.filter((item) => reportItemMatchesSearch(item, queryText));
   }, [report, reportSearch]);
+  const relationshipObjectCandidates = useMemo(() => {
+    if (!report) return [];
+    const queryText = relationshipGraphObjectSearch.trim().toLocaleLowerCase("hu-HU");
+    return report.items.filter((item) => {
+      if (relationshipGraphObjectType && item.object_type !== relationshipGraphObjectType) return false;
+      if (item.source_validation_status !== "source_valid") return false;
+      return !queryText || reportItemMatchesSearch(item, queryText);
+    });
+  }, [relationshipGraphObjectSearch, relationshipGraphObjectType, report]);
+  const relationshipVisibleCandidateKeys = useMemo(
+    () => relationshipObjectCandidates.map((item) => relationshipFocusKey(item.object_type, item.object_id)),
+    [relationshipObjectCandidates]
+  );
+  const selectedRelationshipFocusObjects = useMemo<RelationshipGraphFocusObject[]>(() => {
+    if (!report) return [];
+    const selectedKeys = new Set(relationshipGraphFocusKeys);
+    return report.items
+      .filter((item) => selectedKeys.has(relationshipFocusKey(item.object_type, item.object_id)))
+      .filter((item) => item.source_validation_status === "source_valid")
+      .map((item) => ({ object_type: item.object_type, object_id: item.object_id }));
+  }, [relationshipGraphFocusKeys, report]);
+  const selectedRelationshipFocusCount = selectedRelationshipFocusObjects.length;
+  const relationshipFocusLimitReached = selectedRelationshipFocusCount >= maxRelationshipFocusObjects;
+  const selectedRelationshipFocusLabels = useMemo(
+    () =>
+      selectedRelationshipFocusObjects
+        .map((focus) => labelObjectType(focus.object_type))
+        .reduce<Record<string, number>>((accumulator, label) => {
+          accumulator[label] = (accumulator[label] ?? 0) + 1;
+          return accumulator;
+        }, {}),
+    [selectedRelationshipFocusObjects]
+  );
+  const selectedVisibleRelationshipFocusCount = useMemo(() => {
+    const selectedKeys = new Set(relationshipGraphFocusKeys);
+    return relationshipVisibleCandidateKeys.filter((key) => selectedKeys.has(key)).length;
+  }, [relationshipGraphFocusKeys, relationshipVisibleCandidateKeys]);
+  const visibleRelationshipGraph = useMemo(
+    () => filterRelationshipGraphByLayers(relationshipGraph, relationshipGraphLayers),
+    [relationshipGraph, relationshipGraphLayers]
+  );
   const analysisHistoryCounts = useMemo(
     () => ({
       search_findings: analysisRuns.filter((run) => run.run_type === "search_findings").length,
@@ -2245,6 +2332,51 @@ export function App() {
     });
   }
 
+  async function loadRelationshipGraphForObjects(focusObjects: RelationshipGraphFocusObject[], options: { switchSurface?: boolean } = {}) {
+    if (!selectedCaseId || focusObjects.length === 0) return;
+    if (options.switchSurface) {
+      setActiveSurface("relationship_map");
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    }
+    await perform("relationship-graph", async () => {
+      const graph = await getRelationshipGraphForObjects(
+        selectedCaseId,
+        {
+          focus_objects: focusObjects,
+          include_shared_sources: true,
+          max_nodes: 150,
+          max_edges: 250
+        }
+      );
+      setRelationshipGraph(graph);
+      setSelectedRelationshipEdgeId(null);
+      setSelectedRelationshipNodeId(graph.focus_node_id);
+      setNotice("Kapcsolati térkép betöltve.");
+      setLastActionSummary(`${graph.focus_node_ids.length} fókusz | ${graph.limits.node_count} elem | ${graph.limits.edge_count} kapcsolat`);
+    });
+  }
+
+  async function loadRelationshipGraphFor(objectType: string, objectId: string, options: { switchSurface?: boolean } = {}) {
+    if (!objectType || !objectId.trim()) return;
+    setRelationshipGraphObjectType(objectType);
+    setRelationshipGraphFocusKeys([relationshipFocusKey(objectType, objectId.trim())]);
+    await loadRelationshipGraphForObjects([{ object_type: objectType, object_id: objectId.trim() }], options);
+  }
+
+  async function handleLoadRelationshipGraph() {
+    if (selectedRelationshipFocusObjects.length === 0) {
+      setRelationshipGraph(null);
+      setSelectedRelationshipEdgeId(null);
+      setSelectedRelationshipNodeId(null);
+      setNotice("Kapcsolati térkép kiürítve.");
+      setLastActionSummary("Nincs megjelenített kapcsolati térkép");
+      return;
+    }
+    await loadRelationshipGraphForObjects(selectedRelationshipFocusObjects);
+  }
+
   function toggleKnowledgeDocumentFilter(documentId: string) {
     setKnowledgeDocumentIds((current) =>
       current.includes(documentId)
@@ -2511,6 +2643,15 @@ export function App() {
 
   function reviewItemTextCanBeEdited(item: ReviewReportItem) {
     return item.review_status !== "corrected" && item.source_validation_status === "source_valid";
+  }
+
+  function reviewItemCanOpenRelationshipGraph(item: ReviewReportItem) {
+    return objectTypes.includes(item.object_type) && item.object_type !== "" && item.source_validation_status === "source_valid";
+  }
+
+  async function handleOpenRelationshipGraphFromReportItem(item: ReviewReportItem) {
+    if (!reviewItemCanOpenRelationshipGraph(item)) return;
+    await loadRelationshipGraphFor(item.object_type, item.object_id, { switchSurface: true });
   }
 
   function objectTextEditUnchanged(item: ReviewReportItem) {
@@ -4393,6 +4534,368 @@ export function App() {
     );
   }
 
+  function renderRelationshipGraphNode(node: RelationshipGraphNode) {
+    const isFocus = node.id === relationshipGraph?.focus_node_id;
+    const metadataEntries = Object.entries(node.metadata ?? {}).filter(([, value]) =>
+      value !== null && value !== undefined && typeof value !== "object"
+    );
+    return (
+      <article key={node.id} className={`compact-item graph-node-card ${isFocus ? "is-focus" : ""} ${node.id === selectedRelationshipNodeId ? "is-selected" : ""}`}>
+        <div className="item-card-header">
+          <div>
+            <strong>{node.label}</strong>
+            <div className="metrics">
+              <span>{labelObjectType(node.type)}</span>
+              {isFocus && <span>fókusz</span>}
+              {node.status.review_status && <span>{labelReviewStatus(node.status.review_status)}</span>}
+              {node.status.source_validation_status && <span>{labelSourceValidationStatus(node.status.source_validation_status)}</span>}
+            </div>
+          </div>
+        </div>
+        {node.subtitle && <p className="field-hint">{truncateText(node.subtitle, 260)}</p>}
+        {metadataEntries.length > 0 && (
+          <div className="metrics">
+            {metadataEntries.slice(0, 5).map(([key, value]) => (
+              <span key={`${node.id}-${key}`}>{key}: {String(value)}</span>
+            ))}
+          </div>
+        )}
+      </article>
+    );
+  }
+
+  function renderRelationshipGraphEdge(edge: RelationshipGraphEdge, graph: RelationshipGraph | null = relationshipGraph) {
+    const sourceNode = graph?.nodes.find((node) => node.id === edge.source);
+    const targetNode = graph?.nodes.find((node) => node.id === edge.target);
+    return (
+      <article key={edge.id} className={`compact-item graph-edge-card ${edge.id === selectedRelationshipEdgeId ? "is-selected" : ""}`}>
+        <div className="item-card-header">
+          <div>
+            <strong>{edge.label}</strong>
+            <div className="metrics">
+              <span>{edge.type}</span>
+            </div>
+          </div>
+        </div>
+        <p className="field-hint">
+          {sourceNode?.label ?? edge.source} → {targetNode?.label ?? edge.target}
+        </p>
+      </article>
+    );
+  }
+
+  function renderRelationshipSelectedNode(node: RelationshipGraphNode | null, graph: RelationshipGraph | null) {
+    if (!graph) {
+      return (
+        <div className="research-empty-state relationship-inspector-empty">
+          <strong>Nincs betöltött térkép</strong>
+          <p>Nyiss meg egy objektumot a kapcsolati nézethez.</p>
+        </div>
+      );
+    }
+    if (!node) {
+      return (
+        <div className="research-empty-state relationship-inspector-empty">
+          <strong>Nincs kijelölt elem</strong>
+          <p>Kattints egy elemre a térképen.</p>
+        </div>
+      );
+    }
+    return (
+      <div className="relationship-inspector-content">
+        {renderRelationshipGraphNode(node)}
+      </div>
+    );
+  }
+
+  function renderRelationshipSelectedEdge(edge: RelationshipGraphEdge | null, selectedNode: RelationshipGraphNode | null, graph: RelationshipGraph | null) {
+    if (!graph) {
+      return (
+        <div className="research-empty-state relationship-inspector-empty">
+          <strong>Nincs betöltött kapcsolat</strong>
+          <p>A kapcsolatok a térkép megnyitása után vizsgálhatók.</p>
+        </div>
+      );
+    }
+    if (edge) {
+      return (
+        <div className="relationship-inspector-content">
+          {renderRelationshipGraphEdge(edge)}
+        </div>
+      );
+    }
+    const relatedEdges = selectedNode
+      ? graph.edges.filter((item) => item.source === selectedNode.id || item.target === selectedNode.id)
+      : [];
+    if (relatedEdges.length === 0) {
+      return (
+        <div className="research-empty-state relationship-inspector-empty">
+          <strong>Nincs kijelölt kapcsolat</strong>
+          <p>Kattints egy kapcsolatra a térképen, vagy válassz olyan elemet, amelyhez tartozik kapcsolat.</p>
+        </div>
+      );
+    }
+    return (
+      <div className="compact-list relationship-inspector-list">
+        {relatedEdges.map((item) => renderRelationshipGraphEdge(item, graph))}
+      </div>
+    );
+  }
+
+  function toggleRelationshipFocusObject(item: ReviewReportItem) {
+    const key = relationshipFocusKey(item.object_type, item.object_id);
+    setRelationshipGraphFocusKeys((current) => {
+      if (current.includes(key)) {
+        return current.filter((value) => value !== key);
+      }
+      if (current.length >= maxRelationshipFocusObjects) {
+        setNotice(`Legfeljebb ${maxRelationshipFocusObjects} objektum jelölhető ki egyszerre.`);
+        return current;
+      }
+      return [...current, key];
+    });
+  }
+
+  function selectVisibleRelationshipFocusObjects() {
+    if (relationshipVisibleCandidateKeys.length === 0) return;
+    setRelationshipGraphFocusKeys((current) => {
+      const next = [...current];
+      for (const key of relationshipVisibleCandidateKeys) {
+        if (next.includes(key)) continue;
+        if (next.length >= maxRelationshipFocusObjects) {
+          setNotice(`Legfeljebb ${maxRelationshipFocusObjects} objektum jelölhető ki egyszerre.`);
+          break;
+        }
+        next.push(key);
+      }
+      return next;
+    });
+  }
+
+  function removeVisibleRelationshipFocusObjects() {
+    if (relationshipVisibleCandidateKeys.length === 0) return;
+    const visibleKeys = new Set(relationshipVisibleCandidateKeys);
+    setRelationshipGraphFocusKeys((current) => current.filter((key) => !visibleKeys.has(key)));
+  }
+
+  function clearRelationshipGraphAndSelection() {
+    setRelationshipGraphFocusKeys([]);
+    setRelationshipGraph(null);
+    setSelectedRelationshipEdgeId(null);
+    setSelectedRelationshipNodeId(null);
+    setNotice("Kapcsolati térkép kiürítve.");
+    setLastActionSummary("Nincs megjelenített kapcsolati térkép");
+  }
+
+  function renderRelationshipObjectOption(item: ReviewReportItem) {
+    const focusKey = relationshipFocusKey(item.object_type, item.object_id);
+    const isSelected = relationshipGraphFocusKeys.includes(focusKey);
+    const disabled = !isSelected && relationshipFocusLimitReached;
+    return (
+      <label key={item.object_id} className={`checkbox-label source-document-option relationship-object-option ${isSelected ? "is-selected" : ""}`}>
+        <input
+          type="checkbox"
+          checked={isSelected}
+          disabled={disabled}
+          onChange={() => toggleRelationshipFocusObject(item)}
+        />
+        <span>
+          <strong>{truncateText(item.title, 86)}</strong>
+          <small>{truncateText(item.body_text ?? "Nincs rövid leírás.", 120)}</small>
+        </span>
+      </label>
+    );
+  }
+
+  function renderRelationshipMapSurface() {
+    const canApplyGraphSelection = Boolean(selectedCaseId && (selectedRelationshipFocusCount > 0 || relationshipGraph));
+    const canSelectVisibleRelationshipObjects =
+      relationshipObjectCandidates.length > 0 &&
+      selectedRelationshipFocusCount < maxRelationshipFocusObjects &&
+      selectedVisibleRelationshipFocusCount < relationshipObjectCandidates.length;
+    const canRemoveVisibleRelationshipObjects = selectedVisibleRelationshipFocusCount > 0;
+    const selectedRelationshipNode = visibleRelationshipGraph?.nodes.find((node) => node.id === selectedRelationshipNodeId) ?? null;
+    const selectedRelationshipEdge = visibleRelationshipGraph?.edges.find((edge) => edge.id === selectedRelationshipEdgeId) ?? null;
+    const selectedRelationshipFocusSummary = Object.entries(selectedRelationshipFocusLabels)
+      .map(([label, count]) => `${label}: ${count}`)
+      .join(" | ");
+    return (
+      <section className="surface-placeholder relationship-map-surface">
+        {renderSurfaceHeader("relationship_map")}
+
+        <section className="relationship-map-layout">
+          <section className="relationship-top-row">
+          <section className="panel relationship-focus-panel">
+            <div className="section-heading">
+              <h2>Megjelenítendő objektum</h2>
+              <GitMerge size={20} />
+            </div>
+            <div className="surface-form">
+              <div className="form-row relationship-focus-row">
+                <label>
+                  Objektumtípus
+                  <select
+                    value={relationshipGraphObjectType}
+                    onChange={(event) => setRelationshipGraphObjectType(event.target.value)}
+                  >
+                    <option value="">Összes</option>
+                    {objectTypes.filter(Boolean).map((item) => (
+                      <option key={item} value={item}>{labelObjectType(item)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Keresés
+                  <input
+                    value={relationshipGraphObjectSearch}
+                    onChange={(event) => setRelationshipGraphObjectSearch(event.target.value)}
+                    placeholder="Cím, leírás vagy forrásrészlet"
+                  />
+                </label>
+              </div>
+              <div className="button-row relationship-selection-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={selectVisibleRelationshipFocusObjects}
+                  disabled={!canSelectVisibleRelationshipObjects || Boolean(busy)}
+                >
+                  Láthatók kijelölése
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={removeVisibleRelationshipFocusObjects}
+                  disabled={!canRemoveVisibleRelationshipObjects || Boolean(busy)}
+                >
+                  Láthatók levétele
+                </button>
+              </div>
+              <div className="source-filter-list relationship-object-list">
+                {!report && (
+                  <div className="research-empty-state relationship-object-empty">
+                    <strong>Nincs betöltött áttekintési jelentés</strong>
+                    <p>Az objektumválasztó az aktuális ügy áttekintési jelentéséből dolgozik.</p>
+                  </div>
+                )}
+                {report && relationshipObjectCandidates.length === 0 && (
+                  <div className="research-empty-state relationship-object-empty">
+                    <strong>Nincs választható objektum</strong>
+                    <p>Ehhez a típushoz nincs érvényes forráshivatkozású találat, vagy a keresés nem adott eredményt.</p>
+                  </div>
+                )}
+                {relationshipObjectCandidates.map(renderRelationshipObjectOption)}
+              </div>
+              <div className="metrics relationship-focus-summary">
+                <span>{selectedRelationshipFocusCount} kijelölve / {maxRelationshipFocusObjects}</span>
+                {selectedRelationshipFocusSummary && <span>{selectedRelationshipFocusSummary}</span>}
+              </div>
+              <div className="button-row">
+                <button onClick={handleLoadRelationshipGraph} disabled={!canApplyGraphSelection || Boolean(busy)}>
+                  <GitMerge size={18} /> Térkép frissítése kijelölésből
+                </button>
+                <button
+                  className="secondary-button"
+                  onClick={clearRelationshipGraphAndSelection}
+                  disabled={(!relationshipGraph && relationshipGraphFocusKeys.length === 0) || Boolean(busy)}
+                >
+                  Térkép ürítése
+                </button>
+              </div>
+            </div>
+          </section>
+
+            <section className="panel relationship-inspector-panel">
+              <div className="section-heading">
+                <h2>Elemek</h2>
+                <GitMerge size={20} />
+              </div>
+              {renderRelationshipSelectedNode(selectedRelationshipNode, visibleRelationshipGraph)}
+            </section>
+
+            <section className="panel relationship-inspector-panel">
+              <div className="section-heading">
+                <h2>Kapcsolatok</h2>
+                <GitMerge size={20} />
+              </div>
+              {renderRelationshipSelectedEdge(selectedRelationshipEdge, selectedRelationshipNode, visibleRelationshipGraph)}
+            </section>
+          </section>
+
+          <section className="panel relationship-graph-panel">
+            <div className="section-heading">
+              <h2>Kapcsolati térkép</h2>
+              <GitMerge size={20} />
+            </div>
+            {!relationshipGraph || !visibleRelationshipGraph ? (
+              <div className="research-empty-state relationship-empty-state">
+                <strong>Nincs megjelenített kapcsolati térkép</strong>
+                <p>Válassz egy érvényes forráshivatkozású objektumot, majd nyisd meg a térképet.</p>
+              </div>
+            ) : (
+              <div className="relationship-graph-preview">
+                <div className="metrics">
+                  <span>{relationshipGraph.focus_node_ids.length} fókuszobjektum</span>
+                  <span>{visibleRelationshipGraph.limits.node_count} / {relationshipGraph.limits.node_count} elem</span>
+                  <span>{visibleRelationshipGraph.limits.edge_count} / {relationshipGraph.limits.edge_count} kapcsolat</span>
+                  {relationshipGraph.limits.truncated && <span>rövidítve</span>}
+                </div>
+                <div className="relationship-layer-toggles">
+                  {(Object.keys(relationshipGraphLayerLabels) as RelationshipGraphLayerKey[]).map((layerKey) => (
+                    <label key={layerKey} className="checkbox-label relationship-layer-toggle">
+                      <input
+                        type="checkbox"
+                        checked={relationshipGraphLayers[layerKey]}
+                        onChange={(event) =>
+                          setRelationshipGraphLayers((current) => ({
+                            ...current,
+                            [layerKey]: event.target.checked
+                          }))
+                        }
+                      />
+                      <span>{relationshipGraphLayerLabels[layerKey]}</span>
+                    </label>
+                  ))}
+                </div>
+                {relationshipGraph.warnings.length > 0 && (
+                  <div className="module-note module-note-warning">
+                    {relationshipGraph.warnings.map((warning) => (
+                      <p key={warning.code}>{warning.message}</p>
+                    ))}
+                  </div>
+                )}
+                <Suspense
+                  fallback={
+                    <div className="relationship-flow-canvas relationship-flow-loading">
+                      <span>Kapcsolati térkép vászon betöltése...</span>
+                    </div>
+                  }
+                >
+                  <RelationshipFlowCanvas
+                    graph={visibleRelationshipGraph}
+                    labelObjectType={labelObjectType}
+                    labelSourceValidationStatus={labelSourceValidationStatus}
+                    selectedEdgeId={selectedRelationshipEdgeId}
+                    selectedNodeId={selectedRelationshipNodeId}
+                    onEdgeSelect={(edgeId) => {
+                      const edge = visibleRelationshipGraph.edges.find((item) => item.id === edgeId);
+                      setSelectedRelationshipEdgeId(edgeId);
+                      setSelectedRelationshipNodeId(edge?.target ?? null);
+                    }}
+                    onNodeSelect={(nodeId) => {
+                      setSelectedRelationshipNodeId(nodeId);
+                      setSelectedRelationshipEdgeId(null);
+                    }}
+                  />
+                </Suspense>
+              </div>
+            )}
+          </section>
+        </section>
+      </section>
+    );
+  }
+
   function renderKnowledgeBaseSurface() {
     return (
       <section className="surface-placeholder general-rag-surface knowledge-surface">
@@ -5072,6 +5575,7 @@ export function App() {
                 >
                   {surface === "document_organizer" && <FolderPlus size={18} />}
                   {surface === "case_workbench" && <Database size={18} />}
+                  {surface === "relationship_map" && <GitMerge size={18} />}
                   {surface === "full_document_processing" && <FilePlus2 size={18} />}
                   {surface === "general_rag" && <MessageSquare size={18} />}
                   {surface === "knowledge_base" && <Database size={18} />}
@@ -6397,6 +6901,16 @@ export function App() {
                         <button title="Megjegyzés" onClick={() => handleReview(item.object_type, item.object_id, "comment")} disabled={reviewActionDisabled(item, "comment")}>
                           <MessageSquare size={18} />
                         </button>
+                        {reviewItemCanOpenRelationshipGraph(item) && (
+                          <button
+                            title="Kapcsolati térkép megnyitása"
+                            onClick={() => handleOpenRelationshipGraphFromReportItem(item)}
+                            disabled={Boolean(busy)}
+                          >
+                            <GitMerge size={18} />
+                            Kapcsolati térkép
+                          </button>
+                        )}
                       </div>
                     </article>
                   ))}
@@ -6599,6 +7113,8 @@ export function App() {
         )}
 
         {activeSurface === "general_rag" && renderGeneralRagSurface()}
+
+        {activeSurface === "relationship_map" && renderRelationshipMapSurface()}
 
         {activeSurface === "knowledge_base" && renderKnowledgeBaseSurface()}
 
@@ -7131,6 +7647,184 @@ function truncateText(value: string, maxLength: number) {
     return value;
   }
   return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function relationshipFocusKey(objectType: string, objectId: string) {
+  return `${objectType}:${objectId}`;
+}
+
+function filterRelationshipGraphByLayers(
+  graph: RelationshipGraph | null,
+  layers: RelationshipGraphLayerState
+): RelationshipGraph | null {
+  if (!graph) return null;
+
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const focusNodeIds = graph.focus_node_ids.length > 0 ? graph.focus_node_ids : [graph.focus_node_id];
+  const focusNodeIdSet = new Set(focusNodeIds);
+  const visibleNodeIds = new Set<string>(focusNodeIds);
+  const sourceCarrierNodeIds = new Set<string>(focusNodeIds);
+  const focusSourceReferenceIds = new Set<string>();
+  const sourceReferenceChains = new Map<string, { documentId?: string; pageId?: string; chunkId?: string }>();
+
+  graph.edges.forEach((edge) => {
+    if ((edge.type === "CONTRADICTS_CLAIM_A" || edge.type === "CONTRADICTS_CLAIM_B") && focusNodeIdSet.has(edge.target)) {
+      sourceCarrierNodeIds.add(edge.source);
+    }
+  });
+
+  graph.edges.forEach((edge) => {
+    if (edge.type === "HAS_SOURCE" && sourceCarrierNodeIds.has(edge.source)) {
+      const targetNode = nodesById.get(edge.target);
+      if (targetNode?.type === "source_reference") {
+        focusSourceReferenceIds.add(targetNode.id);
+        sourceReferenceChains.set(targetNode.id, sourceReferenceChains.get(targetNode.id) ?? {});
+      }
+    }
+  });
+
+  graph.edges.forEach((edge) => {
+    if (edge.type === "SOURCE_FROM_CHUNK" && focusSourceReferenceIds.has(edge.target)) {
+      const chain = sourceReferenceChains.get(edge.target) ?? {};
+      chain.chunkId = edge.source;
+      sourceReferenceChains.set(edge.target, chain);
+    } else if (edge.type === "SOURCE_FROM_PAGE" && focusSourceReferenceIds.has(edge.target)) {
+      const chain = sourceReferenceChains.get(edge.target) ?? {};
+      chain.pageId = edge.source;
+      sourceReferenceChains.set(edge.target, chain);
+    } else if (edge.type === "SOURCE_FROM_DOCUMENT" && focusSourceReferenceIds.has(edge.target)) {
+      const chain = sourceReferenceChains.get(edge.target) ?? {};
+      chain.documentId = edge.source;
+      sourceReferenceChains.set(edge.target, chain);
+    }
+  });
+
+  graph.edges.forEach((edge) => {
+    if (edge.type === "PAGE_HAS_CHUNK") {
+      for (const chain of sourceReferenceChains.values()) {
+        if (chain.chunkId === edge.target) {
+          chain.pageId = edge.source;
+        }
+      }
+    } else if (edge.type === "DOCUMENT_HAS_PAGE") {
+      for (const chain of sourceReferenceChains.values()) {
+        if (chain.pageId === edge.target) {
+          chain.documentId = edge.source;
+        }
+      }
+    } else if (edge.type === "DOCUMENT_HAS_CHUNK") {
+      for (const chain of sourceReferenceChains.values()) {
+        if (chain.chunkId === edge.target) {
+          chain.documentId = edge.source;
+        }
+      }
+    }
+  });
+
+  graph.edges.forEach((edge) => {
+    if (edge.type === "DOCUMENT_HAS_PAGE") {
+      for (const chain of sourceReferenceChains.values()) {
+        if (chain.pageId === edge.target || chain.chunkId) {
+          const pageToChunkEdge = graph.edges.find((candidate) => candidate.type === "PAGE_HAS_CHUNK" && candidate.source === edge.target && candidate.target === chain.chunkId);
+          if (chain.pageId === edge.target || pageToChunkEdge) {
+            chain.documentId = edge.source;
+          }
+        }
+      }
+    }
+  });
+
+  sourceReferenceChains.forEach((chain, sourceReferenceId) => {
+    if (layers.document_node && chain.documentId) {
+      visibleNodeIds.add(chain.documentId);
+    }
+    if (layers.page_node && chain.pageId) {
+      visibleNodeIds.add(chain.pageId);
+    }
+    if (layers.source_chunk && chain.chunkId) {
+      visibleNodeIds.add(chain.chunkId);
+    }
+    if (layers.source_reference) {
+      visibleNodeIds.add(sourceReferenceId);
+    }
+  });
+
+  if (layers.related_objects) {
+    graph.nodes.forEach((node) => {
+      if (focusNodeIdSet.has(node.id)) return;
+      if (node.type === "claim" || node.type === "event" || node.type === "entity" || node.type === "missing_item_candidate") {
+        visibleNodeIds.add(node.id);
+      }
+    });
+  }
+
+  graph.edges.forEach((edge) => {
+    if ((edge.type === "CONTRADICTS_CLAIM_A" || edge.type === "CONTRADICTS_CLAIM_B") && focusNodeIdSet.has(edge.target)) {
+      visibleNodeIds.add(edge.source);
+    }
+  });
+
+  if (layers.contradictions) {
+    graph.nodes.forEach((node) => {
+      if (node.type === "contradiction_candidate") {
+        visibleNodeIds.add(node.id);
+      }
+    });
+    graph.edges.forEach((edge) => {
+      if ((edge.type === "CONTRADICTS_CLAIM_A" || edge.type === "CONTRADICTS_CLAIM_B") && visibleNodeIds.has(edge.target)) {
+        visibleNodeIds.add(edge.source);
+      }
+    });
+  }
+
+  const visibleNodes = graph.nodes.filter((node) => visibleNodeIds.has(node.id));
+  const visibleEdges = graph.edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target));
+  const bridgeEdges: RelationshipGraphEdge[] = [];
+  const visibleEdgeKeys = new Set(visibleEdges.map((edge) => `${edge.source}->${edge.target}`));
+  const visibleEdgePairKeys = new Set(visibleEdges.map((edge) => [edge.source, edge.target].sort().join("<->")));
+  const bridgeIds = new Set<string>();
+  graph.edges
+    .filter((edge) => edge.type === "HAS_SOURCE" && sourceCarrierNodeIds.has(edge.source) && focusSourceReferenceIds.has(edge.target))
+    .forEach((sourceEdge) => {
+      const chain = sourceReferenceChains.get(sourceEdge.target);
+      const visibleChain = [
+        chain?.documentId,
+        chain?.pageId,
+        chain?.chunkId,
+        layers.source_reference ? sourceEdge.target : undefined,
+        sourceEdge.source
+      ].filter((nodeId): nodeId is string => Boolean(nodeId && visibleNodeIds.has(nodeId)));
+      for (let index = 0; index < visibleChain.length - 1; index += 1) {
+        const source = visibleChain[index];
+        const target = visibleChain[index + 1];
+        if (visibleEdgeKeys.has(`${source}->${target}`)) continue;
+        if (visibleEdgePairKeys.has([source, target].sort().join("<->"))) continue;
+        const bridgeId = `visual:${source}--SOURCE_BRIDGE--${target}`;
+        if (bridgeIds.has(bridgeId)) continue;
+        bridgeIds.add(bridgeId);
+        bridgeEdges.push({
+          id: bridgeId,
+          type: "VISUAL_SOURCE_BRIDGE",
+          source,
+          target,
+          label: "",
+          metadata: {
+            source_reference_id: sourceEdge.target,
+            visual_only: true
+          }
+        });
+      }
+    });
+  return {
+    ...graph,
+    nodes: visibleNodes,
+    edges: [...visibleEdges, ...bridgeEdges],
+    limits: {
+      ...graph.limits,
+      node_count: visibleNodes.length,
+      edge_count: visibleEdges.length + bridgeEdges.length
+    }
+  };
 }
 
 function labelObjectType(value: string) {

@@ -138,7 +138,7 @@ Next:
 
 - Treat the dedicated `Tudásbázis` module as a stable first baseline: Markdown (`.md`) documents are imported and queried as structured knowledge-base material, not as investigative case files (`Design_documents/21_markdown_knowledge_base_module_plan.md`)
 - The current `Tudásbázis` baseline includes global `knowledge_base` / `markdown_note` storage, Marko/AST Markdown parsing/chunking, separate knowledge indexing/querying, archive/restore/final-delete lifecycle controls, batch-only Markdown import with conflict preview/decision handling, Markdown-rendered answers, lazy full-source inspection, and the accepted Markdown-aware retrieval/packing behavior from `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md` and `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md`
-- The next larger planned development slice is the `Kapcsolati térkép` work surface from `Design_documents/25_relationship_map_graph_view_plan.md`: a read-only, object-centered graph projection over existing source-valid structured objects, backed by a backend graph API and React Flow / XYFlow frontend visualization
+- The current larger planned development slice is the `Kapcsolati térkép` work surface from `Design_documents/25_relationship_map_graph_view_plan.md` and `Design_documents/27_relationship_map_graph_implementation_plan.md`: the data/relationship-read-only graph baseline now uses the multi-focus POST endpoint and frontend checkbox selection over source-valid structured objects, supports temporary non-persisted node repositioning, and the technical baseline is complete; next graph work is visual/readability strengthening, live UI tuning, and only then larger expansions such as whole-case graph views
 - Keep the dedicated `Audit naplo` API/panel backed by `audit_events` as a later larger work surface after the graph-view slice unless explicitly reprioritized
 - Add multi-collection source scopes only where analysis/RAG/knowledge-base workflows need them; the current first analysis/indexing integration uses one selected collection at a time
 - Keep `search_findings`, full-document person seeds, source validation, and contradiction detection as strict auditable workbench workflows beside the freer RAG question-answering layer
@@ -190,6 +190,8 @@ See:
 - `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md`
 - `Design_documents/25_relationship_map_graph_view_plan.md`
 - `Design_documents/26_review_report_status_cleanup_plan.md`
+- `Design_documents/27_relationship_map_graph_implementation_plan.md`
+- `Design_documents/28_relationship_map_horizontal_layout_plan.md`
 
 ## Handoff notes
 
