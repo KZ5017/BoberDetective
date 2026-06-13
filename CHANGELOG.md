@@ -1,5 +1,11 @@
 # CHANGELOG.md
 
+## 2026-06-13
+
+### Changed
+
+- Cleaned up the `Tudásbázis` retrieval handoff documentation: `AI_NOTES.md` now treats the Markdown-aware retrieval/packing work as the accepted stable baseline after live validation, and `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md` now records the former open questions as implemented decisions plus optional future refinements instead of unresolved next steps.
+
 ## 2026-06-12
 
 ### Changed

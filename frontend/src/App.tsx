@@ -564,6 +564,13 @@ export function App() {
   const [, setLastActionSummary] = useState("");
   const [lastAiOperation, setLastAiOperation] = useState<AiOperationStatus | null>(null);
 
+  function handleSurfaceNavClick(surface: WorkSurface) {
+    setActiveSurface(surface);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+
   const selectedCase = useMemo(() => cases.find((item) => item.id === selectedCaseId), [cases, selectedCaseId]);
   const activeDocuments = useMemo(
     () => documents.filter((document) => document.lifecycle_status === "active"),
@@ -5060,7 +5067,7 @@ export function App() {
                 <button
                   key={surface}
                   className={`surface-tab ${activeSurface === surface ? "is-active" : ""}`}
-                  onClick={() => setActiveSurface(surface)}
+                  onClick={() => handleSurfaceNavClick(surface)}
                   type="button"
                   aria-current={activeSurface === surface ? "page" : undefined}
                 >

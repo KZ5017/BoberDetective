@@ -791,8 +791,9 @@ A tuning utan is maradjanak meg ezek a szabalyok:
    tovabbra is bovulhet. `ELKESZULT`
 4. Atallitva az expansion kuszobok es limitek. `ELKESZULT`
 5. Celzott knowledge query tesztek futtatva. `ELKESZULT`
-6. Elso user-side live visszajelzes: a valaszminoseg es a forrasvalasztas
-   erzekelhetoen javult. Tovabbi hasznos live regression kerdesek:
+6. User-side live visszajelzes: a valaszminoseg es a forrasvalasztas
+   erzekelhetoen javult, ezert ez a tuning az aktualis stabil baseline.
+   Kesobbi regression kerdesek konkret minosegi hiba eseten:
    - OWASP Top 10 cheat-sheet,
    - Kubernetes/kubectl offensive cheatsheet,
    - CMD-only fajlmasolas,
@@ -805,23 +806,34 @@ Verifikacio:
 52 passed
 ```
 
-## 13. Nyitott kerdesek
+## 13. Lezart dontesek es kesobbi opcionalis finomitasok
 
-1. Mi legyen a section expansion maximalis tavolsaga?
-   - Elso gondolat: ne fix ±N legyen, hanem heading boundary-ig, de capelve.
-2. Hany seed chunk szamitson egy dokumentum score-jaba?
-   - Elso gondolat: top 3-5.
-3. Milyen match type legyen a sectionbol behuzott chunkokon?
-   - Elso gondolat: `section_context`.
-4. A jelenlegi `context_neighbor` megmaradjon-e kulon egyszeru fallbackkent?
-   - Elso gondolat: a section-aware packing kivalthatja, de atmenetileg
-     maradhat kompatibilitasi reteggel.
-5. Kell-e UI-n dokumentumcsoportositas a forraskartyakhoz?
-   - Elso gondolat: kesobb hasznos lehet, de nem elso backend kor.
+A 12d tuning utan a korabbi nyitott kerdesek elso implementacios valasza:
 
-## 14. Elfogadasi kriterium
+1. **Section expansion tavolsaga**
+   - Nem globalis fix tavolsag, hanem kompatibilis heading agban torteno
+     forward bovites, per-seed limittel es globalis `max_chunks` plafonnal.
+   - Aktualis limitek: magas priority seed legfeljebb 15, kozepes priority
+     seed legfeljebb 10 kovetkezo kompatibilis chunkot huzhat.
+2. **Dokumentumscore alapja**
+   - A dokumentumscore a dokumentumon beluli legerosebb candidate-ekbol es
+     egy kis, capelt coverage bonuszbol all. Ez eleg ahhoz, hogy a forrasok
+     dokumentumonkent egyben maradjanak anelkul, hogy sok gyenge chunk
+     indokolatlanul felhuzna egy dokumentumot.
+3. **Sectionbol behuzott chunkok match type-ja**
+   - A section bovitesbol erkezo chunkok `section_context` tipust kapnak.
+   - A pre-heading hidalasbol erkezo chunkok `heading_bridge` tipust kapnak.
+4. **`context_neighbor` szerepe**
+   - Megmarad fallbackkent olyan nem-heading seedeknel, ahol a szekcioalapu
+     bovites nem alkalmazhato. Nem ez a fo minosegi mechanizmus, hanem
+     kompatibilitasi es kontextusmentesi reteggel mukodik.
+5. **Forraskartyak UI csoportositasa**
+   - Nem kotelezo a jelenlegi baseline-hoz. Kesobbi UX finomitas lehet, ha
+     konkret nagy valaszoknal a forraslista attekinthetosege ezt indokolja.
 
-A szelet akkor tekintheto kesznek, ha:
+## 14. Elfogadasi kriterium es aktualis allapot
+
+A szelet kesznek tekintheto, mert:
 
 - semantic/hybrid Tudásbázis retrieval nem csak top chunk listat ad, hanem
   dokumentum/section-aware forrascsomagot,
@@ -832,3 +844,14 @@ A szelet akkor tekintheto kesznek, ha:
 - a Kubernetes-szeru heading-heavy live tesztben a forraskartyak nem csak
   cimeket, hanem alatta levo erdemi tartalmat is adnak,
 - a relevans unit tesztek zolden futnak.
+
+Aktualis verifikacio:
+
+```text
+.venv/bin/python -m pytest tests/test_knowledge_api.py tests/test_knowledge_query.py -q
+52 passed
+```
+
+Tovabbi munka csak konkret, megismetelheto rossz forrasvalasztasi pelda
+alapjan indokolt. Altalanos parser- vagy retrieval-ujratervezes ezen a ponton
+nem cel.
