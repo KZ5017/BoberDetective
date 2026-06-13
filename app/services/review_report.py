@@ -19,7 +19,7 @@ from app.services.text_store import read_chunk_text, read_chunk_text_from_store,
 
 
 ALLOWED_OBJECT_TYPES = {"claim", "contradiction_candidate", "entity", "event", "missing_item_candidate"}
-ALLOWED_REVIEW_STATUSES = {"new", "needs_review", "verified", "rejected", "corrected"}
+ALLOWED_REVIEW_STATUSES = {"needs_review", "verified", "rejected", "corrected"}
 ALLOWED_SOURCE_VALIDATION_STATUSES = {"pending_source_validation", "source_valid", "source_invalid"}
 
 
@@ -452,5 +452,4 @@ def _build_counts(review_statuses: list[str]) -> ReviewReportCounts:
         verified=counter["verified"],
         rejected=counter["rejected"],
         corrected=counter["corrected"],
-        new=counter["new"],
     )

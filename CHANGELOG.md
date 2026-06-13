@@ -5,6 +5,17 @@
 ### Changed
 
 - Cleaned up the `Tudásbázis` retrieval handoff documentation: `AI_NOTES.md` now treats the Markdown-aware retrieval/packing work as the accepted stable baseline after live validation, and `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md` now records the former open questions as implemented decisions plus optional future refinements instead of unresolved next steps.
+- Added `Design_documents/25_relationship_map_graph_view_plan.md` as a loose direction note for a future `Kapcsolati térkép` work surface: first version should be a read-only, object-centered React Flow / XYFlow visualization over existing source-valid structured objects and backend-projected relationships, not a graph database or AI-generated relationship layer.
+- Added `Design_documents/26_review_report_status_cleanup_plan.md` to pin down the `Áttekintési jelentés` status cleanup: retire `new`, present `corrected` as `Korrekcióval kizárt`, and ensure merge/source-detach orphaned objects consistently become both `corrected` and `source_invalid`.
+- Implemented the `Áttekintési jelentés` status cleanup through migration `0048_review_status_cleanup`: active `new` review statuses are migrated/retired, report counts and filters no longer expose `new`, `corrected` is labeled as `Korrekcióval kizárt`, contradiction review scopes no longer include `new`, and source-orphaned merge/detach/move outcomes consistently carry corrected/source-invalid semantics where applicable.
+- Standardized concrete destructive frontend actions so final delete/discard-delete/delete buttons use the shared danger color and `Trash2` icon, while selection/input clearing remains visually separate.
+- Updated `README.md`, `AI_NOTES.md`, and `CURRENT_STATE.md` so the next larger planned development slice is the `Kapcsolati térkép` graph-view work surface rather than further broad `Tudásbázis` hardening.
+
+### Verified
+
+- `.venv/bin/python -m pytest` (`384 passed`, 1 Docling deprecation warning)
+- `npm --prefix frontend run build`
+- `.venv/bin/alembic upgrade head` / current head `0048_review_status_cleanup`
 
 ## 2026-06-12
 

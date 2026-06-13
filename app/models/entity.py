@@ -19,7 +19,7 @@ class EntityModel(Base):
         ),
         CheckConstraint("confidence is null or (confidence >= 0 and confidence <= 1)", name="ck_entities_confidence_range"),
         CheckConstraint(
-            "review_status in ('new', 'needs_review', 'verified', 'rejected', 'corrected')",
+            "review_status in ('needs_review', 'verified', 'rejected', 'corrected')",
             name="ck_entities_review_status",
         ),
         CheckConstraint(

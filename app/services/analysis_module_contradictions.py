@@ -42,10 +42,10 @@ MAX_RETRIEVED_CLAIMS_FOR_CONTRADICTION = 40
 MAX_CLAIM_PAIRS_FOR_CONTRADICTION = 10
 MIN_CLAIMS_FOR_CONTRADICTION = 2
 CLAIM_REVIEW_SCOPE_STATUSES = {
-    "reviewable": ("new", "needs_review", "verified", "corrected"),
+    "reviewable": ("needs_review", "verified", "corrected"),
     "verified": ("verified",),
     "needs_review": ("needs_review",),
-    "all_source_valid": ("new", "needs_review", "verified", "rejected", "corrected"),
+    "all_source_valid": ("needs_review", "verified", "rejected", "corrected"),
 }
 CONTRADICTION_FOCUS_STOPWORDS = {
     "keres",

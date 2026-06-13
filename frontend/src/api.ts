@@ -510,7 +510,6 @@ export type ReviewReport = {
     verified: number;
     rejected: number;
     corrected: number;
-    new: number;
   };
   items: ReviewReportItem[];
 };

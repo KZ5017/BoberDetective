@@ -213,7 +213,13 @@ def detach_entity_mention(
     source_document_id = mention.document_id
     source_page_id = mention.page_id
     source_chunk_id = mention.chunk_id
+    previous_review_status = entity.review_status
     db.delete(mention)
+    db.flush()
+    remaining_mention_count = len(list_entity_mentions(db, entity.id))
+    orphaned_by_detach = remaining_mention_count <= 0
+    if orphaned_by_detach:
+        entity.review_status = "corrected"
     entity.updated_at = datetime.now(UTC)
     db.add(entity)
 
@@ -230,7 +236,7 @@ def detach_entity_mention(
         object_body_snapshot=entity.description,
         object_subtype_snapshot=entity.entity_type,
         object_review_status_snapshot=entity.review_status,
-        source_validation_status_snapshot="source_valid",
+        source_validation_status_snapshot="source_invalid" if orphaned_by_detach else "source_valid",
         detach_comment=review_comment,
         detached_by_user_id=user.id,
     )
@@ -239,14 +245,15 @@ def detach_entity_mention(
         object_type="entity",
         object_id=entity.id,
         action_type="detach_source",
-        previous_review_status=entity.review_status,
-        new_review_status=None,
+        previous_review_status=previous_review_status,
+        new_review_status=entity.review_status if orphaned_by_detach else None,
         review_comment=review_comment or "Entitas forrasa levalasztva.",
         correction_patch_json={
             "operation": "detach_source",
             "mention_id": str(mention_id),
             "source_reference_id": str(source_reference_id) if source_reference_id is not None else None,
             "detached_source_item_id": str(detached_item.id),
+            "orphaned_by_detach": orphaned_by_detach,
         },
         performed_by_user_id=user.id,
     )
@@ -264,7 +271,13 @@ def detach_entity_mention(
         related_page_id=str(source_page_id) if source_page_id is not None else None,
         related_chunk_id=str(source_chunk_id) if source_chunk_id is not None else None,
         input_summary={"mention_id": str(mention_id), "source_reference_id": str(source_reference_id)},
-        output_summary={"human_review_id": str(review.id), "detached_source_item_id": str(detached_item.id)},
+        output_summary={
+            "human_review_id": str(review.id),
+            "detached_source_item_id": str(detached_item.id),
+            "remaining_mention_count": remaining_mention_count,
+            "review_status": entity.review_status,
+            "source_validation_status": "source_invalid" if orphaned_by_detach else "source_valid",
+        },
     )
     DatabaseAuditWriter(db).write(audit_event)
     JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(audit_event)
@@ -297,11 +310,17 @@ def move_entity_mention(
     _ensure_entity_mentions_have_active_documents(db, case_id, list_entity_mentions(db, target_entity.id))
 
     previous_target_status = target_entity.review_status
+    previous_source_status = source_entity.review_status
     target_reactivated = previous_target_status == "corrected"
     if target_reactivated:
         target_entity.review_status = "needs_review"
 
     mention.entity_id = target_entity.id
+    db.flush()
+    remaining_mention_count = len(list_entity_mentions(db, source_entity.id))
+    orphaned_by_move = remaining_mention_count <= 0
+    if orphaned_by_move:
+        source_entity.review_status = "corrected"
     source_entity.updated_at = datetime.now(UTC)
     target_entity.updated_at = datetime.now(UTC)
     db.add(mention)
@@ -314,13 +333,14 @@ def move_entity_mention(
         object_type="entity",
         object_id=source_entity.id,
         action_type="detach_source",
-        previous_review_status=source_entity.review_status,
-        new_review_status=None,
+        previous_review_status=previous_source_status,
+        new_review_status=source_entity.review_status if orphaned_by_move else None,
         review_comment=review_comment or f"Entitas forrasa athelyezve: {target_entity.canonical_name}",
         correction_patch_json={
             "operation": "move_source_to",
             "mention_id": str(mention_id),
             "target_entity_id": str(target_entity.id),
+            "orphaned_by_move": orphaned_by_move,
         },
         performed_by_user_id=user.id,
     )

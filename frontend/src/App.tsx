@@ -160,7 +160,7 @@ const objectTypes = [
   "missing_item_candidate"
 ];
 
-const reviewStatuses = ["", "needs_review", "verified", "rejected", "corrected", "new"];
+const reviewStatuses = ["", "needs_review", "verified", "rejected", "corrected"];
 const sourceValidationStatuses = ["", "source_valid", "source_invalid", "pending_source_validation"];
 const analysisSourceModes: AnalysisSourceMode[] = ["case", "document", "collection"];
 const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
@@ -359,8 +359,7 @@ const reviewStatusLabels: Record<string, string> = {
   needs_review: "Ellenőrzésre vár",
   verified: "Ellenőrizve",
   rejected: "Elutasítva",
-  corrected: "Javítva",
-  new: "Új"
+  corrected: "Korrekcióval kizárt"
 };
 
 const sourceValidationLabels: Record<string, string> = {
@@ -4925,7 +4924,7 @@ export function App() {
                       Megnyitás
                     </button>
                     <button className="danger-button" onClick={() => handleDeleteRagAnswer(answer)} disabled={Boolean(busy)}>
-                      Törlés
+                      <Trash2 size={16} /> Törlés
                     </button>
                   </div>
                 </article>
@@ -5506,8 +5505,8 @@ export function App() {
                         </button>
                       )}
                       {canAttemptSelectedDocumentDiscard && (
-                        <button className="secondary-button" onClick={handleDocumentDiscard} disabled={Boolean(busy)}>
-                          Elvetés / törlés
+                        <button className="danger-button" onClick={handleDocumentDiscard} disabled={Boolean(busy)}>
+                          <Trash2 size={16} /> Elvetés / törlés
                         </button>
                       )}
                     </div>
@@ -6369,8 +6368,8 @@ export function App() {
                           Részletek
                         </button>
                         {reviewItemCanBeDeleted(item) && (
-                          <button className="secondary-button" onClick={() => handleDeleteReviewReportItem(item)} disabled={Boolean(busy)}>
-                            Végleges törlés
+                          <button className="danger-button" onClick={() => handleDeleteReviewReportItem(item)} disabled={Boolean(busy)}>
+                            <Trash2 size={16} /> Végleges törlés
                           </button>
                         )}
                       </div>
@@ -6536,8 +6535,8 @@ export function App() {
                         >
                           Csatolás
                         </button>
-                        <button className="secondary-button source-action" onClick={() => handleDeleteDetachedSource(item)} disabled={Boolean(busy)}>
-                          Végleges törlés
+                        <button className="danger-button source-action" onClick={() => handleDeleteDetachedSource(item)} disabled={Boolean(busy)}>
+                          <Trash2 size={16} /> Végleges törlés
                         </button>
                       </div>
                       {item.source_text_excerpt && (

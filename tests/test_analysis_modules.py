@@ -989,10 +989,10 @@ def test_select_claim_pairs_ignores_generic_contradiction_prompt_terms() -> None
 
 
 def test_claim_review_statuses_for_scope_excludes_rejected_by_default() -> None:
-    assert claim_review_statuses_for_scope("reviewable") == ("new", "needs_review", "verified", "corrected")
+    assert claim_review_statuses_for_scope("reviewable") == ("needs_review", "verified", "corrected")
     assert claim_review_statuses_for_scope("verified") == ("verified",)
     assert claim_review_statuses_for_scope("needs_review") == ("needs_review",)
-    assert claim_review_statuses_for_scope("unknown") == ("new", "needs_review", "verified", "corrected")
+    assert claim_review_statuses_for_scope("unknown") == ("needs_review", "verified", "corrected")
 
 
 def test_detect_contradiction_candidates_returns_warning_when_not_enough_claims(monkeypatch) -> None:

@@ -18,7 +18,6 @@ class ReviewReportCounts(BaseModel):
     verified: int
     rejected: int
     corrected: int
-    new: int
 
 
 class ReviewReportSource(BaseModel):

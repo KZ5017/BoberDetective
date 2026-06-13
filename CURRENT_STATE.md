@@ -26,6 +26,8 @@ Read these first:
 - `Design_documents/22_markdown_ast_chunking_plan.md`
 - `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md`
 - `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md`
+- `Design_documents/25_relationship_map_graph_view_plan.md`
+- `Design_documents/26_review_report_status_cleanup_plan.md`
 
 Then run:
 
@@ -37,10 +39,10 @@ Then run:
 Expected current baseline:
 
 ```text
-pytest full suite, latest known: 377 passed
+pytest full suite, latest known: 384 passed
 latest targeted document-discard regression slice: 59 passed
 latest targeted knowledge query/API slice: 52 passed
-alembic: 0047_knowledge_index_metadata (head)
+alembic: 0048_review_status_cleanup (head)
 npm --prefix frontend run build: passed
 ```
 
@@ -50,7 +52,7 @@ npm --prefix frontend run build: passed
 - Minimal React/Vite frontend workbench scaffold under `frontend/`.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0047_knowledge_index_metadata`.
+- Alembic migrations through `0048_review_status_cleanup`.
 - Immutable TXT import with page/chunk persistence plus first physical text-store writes.
 - Explicit imported-document processing validation run flow.
 - Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile, page persistence, and `parse_document` analysis run provenance.
@@ -178,6 +180,8 @@ npm --prefix frontend run build: passed
 - Human-controlled `research_finding` conversion exists: `POST /api/v1/cases/{case_id}/research-findings/{finding_id}/convert` reuses the finding source reference, creates a structured claim/entity/event/missing item candidate through the manual-entry path, records a `manual_entry` provenance run plus `research_finding_converted` audit event, and marks the finding as `converted` with `target_object_type` / `target_object_id`. Converted findings no longer appear in the active research-finding worklist; the structured object carries the ongoing review/source workflow.
 - Research findings are now explicit worklist items through migration `0024_research_findings_worklist`, not human-review objects. The `research_findings.review_status` column and `research_finding` human-review object type were removed. Worklist operations are `set-aside`, `restore`, single delete, and bulk delete; `ignored` means "félretéve", not rejected. The frontend exposes `Félreteszem`, `Vissza az aktív listába`, `Törlésre jelölés`, and `Jelöltek törlése`.
 - The planned `research_finding` model should remain graph-view compatible: preserve source-reference -> finding -> structured-object relationships so a later graph visualization can be built without redesigning the core data model. This is a schema/design constraint, not a near-term graph database requirement.
+- `Design_documents/25_relationship_map_graph_view_plan.md` captures the next larger planned development direction: a future `Kapcsolati térkép` work surface. The intended first slice is an object-centered graph visualization over existing source-valid structured objects, backed by a backend graph-projection API and React Flow / XYFlow in the frontend. It is a read-only visual layer over existing audited/source-bound relationships, not a new truth layer, not an AI-generated relationship system, and not a graph database introduction.
+- `Design_documents/26_review_report_status_cleanup_plan.md` records the implemented review/source status cleanup for `Áttekintési jelentés`: `new` review status is retired from active backend/frontend contracts, `corrected` is shown as `Korrekcióval kizárt`, and objects orphaned by merge or final source detachment carry the corrected/source-invalid semantics consistently. Migration `0048_review_status_cleanup` converts any historical `new` review statuses to `needs_review` and tightens the active constraints.
 - Historical raw-module live smokes are pre-retirement notes only. Current live smokes should use `search_findings`, research-finding conversion, manual source-bound object creation, and downstream `detect_contradiction_candidates`.
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion.
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs.
@@ -189,7 +193,7 @@ npm --prefix frontend run build: passed
 - `detect_contradiction_candidates` prompting follows the same current prompt discipline as `search_findings`: a Hungarian system prompt holds task/rules/JSON shape, while the user prompt contains only dynamic `QUERY`, `MAX_CANDIDATES`, and selected `CLAIM_PAIRS`.
 - Claim-pair selection is audit-visible through analysis run `filter` metadata, including `claim_fetch_limit`, `pair_limit`, `selected_pair_count`, `selected_pairs`, focus terms, and matched/selected claim counts.
 - Contradiction candidate validation now deduplicates same claim-pair/type candidates, caps most model-proposed `high` severities to `medium`, and replaces model-written titles/descriptions with conservative, pair-bound, source-claim-based Hungarian text.
-- `detect_contradiction_candidates` now supports `claim_review_scope`; the default `reviewable` scope uses source-valid claims with review status `new`, `needs_review`, `verified`, or `corrected`, excluding `rejected`.
+- `detect_contradiction_candidates` now supports `claim_review_scope`; the default `reviewable` scope uses source-valid claims with review status `needs_review`, `verified`, or `corrected`, excluding `rejected`.
 - `detect_contradiction_candidates` now requires explicit contradiction qualification from the LLM: `is_contradiction_candidate=true` plus a concrete `conflict_basis`; related/contextual pairs without a concrete conflict basis are rejected or recorded as unsupported items instead of persisted as contradiction candidates.
 - Analysis modules now perform historical deduplication before persistence for currently supported structured review objects instead of creating duplicate review objects.
 - Entity extraction automatically merges only exact/normalized repeated entities into the existing entity review object and links additional occurrences as mentions/sources.
@@ -202,6 +206,7 @@ npm --prefix frontend run build: passed
 - Users can also attach a manually selected document-chunk quote directly to an existing claim/entity/event/missing item candidate through `POST /api/v1/cases/{case_id}/manual-source-attachments`. The backend validates the source quote, active source document, target object, and exact duplicate attachments before creating the source reference; this workflow intentionally has no user-entered comment field.
 - Detached source items can also create new source-bound manual claim/entity/event/missing item candidate objects and then store the created object as their handled target.
 - Review report items that are `corrected` or `source_invalid` can be permanently deleted through an explicit backend/frontend action; dependent contradiction candidates are cleaned up so no broken references remain.
+- Concrete destructive frontend actions now use a shared visual language: danger-colored buttons with the `Trash2` icon for final delete/discard-delete/delete actions. Selection clearing and searchable-select input clearing remain non-danger controls.
 - Source-valid, non-corrected review report items can have their title and description edited from the object detail panel through a backend-validated text update endpoint.
 - Missing item candidate persistence, source linkage, API, review workflow, and review report inclusion.
 - Missing item candidates remain supported as structured review objects through manual/finding-conversion workflows; the raw `detect_missing_items` analysis module has been retired.
@@ -226,7 +231,7 @@ npm --prefix frontend run build: passed
 - Frontend shows export history; review report filtering is handled through object/review/source dropdown filters.
 - Frontend visible labels are localized to Hungarian, including mapped labels for backend enum/internal values.
 - Frontend dev server is configured under `frontend/`; when running, it is available at `http://localhost:5173` and proxies `/api` to `http://127.0.0.1:8000`.
-- After machine restart, start infrastructure first with `docker compose up -d` from the repo root. Alembic should report `0047_knowledge_index_metadata (head)`.
+- After machine restart, start infrastructure first with `docker compose up -d` from the repo root. Alembic should report `0048_review_status_cleanup (head)`.
 - Codex background-start caveat: plain backgrounded WSL commands may die when the non-interactive shell exits. For persistent Codex-started backend/frontend processes, use `setsid -f`:
   - backend: `setsid -f sh -c ".venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/boberdetective-backend.log 2>&1 < /dev/null"`
   - frontend: `setsid -f sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1 < /dev/null"`
@@ -438,25 +443,12 @@ Latest document-processing/PDF smoke:
 
 Recommended order:
 
-1. Continue the global `Tudásbázis` slice from `Design_documents/21_markdown_knowledge_base_module_plan.md`. Implemented so far: migration `0046_knowledge_documents`, `KnowledgeDocumentModel`, deterministic `app/services/markdown_parser.py`, `app/services/knowledge_import.py`, data-root/text-store backed `.md` persistence/chunk-manifest writing, migration `0047_knowledge_index_metadata`, `app/services/knowledge_indexing.py`, separate knowledge Qdrant collection naming, `GET /api/v1/knowledge/index/status`, `POST /api/v1/knowledge/index`, `app/services/knowledge_query.py`, `POST /api/v1/knowledge/query`, first lifecycle endpoints for archive/restore/final delete, and batch-only Markdown import endpoints.
-2. Live import -> index -> query smoke passed with a generated Markdown document: import created one `markdown_note` with 2 chunks, knowledge indexing wrote 2 chunks into `boberdetective_chunks_knowledge_text_embedding_bge_m3`, and a hybrid short query returned a source-backed answer with source cards.
-3. First `Tudásbázis` frontend surface is implemented: sidebar navigation entry, Markdown import form, knowledge document list/search/selection, selected-document toolbar actions, index status/index action, question input, current answer, and source cards with filename + relative path + heading path.
-4. User-side live test of the first `Tudásbázis` frontend flow passed: Markdown import, indexelés, kérdezés, válasz/forrás megjelenítés, és dokumentumrészlet nézet alapvetően működik.
-5. First knowledge document lifecycle workflow is implemented: archive, restore, final delete, Qdrant knowledge-point cleanup, data-root document directory cleanup on final delete, global audit events, and frontend controls. The current UI selection-clear action remains separate from document deletion.
-6. The public knowledge-base Markdown import surface is now batch-only. `POST /api/v1/knowledge/documents/batch/preview` detects `ready`, `same_hash`, `same_relative_path`, and `invalid` states without mutation; `POST /api/v1/knowledge/documents/batch/import` imports new files automatically, skips same-hash duplicates, and replaces same-path/different-content files only on explicit per-file `replace` decision. The older public one-file import endpoint/UI is retired; selecting one file in the batch UI is the single-file workflow.
-7. Knowledge Markdown import now treats the frontend field as a relative directory path. The backend stores and compares the full relative file path built from `relative_directory/original_filename.md`; if no directory is supplied, the original filename is the import key. This prevents files in the same folder from colliding while preserving folder-based organization.
-8. Same-hash and same-relative-path replacement behavior is working with the relative-directory-plus-filename import key. The old one-file conflict UI has been retired with the public one-file import path; the batch preview/import UI now owns the conflict decision flow.
-9. Batch/folder Markdown import contract v1 is documented in `Design_documents/21_markdown_knowledge_base_module_plan.md`: preview/import endpoint direction, conflict-only item lists, per-file decisions for real replacement conflicts, partial-success summaries, safety rules, and the future "alkalmazd az összes ilyen ütközésre" UX model.
-10. First backend batch-preview slice is implemented: `POST /api/v1/knowledge/documents/batch/preview` accepts multiple Markdown files with required relative directory values, resolves `relative_directory/original_filename.md`, computes hashes, detects `ready`, `same_hash`, `same_relative_path`, and `invalid` states, returns full summary counts, returns item details only for conflict/invalid rows, and does not mutate data.
-11. Backend batch import endpoint is implemented: `POST /api/v1/knowledge/documents/batch/import` accepts the same files plus per-file decisions (`import`, `skip`, `replace`, `keep_existing`), performs partial-success imports, handles same-path replacement only on explicit replace, and returns only imported/skipped/replaced/failed summary counts.
-12. First frontend batch import UI is implemented for `Tudásbázis`: multi-file selection, required common relative directory input, preview summary/conflict list, batch import execution, and compact result summary/list. The UI only asks for a decision on real same-path/different-content conflicts; new files import automatically without list rows, same-hash files are skipped automatically, invalid files are reported, and hash values are not shown to the user.
-13. The `Tudásbázis` document list now follows the shared file-card pattern: cards show the stored `path + filename` import key, processing/index metrics, and checkbox selection only. The former document detail/chunk-preview panel and `GET /api/v1/knowledge/documents/{id}` detail endpoint were removed; archive/delete actions moved to selected-document toolbar buttons, and batch import clears the selected file input after completion.
-14. User-side live testing confirmed the batch import behavior and current knowledge-base UI are usable. The focused Marko/AST parser work from `Design_documents/22_markdown_ast_chunking_plan.md` is now complete as a v1 baseline: Marko is declared, `app/services/markdown_parser.py` is the AST parser, the old line parser and comparison script are removed, and targeted parser/import/query tests should be kept around this active behavior. Future tuning should start from concrete live bad-chunk examples.
-15. Keep `search_findings`, full-document person seeds, source validation, research-finding conversion, RAG question answering, and contradiction detection strict/stable while the knowledge-base module is implemented.
-16. Keep the dedicated `Audit napló` backend/API/panel backed by `audit_events` as the following larger work surface after the knowledge-base slice; it should remain separate from `Elemzési előzmények`, which is based on `analysis_runs`.
-17. Add multi-collection source-scope selection only where an analysis/RAG/knowledge-base workflow genuinely needs it; the current first implementation intentionally supports one selected collection at a time.
-18. Treat a serious `Jogszabályi kereső` as a later specialized module with law/section/paragraph/effective-date semantics, not as a small mode inside generic RAG.
-19. Continue live-test driven fixes for the implemented RAG/full-document/UI layers, but do not treat them as the main planned slice unless a concrete bug or quality issue appears.
+1. Treat the `Tudásbázis` module as a stable first baseline for now. The implemented baseline includes batch-only Markdown import, Marko/AST parsing, knowledge-only indexing/querying, Markdown-rendered answers, lazy full-source inspection, source-card search, lifecycle controls, and the accepted Markdown-aware retrieval/packing behavior from `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md` and `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md`.
+2. Treat the `Áttekintési jelentés` status cleanup as implemented. `new` is retired from active contracts, `corrected` is presented as `Korrekcióval kizárt`, source-orphaned corrected objects are consistently treated as source-invalid, and destructive delete buttons use the shared danger/kuka visual language.
+3. Make `Design_documents/25_relationship_map_graph_view_plan.md` the next larger planned development slice. Start with design/refinement for a dedicated `Kapcsolati térkép` work surface, then implement a backend graph-projection API over existing source-valid structured objects, followed by a React Flow / XYFlow frontend visualization.
+4. Keep the first graph slice read-only and object-centered. It should project existing audited/source-bound relationships; it must not introduce AI-generated edges, graph database storage, or any new truth layer.
+5. Continue live-test driven fixes for implemented RAG, Tudásbázis, full-document, review-report, and responsive UI layers only when concrete issues appear. Do not reopen broad tuning loops without a specific failing behavior.
+6. Keep the dedicated `Audit napló` backend/API/panel backed by `audit_events` as a later larger work surface after the graph-view slice unless the user explicitly reprioritizes it.
 
 Rationale:
 
@@ -466,7 +458,7 @@ Rationale:
 - Document lifecycle is now an active-source gate. Inactive documents must remain historically visible where already cited, but must not become new source material unless restored to `active`.
 - The former raw-chunk automatic extraction modules have already been retired from active code paths. Keep cleanup/documentation focused on the current source-bound `search_findings` workflow and the downstream claim-pair contradiction workflow.
 - Contradiction detection is downstream of source-cited claims, so it should remain claim-pair based and preserve `no source -> no claim` through claim/source-reference provenance.
-- The previous major system direction, the `Általános iratkérdező` / local RAG question-answering layer, now has a stable first implementation baseline. It should remain beside the strict worklist workflows, not replace them. The current larger planned direction is the dedicated `Tudásbázis` module for Markdown-based structured knowledge material, planned in `Design_documents/21_markdown_knowledge_base_module_plan.md`. The first import/chunking/indexing/query backend foundation, first frontend surface, archive/restore/final-delete lifecycle workflow, relative-directory-plus-filename import key semantics, batch/folder Markdown import contract v1, backend batch-preview/import endpoints, frontend batch import UI, and Marko/AST Markdown parser v1 are implemented/documented and user-side live tested. The public single-file import API/UI is retired; the batch UI is the only import surface and also covers one-file imports. It requires a relative directory, shows only conflict/invalid item rows, and asks for user decisions only on same-path/different-content conflicts. The dedicated `Audit napló` backend/API/panel over `audit_events` remains the next larger work surface after the knowledge-base hardening slice.
+- The previous major system directions, the `Általános iratkérdező` / local RAG question-answering layer and the dedicated `Tudásbázis` module, now both have stable first implementation baselines. They should remain beside the strict worklist workflows, not replace them. The current larger planned direction is the dedicated `Kapcsolati térkép` work surface described in `Design_documents/25_relationship_map_graph_view_plan.md`: first as a read-only, object-centered graph projection over existing source-valid structured objects. The dedicated `Audit napló` backend/API/panel over `audit_events` remains a later larger work surface unless explicitly reprioritized.
 - UI work-surface architecture and the current CSS token/role baseline are captured in `Design_documents/14_work_surface_ui_architecture_plan.md`. The first shell/navigation slice is implemented: the current workbench is available as `Ügy munkapad`, with surfaces for `Teljes iratfeldolgozás` and `Audit napló`.
 - The `Teljes iratfeldolgozás` surface is backend-connected: active-document search/selection, processing profile selection, selected-document summary, page-range run-start, last-run validation summary, active/set-aside worklist views, inline source evidence display, restore, repeated-label tags, worklist name search, deletion marking with all-visible selection plus bulk delete, and focus handoff are implemented.
 - Full-document processing backend contract is captured in `Design_documents/15_full_document_processing_plan.md`. `document_processing_item` is a separate preparatory work item, not a `research_finding` and not a structured review object. The current backend/frontend slice exposes profile listing, selected page-range run-start execution, item list/status APIs, active/set-aside worklist views, repeated-label occurrence tags, worklist name search, deletion marking with all-visible selection plus bulk delete, and focus handoff into the `Ügy munkapad`.

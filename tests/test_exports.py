@@ -99,7 +99,6 @@ def test_html_export_escapes_item_and_source_text() -> None:
             "verified": 0,
             "rejected": 0,
             "corrected": 0,
-            "new": 0,
         },
         items=[item],
     )
@@ -126,7 +125,6 @@ def test_review_report_export_includes_missing_item_candidates_in_json_and_html(
             "verified": 0,
             "rejected": 0,
             "corrected": 0,
-            "new": 0,
         },
         items=[item],
     )

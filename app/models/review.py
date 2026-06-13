@@ -21,11 +21,11 @@ class HumanReviewModel(Base):
             name="ck_human_reviews_action_type",
         ),
         CheckConstraint(
-            "previous_review_status is null or previous_review_status in ('new', 'needs_review', 'verified', 'rejected', 'corrected')",
+            "previous_review_status is null or previous_review_status in ('needs_review', 'verified', 'rejected', 'corrected')",
             name="ck_human_reviews_previous_review_status",
         ),
         CheckConstraint(
-            "new_review_status is null or new_review_status in ('new', 'needs_review', 'verified', 'rejected', 'corrected')",
+            "new_review_status is null or new_review_status in ('needs_review', 'verified', 'rejected', 'corrected')",
             name="ck_human_reviews_new_review_status",
         ),
     )

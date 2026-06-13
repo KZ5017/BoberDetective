@@ -26,7 +26,7 @@ class ContradictionCandidateModel(Base):
             name="ck_contradiction_candidates_source_validation_status",
         ),
         CheckConstraint(
-            "review_status in ('new', 'needs_review', 'verified', 'rejected', 'corrected')",
+            "review_status in ('needs_review', 'verified', 'rejected', 'corrected')",
             name="ck_contradiction_candidates_review_status",
         ),
         CheckConstraint(

@@ -136,11 +136,10 @@ PDF/OCR sample checks:
 
 Next:
 
-- Continue hardening the dedicated `Tudásbázis` module: Markdown (`.md`) documents are imported and queried as structured knowledge-base material, not as investigative case files (`Design_documents/21_markdown_knowledge_base_module_plan.md`)
-- The current `Tudásbázis` baseline includes global `knowledge_base` / `markdown_note` storage, Marko/AST Markdown parsing/chunking, separate knowledge indexing/querying, archive/restore/final-delete lifecycle controls, batch-only Markdown import with conflict preview/decision handling, Markdown-rendered answers, and lazy full-source inspection from the `Felhasznált Markdown források` panel
-- Current knowledge-base quality target: `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md` is implemented through baseline retrieval tests, Markdown-aware hybrid scoring, same-document/same-heading context expansion, and the first `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md` slice. Semantic/hybrid knowledge retrieval now uses heading-aware section expansion, `expansion_priority` based forward context for strong non-heading seeds, and capped document-level source packing while preserving natural chunk order inside each selected document.
-- The active `Tudásbázis` Markdown parser is the Marko/AST-based `markdown_ast_sections_v1` parser (`Design_documents/22_markdown_ast_chunking_plan.md`), so real Markdown structure drives chunking quality instead of line-level heuristics
-- Keep the dedicated `Audit naplo` API/panel backed by `audit_events` as the following larger work surface after the knowledge-base slice
+- Treat the dedicated `Tudásbázis` module as a stable first baseline: Markdown (`.md`) documents are imported and queried as structured knowledge-base material, not as investigative case files (`Design_documents/21_markdown_knowledge_base_module_plan.md`)
+- The current `Tudásbázis` baseline includes global `knowledge_base` / `markdown_note` storage, Marko/AST Markdown parsing/chunking, separate knowledge indexing/querying, archive/restore/final-delete lifecycle controls, batch-only Markdown import with conflict preview/decision handling, Markdown-rendered answers, lazy full-source inspection, and the accepted Markdown-aware retrieval/packing behavior from `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md` and `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md`
+- The next larger planned development slice is the `Kapcsolati térkép` work surface from `Design_documents/25_relationship_map_graph_view_plan.md`: a read-only, object-centered graph projection over existing source-valid structured objects, backed by a backend graph API and React Flow / XYFlow frontend visualization
+- Keep the dedicated `Audit naplo` API/panel backed by `audit_events` as a later larger work surface after the graph-view slice unless explicitly reprioritized
 - Add multi-collection source scopes only where analysis/RAG/knowledge-base workflows need them; the current first analysis/indexing integration uses one selected collection at a time
 - Keep `search_findings`, full-document person seeds, source validation, and contradiction detection as strict auditable workbench workflows beside the freer RAG question-answering layer
 - Treat a serious `Jogszabályi kereső` as a later specialized module with law/section/paragraph/effective-date semantics, not as a small mode inside generic RAG
@@ -189,6 +188,8 @@ See:
 - `Design_documents/22_markdown_ast_chunking_plan.md`
 - `Design_documents/23_markdown_knowledge_retrieval_hardening_plan.md`
 - `Design_documents/24_markdown_section_aware_retrieval_packing_plan.md`
+- `Design_documents/25_relationship_map_graph_view_plan.md`
+- `Design_documents/26_review_report_status_cleanup_plan.md`
 
 ## Handoff notes
 

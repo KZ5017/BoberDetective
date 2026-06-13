@@ -209,6 +209,7 @@ def merge_missing_item_candidate(
 
     previous_source_status = source_candidate.review_status
     source_candidate.review_status = "corrected"
+    source_candidate.source_validation_status = "source_invalid"
     source_candidate.updated_at = datetime.now(UTC)
     target_candidate.updated_at = datetime.now(UTC)
     db.add(source_candidate)
@@ -297,10 +298,13 @@ def detach_missing_item_candidate_source(
         raise MissingItemCandidateValidationError("Missing item candidate source reference not found for this case")
     ensure_source_reference_document_is_active(db, case_id, source_reference, MissingItemCandidateValidationError)
     source_reference_id = source_link.source_reference_id
+    previous_review_status = candidate.review_status
     db.delete(source_link)
     db.flush()
     remaining_source_count = len(list_missing_item_candidate_sources(db, candidate.id))
+    orphaned_by_detach = remaining_source_count <= 0
     if remaining_source_count <= 0:
+        candidate.review_status = "corrected"
         candidate.source_validation_status = "source_invalid"
     candidate.updated_at = datetime.now(UTC)
     db.add(candidate)
@@ -327,14 +331,15 @@ def detach_missing_item_candidate_source(
         object_type="missing_item_candidate",
         object_id=candidate.id,
         action_type="detach_source",
-        previous_review_status=candidate.review_status,
-        new_review_status=None,
+        previous_review_status=previous_review_status,
+        new_review_status=candidate.review_status if orphaned_by_detach else None,
         review_comment=review_comment or "Hianyzo irat jelolt forrasa levalasztva.",
         correction_patch_json={
             "operation": "detach_source",
             "missing_item_candidate_source_id": str(source_link_id),
             "source_reference_id": str(source_reference_id),
             "detached_source_item_id": str(detached_item.id),
+            "orphaned_by_detach": orphaned_by_detach,
         },
         performed_by_user_id=user.id,
     )
@@ -357,6 +362,7 @@ def detach_missing_item_candidate_source(
             "detached_source_item_id": str(detached_item.id),
             "remaining_source_count": remaining_source_count,
             "source_validation_status": candidate.source_validation_status,
+            "review_status": candidate.review_status,
         },
     )
     DatabaseAuditWriter(db).write(audit_event)
@@ -394,6 +400,7 @@ def move_missing_item_candidate_source(
     )
 
     previous_target_status = target_candidate.review_status
+    previous_source_status = source_candidate.review_status
     target_reactivated = previous_target_status == "corrected"
     if target_reactivated:
         target_candidate.review_status = "needs_review"
@@ -413,7 +420,9 @@ def move_missing_item_candidate_source(
 
     db.flush()
     remaining_source_count = len(list_missing_item_candidate_sources(db, source_candidate.id))
+    orphaned_by_move = remaining_source_count <= 0
     if remaining_source_count <= 0:
+        source_candidate.review_status = "corrected"
         source_candidate.source_validation_status = "source_invalid"
     target_candidate.source_validation_status = "source_valid"
     source_candidate.updated_at = datetime.now(UTC)
@@ -427,14 +436,15 @@ def move_missing_item_candidate_source(
         object_type="missing_item_candidate",
         object_id=source_candidate.id,
         action_type="detach_source",
-        previous_review_status=source_candidate.review_status,
-        new_review_status=None,
+        previous_review_status=previous_source_status,
+        new_review_status=source_candidate.review_status if orphaned_by_move else None,
         review_comment=review_comment or f"Hianyzo irat jelolt forrasa athelyezve: {target_candidate.referenced_item_text}",
         correction_patch_json={
             "operation": "move_source_to",
             "missing_item_candidate_source_id": str(source_link_id),
             "target_missing_item_candidate_id": str(target_candidate.id),
             "skipped_duplicate_source": skipped_duplicate_source,
+            "orphaned_by_move": orphaned_by_move,
         },
         performed_by_user_id=user.id,
     )

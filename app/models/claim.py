@@ -22,7 +22,7 @@ class ClaimModel(Base):
             name="ck_claims_source_validation_status",
         ),
         CheckConstraint(
-            "review_status in ('new', 'needs_review', 'verified', 'rejected', 'corrected')",
+            "review_status in ('needs_review', 'verified', 'rejected', 'corrected')",
             name="ck_claims_review_status",
         ),
         CheckConstraint("confidence is null or (confidence >= 0 and confidence <= 1)", name="ck_claims_confidence_range"),

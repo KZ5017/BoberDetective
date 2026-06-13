@@ -41,13 +41,12 @@ def _item(object_type: str, review_status: str, source_validation_status: str) -
 
 
 def test_review_report_counts_known_statuses() -> None:
-    counts = _build_counts(["needs_review", "needs_review", "verified", "rejected", "new", "corrected"])
+    counts = _build_counts(["needs_review", "needs_review", "verified", "rejected", "corrected"])
 
-    assert counts.total == 6
+    assert counts.total == 5
     assert counts.needs_review == 2
     assert counts.verified == 1
     assert counts.rejected == 1
-    assert counts.new == 1
     assert counts.corrected == 1
 
 
