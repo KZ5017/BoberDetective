@@ -495,9 +495,12 @@ Megvalosult:
   - label;
   - id;
 - React Flow node-ok balrol jobbra iranyitott source/target poziciot kapnak;
-- CSS oldalon a dokumentum, oldal, szovegresz, forrashivatkozas, objektum es
-  ellentmondasjelolt node-ok finoman eltero vizualis szerepet kaptak a meglévo
-  tokenrendszerbol.
+- CSS oldalon a node-ok alap border/effect kezelese szandekosan egységes
+  maradt. A jelenlegi elfogadott vizualis kulonbseg csak az objektum jellegu
+  node-ok finom hatterszinezese kategoriankent (`claim`, `event`, `entity`,
+  `missing_item_candidate`, `contradiction_candidate`). A kijelolt/fokusz node
+  allapot nem ad extra hatteret, keretet vagy arnyekot; a kattintas csak az
+  inspektor panelek tartalmat valtoztatja.
 - a valo source-chain edge-ek solid vonalak;
 - ha a `Forráshivatkozás` reteg ki van kapcsolva, de az irat/oldal vagy
   szovegresz reteg lathato, a frontend label nelkuli, szaggatott
@@ -517,6 +520,20 @@ Nem valtozott:
 Verifikacio:
 
 - `npm --prefix frontend run build` sikeres.
+
+### Inspector es node-stilus finomitas
+
+A live UI csiszolas soran a `Kapcsolati térkép` inspektor panelei read-only
+reszletnezeti szerepet kaptak:
+
+- a `Kijelölt csomópont tartalma` es `Kapcsolatok` kartyai nem kapnak
+  selected/focus hatter-, border- vagy arnyekeffektet;
+- a kartyak es a kapszulak graph-inspector CSS tokeneken keresztul kovetik a
+  globalis compact card/chip vizualis nyelvet;
+- a canvas node-oknal kikerultek a nem hasznalt layer/focus classok;
+- megmaradtak az objektumtipus classok, mert ezek adjak a celzott, kategoriankenti
+  objektum-hatterszint;
+- a graph node-ok selected/focus allapota nem modositja a node doboz kinezetet.
 
 ### Backend projection tisztitas allapota
 

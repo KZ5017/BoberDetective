@@ -4535,12 +4535,17 @@ export function App() {
   }
 
   function renderRelationshipGraphNode(node: RelationshipGraphNode) {
-    const isFocus = node.id === relationshipGraph?.focus_node_id;
+    const relationshipFocusIds = relationshipGraph
+      ? relationshipGraph.focus_node_ids.length > 0
+        ? relationshipGraph.focus_node_ids
+        : [relationshipGraph.focus_node_id]
+      : [];
+    const isFocus = relationshipFocusIds.includes(node.id);
     const metadataEntries = Object.entries(node.metadata ?? {}).filter(([, value]) =>
       value !== null && value !== undefined && typeof value !== "object"
     );
     return (
-      <article key={node.id} className={`compact-item graph-node-card ${isFocus ? "is-focus" : ""} ${node.id === selectedRelationshipNodeId ? "is-selected" : ""}`}>
+      <article key={node.id} className="compact-item graph-node-card">
         <div className="item-card-header">
           <div>
             <strong>{node.label}</strong>
@@ -4552,10 +4557,10 @@ export function App() {
             </div>
           </div>
         </div>
-        {node.subtitle && <p className="field-hint">{truncateText(node.subtitle, 260)}</p>}
+        {node.subtitle && <div className="graph-node-detail-text">{node.subtitle}</div>}
         {metadataEntries.length > 0 && (
           <div className="metrics">
-            {metadataEntries.slice(0, 5).map(([key, value]) => (
+            {metadataEntries.map(([key, value]) => (
               <span key={`${node.id}-${key}`}>{key}: {String(value)}</span>
             ))}
           </div>
@@ -4568,7 +4573,7 @@ export function App() {
     const sourceNode = graph?.nodes.find((node) => node.id === edge.source);
     const targetNode = graph?.nodes.find((node) => node.id === edge.target);
     return (
-      <article key={edge.id} className={`compact-item graph-edge-card ${edge.id === selectedRelationshipEdgeId ? "is-selected" : ""}`}>
+      <article key={edge.id} className="compact-item graph-edge-card">
         <div className="item-card-header">
           <div>
             <strong>{edge.label}</strong>
@@ -4807,7 +4812,7 @@ export function App() {
 
             <section className="panel relationship-inspector-panel">
               <div className="section-heading">
-                <h2>Elemek</h2>
+                <h2>Kijelölt csomópont tartalma</h2>
                 <GitMerge size={20} />
               </div>
               {renderRelationshipSelectedNode(selectedRelationshipNode, visibleRelationshipGraph)}

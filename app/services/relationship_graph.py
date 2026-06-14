@@ -22,6 +22,7 @@ from app.schemas.relationship_graph import (
     RelationshipGraphWarning,
 )
 from app.services.review_report import _entity_source_validation_status
+from app.services.text_store import read_chunk_text_from_store, read_page_text_from_store
 
 
 SUPPORTED_FOCUS_OBJECT_TYPES = {"claim", "event", "entity", "missing_item_candidate", "contradiction_candidate"}
@@ -450,7 +451,7 @@ def _add_source_location_nodes(
             chunk_node_id = _node_id("chunk", chunk.id)
             page = _resolve_source_location_page(db, source_reference, chunk)
             if page is not None:
-                page_node_id = _add_page_node(builder, page)
+                page_node_id = _add_page_node(db, builder, page)
                 if document_node_id is not None:
                     builder.add_edge("DOCUMENT_HAS_PAGE", document_node_id, page_node_id, "oldal")
             builder.add_node(
@@ -458,7 +459,7 @@ def _add_source_location_nodes(
                     id=chunk_node_id,
                     type="chunk",
                     label=f"{chunk.chunk_index}. szövegrész",
-                    subtitle=f"{chunk.page_start}-{chunk.page_end}. oldal",
+                    subtitle=read_chunk_text_from_store(db, chunk),
                     metadata={
                         "chunk_index": chunk.chunk_index,
                         "page_start": chunk.page_start,
@@ -475,7 +476,7 @@ def _add_source_location_nodes(
     elif source_reference.page_id is not None:
         page = db.get(DocumentPageModel, source_reference.page_id)
         if page is not None:
-            page_node_id = _add_page_node(builder, page)
+            page_node_id = _add_page_node(db, builder, page)
             if document_node_id is not None:
                 builder.add_edge("DOCUMENT_HAS_PAGE", document_node_id, page_node_id, "oldal")
     if chunk_node_id is not None:
@@ -507,14 +508,14 @@ def _resolve_source_location_page(
     ).scalars().first()
 
 
-def _add_page_node(builder: _GraphBuilder, page: DocumentPageModel) -> str:
+def _add_page_node(db: Session, builder: _GraphBuilder, page: DocumentPageModel) -> str:
     page_node_id = _node_id("page", page.id)
     builder.add_node(
         RelationshipGraphNode(
             id=page_node_id,
             type="page",
             label=f"{page.page_number}. oldal",
-            subtitle=page.text_source,
+            subtitle=read_page_text_from_store(db, page),
             metadata={"page_number": page.page_number, "text_source": page.text_source, "ocr_used": page.ocr_used},
         )
     )

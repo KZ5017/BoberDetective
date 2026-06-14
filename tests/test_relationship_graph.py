@@ -116,6 +116,7 @@ def _seed_claim_graph_session(source_validation_status: str = "source_valid") ->
         is_current=True,
         text_char_count=120,
     )
+    page._text_store_text = "Teljes oldal szöveg első sora.\nTeljes oldal szöveg második sora."
     chunk = DocumentChunkModel(
         id=chunk_id,
         case_id=case_id,
@@ -130,6 +131,7 @@ def _seed_claim_graph_session(source_validation_status: str = "source_valid") ->
         version_no=1,
         is_current=True,
     )
+    chunk._text_store_text = "Teljes szövegrész első sora.\nTeljes szövegrész második sora."
     source_reference = SourceReferenceModel(
         id=source_reference_id,
         case_id=case_id,
@@ -185,6 +187,11 @@ def test_relationship_graph_claim_includes_source_location() -> None:
     assert f"document:{ids['document_id']}" in node_ids
     assert f"page:{ids['page_id']}" in node_ids
     assert f"chunk:{ids['chunk_id']}" in node_ids
+    nodes_by_id = {node.id: node for node in graph.nodes}
+    assert nodes_by_id[f"page:{ids['page_id']}"].subtitle == "Teljes oldal szöveg első sora.\nTeljes oldal szöveg második sora."
+    assert nodes_by_id[f"chunk:{ids['chunk_id']}"].subtitle == "Teljes szövegrész első sora.\nTeljes szövegrész második sora."
+    assert nodes_by_id[f"source_reference:{ids['source_reference_id']}"].subtitle == "A tanú állítása szerint látta az esemény egyik részletét."
+    assert nodes_by_id[f"claim:{ids['claim_id']}"].subtitle == "A tanú állítása szerint látta az esemény egyik részletét."
     assert f"analysis_run:{ids['run_id']}" not in node_ids
     assert {"HAS_SOURCE", "DOCUMENT_HAS_PAGE", "PAGE_HAS_CHUNK", "SOURCE_FROM_CHUNK"}.issubset(edge_types)
     assert "CREATED_BY_RUN" not in edge_types

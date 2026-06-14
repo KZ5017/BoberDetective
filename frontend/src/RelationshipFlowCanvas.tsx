@@ -181,8 +181,6 @@ function buildRelationshipFlowElements(
         className: [
           "graph-flow-node",
           `graph-flow-node-${node.type.replace(/_/g, "-")}`,
-          `graph-flow-node-layer-${layer.replace(/_/g, "-")}`,
-          isFocus ? "is-focus" : ""
         ].filter(Boolean).join(" "),
         sourcePosition: Position.Right,
         targetPosition: Position.Left

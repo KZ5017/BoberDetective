@@ -34,6 +34,7 @@
 - Restored the default source context for contradiction-candidate graph views by treating the input claims as source-carrier nodes in the frontend layer filter; `Irat` and `Forráshivatkozás` now remain visible without adding direct candidate source legs.
 - Removed `Elemzési eredet` from the object-centered `Kapcsolati térkép`: backend graph responses no longer include analysis-run or research-finding provenance nodes/edges, the POST graph request no longer accepts `include_provenance`, and the frontend layer toggle/layout/CSS no longer exposes a provenance lane. Analysis/audit provenance remains available through the dedicated analysis/audit surfaces.
 - Refined `Kapcsolati térkép` graph UX: the object-type selector now defaults to `Összes`, nodes can be temporarily dragged without persisting positions, graph columns are spaced farther apart horizontally, real source-chain edges are explicitly solid, and visual bridge edges are no longer drawn on top of real visible edges.
+- Stabilized `Kapcsolati térkép` node and inspector styling: graph nodes now share one calm border/effect baseline, selected/focus node state no longer changes the node box styling, structured object nodes keep only subtle object-type background colors, unused layer/focus CSS classes were removed from generated node markup, and the `Kijelölt csomópont tartalma` / `Kapcsolatok` inspector cards remain static read-only detail cards using graph-inspector card/chip tokens.
 
 ### Verified
 

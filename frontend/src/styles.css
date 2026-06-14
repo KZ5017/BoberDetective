@@ -133,8 +133,24 @@
   --graph-node-label-gap: var(--space-2xs);
   --graph-node-title-size: var(--text-control-size);
   --graph-node-meta-size: var(--text-meta-compact-size);
+  --graph-object-claim-bg: #eef7f1;
+  --graph-object-event-bg: #fff4e8;
+  --graph-object-entity-bg: #edf4fb;
+  --graph-object-missing-bg: #f6f1fb;
+  --graph-object-contradiction-bg: #fff0f0;
   --graph-object-card-min-height: 4.35rem;
   --graph-object-empty-min-height: 8rem;
+  --graph-inspector-card-bg: var(--color-surface);
+  --graph-inspector-card-border: var(--color-border);
+  --graph-inspector-card-radius: var(--radius-md);
+  --graph-inspector-card-padding: var(--layout-card-padding);
+  --graph-inspector-card-gap: var(--layout-card-gap);
+  --graph-inspector-chip-bg: var(--color-surface-muted);
+  --graph-inspector-chip-border: var(--color-border-strong);
+  --graph-inspector-chip-color: var(--color-meta);
+  --graph-inspector-chip-font-size: var(--text-meta-size);
+  --graph-inspector-chip-font-weight: var(--text-chip-weight);
+  --graph-inspector-chip-padding: var(--layout-chip-padding);
   --graph-edge-stroke-width: 1.6;
   --graph-edge-selected-stroke-width: 2.4;
   --graph-attribution-bg: rgba(255, 255, 255, 0.72);
@@ -1051,10 +1067,10 @@ label .field-hint,
   border-radius: var(--radius-pill);
   color: var(--chip-color, var(--color-meta));
   display: inline-flex;
-  font-size: var(--text-meta-size);
-  font-weight: var(--text-chip-weight);
+  font-size: var(--chip-font-size, var(--text-meta-size));
+  font-weight: var(--chip-font-weight, var(--text-chip-weight));
   gap: var(--layout-inline-gap);
-  padding: var(--layout-chip-padding);
+  padding: var(--chip-padding, var(--layout-chip-padding));
 }
 
 .hero-panel {
@@ -2981,13 +2997,20 @@ pre {
 
 .relationship-inspector-content,
 .relationship-inspector-list {
+  flex: 1;
+  max-height: none;
   min-height: 0;
   overflow: auto;
 }
 
 .relationship-inspector-content {
+  align-content: start;
   display: grid;
   gap: var(--layout-card-gap);
+}
+
+.relationship-inspector-list {
+  align-content: start;
 }
 
 .relationship-inspector-empty {
@@ -3061,7 +3084,8 @@ pre {
 }
 
 .graph-flow-node {
-  background: var(--color-surface);
+  --graph-node-bg: var(--color-surface);
+  background: var(--graph-node-bg);
   border: 1px solid var(--color-border-card);
   border-radius: var(--graph-node-radius);
   box-shadow: var(--shadow-subtle);
@@ -3073,39 +3097,39 @@ pre {
 }
 
 .relationship-flow-canvas .react-flow__node.graph-flow-node {
+  background: var(--graph-node-bg);
+  border-color: var(--color-border-card);
   border-radius: var(--graph-node-radius);
+  box-shadow: var(--shadow-subtle);
 }
 
-.graph-flow-node.is-focus {
-  background: var(--color-warning-bg);
-  border-color: var(--color-warning-border);
-  box-shadow: var(--shadow-card);
+.relationship-flow-canvas .react-flow__node.graph-flow-node.selected,
+.relationship-flow-canvas .react-flow__node.graph-flow-node:focus,
+.relationship-flow-canvas .react-flow__node.graph-flow-node:focus-visible {
+  background: var(--graph-node-bg);
+  border-color: var(--color-border-card);
+  box-shadow: var(--shadow-subtle);
+  outline: none;
 }
 
-.graph-flow-node-layer-document,
-.graph-flow-node-layer-page,
-.graph-flow-node-layer-chunk {
-  background: var(--color-surface-muted);
-  border-color: var(--color-border-soft);
+.relationship-flow-canvas .react-flow__node.graph-flow-node-claim {
+  --graph-node-bg: var(--graph-object-claim-bg);
 }
 
-.graph-flow-node-layer-page,
-.graph-flow-node-layer-chunk {
-  background: var(--color-surface-soft);
+.relationship-flow-canvas .react-flow__node.graph-flow-node-event {
+  --graph-node-bg: var(--graph-object-event-bg);
 }
 
-.graph-flow-node-source-reference {
-  background: var(--color-surface);
-  border-color: var(--color-success-border);
+.relationship-flow-canvas .react-flow__node.graph-flow-node-entity {
+  --graph-node-bg: var(--graph-object-entity-bg);
 }
 
-.graph-flow-node-layer-object,
-.graph-flow-node-layer-contradiction {
-  background: var(--color-surface);
+.relationship-flow-canvas .react-flow__node.graph-flow-node-missing-item-candidate {
+  --graph-node-bg: var(--graph-object-missing-bg);
 }
 
-.graph-flow-node-contradiction-candidate {
-  border-color: var(--color-border);
+.relationship-flow-canvas .react-flow__node.graph-flow-node-contradiction-candidate {
+  --graph-node-bg: var(--graph-object-contradiction-bg);
 }
 
 .graph-flow-node-label {
@@ -3186,29 +3210,49 @@ pre {
 
 .graph-node-card,
 .graph-edge-card {
-  --work-card-bg: var(--color-surface);
+  --compact-surface-border: var(--graph-inspector-card-border);
+  --compact-surface-gap: var(--graph-inspector-card-gap);
+  --compact-surface-padding: var(--graph-inspector-card-padding);
+  --compact-surface-radius: var(--graph-inspector-card-radius);
+  --graph-card-current-bg: var(--graph-inspector-card-bg);
+  --work-card-bg: var(--graph-card-current-bg);
 }
 
-.graph-node-card.is-focus {
-  background: var(--color-warning-bg);
-  border-color: var(--color-warning-border);
+.relationship-inspector-panel .metrics span {
+  --chip-bg: var(--graph-inspector-chip-bg);
+  --chip-border: var(--graph-inspector-chip-border);
+  --chip-color: var(--graph-inspector-chip-color);
+  --chip-font-size: var(--graph-inspector-chip-font-size);
+  --chip-font-weight: var(--graph-inspector-chip-font-weight);
+  --chip-padding: var(--graph-inspector-chip-padding);
+  align-items: center;
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-border);
+  border-radius: var(--radius-pill);
+  color: var(--chip-color);
+  display: inline-flex;
+  font-size: var(--chip-font-size);
+  font-weight: var(--chip-font-weight);
+  gap: var(--layout-inline-gap);
+  min-height: var(--chip-min-height);
+  padding: var(--chip-padding);
 }
 
-.graph-node-card.is-selected,
-.graph-edge-card.is-selected,
-.graph-flow-node.selected,
 .relationship-flow-canvas .react-flow__edge.selected .react-flow__edge-path {
-  border-color: var(--color-warning-border);
+  border-color: var(--color-selected-border);
 }
 
-.graph-node-card.is-selected,
-.graph-edge-card.is-selected,
-.graph-flow-node.selected {
-  background: var(--color-warning-bg);
+.graph-node-detail-text {
+  color: var(--color-text);
+  font-size: var(--text-detail-size);
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .relationship-flow-canvas .react-flow__edge.selected .react-flow__edge-path {
-  stroke: var(--color-warning-border);
+  stroke: var(--color-selected-border);
   stroke-width: var(--graph-edge-selected-stroke-width);
 }
 
