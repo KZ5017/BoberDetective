@@ -1,5 +1,22 @@
 # CHANGELOG.md
 
+## 2026-06-22
+
+### Added
+
+- Added Design_documents/30_dark_mode_theme_plan.md and implemented the first accepted dark-mode baseline: token-level dark palette, persisted light/dark React theme state, and a topbar theme toggle.
+
+### Changed
+
+- Routed the frontend color surface toward theme tokens instead of panel-by-panel dark overrides, including shell/status/link/highlight/focus role tokens and dark-mode overrides for graph/object colors.
+- Refined the Kapcsolati terkep dark-mode/readability slice after live review: selected graph nodes use a stronger border without background changes, edge labels and the React Flow MiniMap use dedicated graph tokens, the top object-selection row can grow taller, and the graph canvas/preview work area is larger for multi-object maps.
+- Updated AI_NOTES.md and CURRENT_STATE.md to mark the dark-mode work as an accepted baseline with no known concrete blocker; future theme work should be live-issue-driven token tuning.
+
+### Verified
+
+- npm --prefix frontend run build
+- git diff --check
+
 ## 2026-06-13
 
 ### Changed

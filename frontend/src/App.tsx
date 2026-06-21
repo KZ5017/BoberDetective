@@ -12,10 +12,12 @@ import {
   GitMerge,
   Loader2,
   MessageSquare,
+  Moon,
   Play,
   RefreshCw,
   Search,
   ShieldCheck,
+  Sun,
   Trash2,
   Unlink
 } from "lucide-react";
@@ -180,6 +182,8 @@ const ragAnswerModes: RagAnswerMode[] = ["short", "detailed"];
 const workSurfaces = ["document_organizer", "case_workbench", "relationship_map", "full_document_processing", "general_rag", "knowledge_base", "audit_log"] as const;
 
 type WorkSurface = (typeof workSurfaces)[number];
+type ThemeMode = "light" | "dark";
+
 
 type DocumentProcessingUnconfirmedDetail = {
   validation_status: "unconfirmed";
@@ -443,6 +447,12 @@ function getManualContradictionClaims(caseId: string): Promise<ReviewReport> {
 }
 
 export function App() {
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") {
+      return "light";
+    }
+    return window.localStorage.getItem("boberdetective-theme") === "dark" ? "dark" : "light";
+  });
   const [cases, setCases] = useState<CaseRead[]>([]);
   const [documents, setDocuments] = useState<DocumentRead[]>([]);
   const [documentCollections, setDocumentCollections] = useState<DocumentCollectionRead[]>([]);
@@ -617,6 +627,15 @@ export function App() {
   const [notice, setNotice] = useState("");
   const [, setLastActionSummary] = useState("");
   const [lastAiOperation, setLastAiOperation] = useState<AiOperationStatus | null>(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
+    window.localStorage.setItem("boberdetective-theme", themeMode);
+  }, [themeMode]);
+
+  function toggleThemeMode() {
+    setThemeMode((current) => (current === "dark" ? "light" : "dark"));
+  }
 
   function handleSurfaceNavClick(surface: WorkSurface) {
     setActiveSurface(surface);
@@ -1242,6 +1261,7 @@ export function App() {
     observer.observe(element);
     return () => observer.disconnect();
   }, [ragCurrentResponse]);
+
 
   async function perform(label: string, action: () => Promise<void>) {
     const startedAt = Date.now();
@@ -5665,6 +5685,16 @@ export function App() {
           <span><ShieldCheck size={16} /> helyi</span>
           <span><Database size={16} /> forráshivatkozott</span>
           <span><CheckCircle2 size={16} /> emberi ellenorzes</span>
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={toggleThemeMode}
+            aria-label={themeMode === "dark" ? "Vilagos mod bekapcsolasa" : "Sotet mod bekapcsolasa"}
+            title={themeMode === "dark" ? "Vilagos mod" : "Sotet mod"}
+          >
+            {themeMode === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+            <span>{themeMode === "dark" ? "Világos" : "Sötét"}</span>
+          </button>
         </div>
       </header>
 
