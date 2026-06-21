@@ -19,7 +19,7 @@ from app.models.document import (
     DocumentSearchEntryModel,
     DocumentTextLayerModel,
 )
-from app.models.document_processing import DocumentProcessingItemModel
+from app.models.document_processing import DocumentProcessingItemModel, FullDocumentAnswerModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.export import ExportItemModel, ExportModel
@@ -142,6 +142,7 @@ def _case_delete_counts(db: Session, case_id: UUID) -> dict[str, int]:
         "source_references": _count_case_rows(db, SourceReferenceModel, case_id),
         "analysis_runs": _count_case_rows(db, AnalysisRunModel, case_id),
         "research_findings": _count_case_rows(db, ResearchFindingModel, case_id),
+        "full_document_answers": _count_case_rows(db, FullDocumentAnswerModel, case_id),
         "claims": _count_case_rows(db, ClaimModel, case_id),
         "events": _count_case_rows(db, EventModel, case_id),
         "entities": _count_case_rows(db, EntityModel, case_id),
@@ -182,6 +183,7 @@ def _delete_case_database_rows(db: Session, case_id: UUID) -> None:
         db.execute(delete(AnalysisRunOutputModel).where(AnalysisRunOutputModel.analysis_run_id.in_(run_ids)))
         db.execute(delete(AnalysisRunInputModel).where(AnalysisRunInputModel.analysis_run_id.in_(run_ids)))
     db.execute(delete(DocumentProcessingItemModel).where(DocumentProcessingItemModel.case_id == case_id))
+    db.execute(delete(FullDocumentAnswerModel).where(FullDocumentAnswerModel.case_id == case_id))
     db.execute(delete(ResearchFindingModel).where(ResearchFindingModel.case_id == case_id))
     db.execute(delete(DetachedSourceItemModel).where(DetachedSourceItemModel.case_id == case_id))
     db.execute(delete(HumanReviewModel).where(HumanReviewModel.case_id == case_id))

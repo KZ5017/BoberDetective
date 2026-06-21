@@ -54,6 +54,10 @@ class ReviewReportItem(BaseModel):
     title: str
     body_text: str | None
     subtype: str
+    claim_id_a: UUID | None = None
+    claim_id_b: UUID | None = None
+    event_id_a: UUID | None = None
+    event_id_b: UUID | None = None
     event_time_start: datetime | None = None
     time_precision: str | None = None
     review_status: str

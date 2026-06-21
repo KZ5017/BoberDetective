@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.schemas.contradiction import (
+    ContradictionCandidateClaimDetachRequest,
     ContradictionCandidateCreate,
     ContradictionCandidateDetail,
     ContradictionCandidateList,
@@ -18,6 +19,7 @@ from app.services.contradictions import (
     ContradictionCandidateValidationError,
     create_contradiction_candidate,
     create_manual_contradiction_candidate,
+    detach_contradiction_candidate_claim,
     get_contradiction_candidate,
     list_contradiction_candidate_reviews,
     list_contradiction_candidate_sources,
@@ -111,6 +113,32 @@ def post_contradiction_candidate_review(
             case_id=case_id,
             contradiction_candidate_id=contradiction_candidate_id,
             action_type=payload.action_type,
+            review_comment=payload.review_comment,
+        )
+    except ContradictionCandidateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ContradictionCandidateValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _contradiction_candidate_detail(db, case_id, candidate.id)
+
+
+@router.post(
+    "/cases/{case_id}/contradiction-candidates/{contradiction_candidate_id}/claims/{side}/detach",
+    response_model=ContradictionCandidateDetail,
+)
+def post_contradiction_candidate_claim_detach(
+    case_id: UUID,
+    contradiction_candidate_id: UUID,
+    side: str,
+    payload: ContradictionCandidateClaimDetachRequest,
+    db: Session = Depends(get_db),
+) -> ContradictionCandidateDetail:
+    try:
+        candidate = detach_contradiction_candidate_claim(
+            db,
+            case_id=case_id,
+            contradiction_candidate_id=contradiction_candidate_id,
+            side=side,
             review_comment=payload.review_comment,
         )
     except ContradictionCandidateNotFoundError as exc:

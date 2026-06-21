@@ -65,6 +65,34 @@ class FullDocumentProcessingRunRequest(BaseModel):
     profile_key: str
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
+    question_text: str | None = Field(default=None, max_length=4000)
+
+
+class FullDocumentAnswerRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    case_id: UUID
+    document_id: UUID
+    analysis_run_id: UUID
+    profile_key: str
+    question_text: str
+    answer_text: str
+    source_summary: str | None
+    page_start: int
+    page_end: int
+    source_page_count: int
+    source_character_count: int
+    model_name: str | None
+    prompt_template_name: str | None
+    prompt_template_version: str | None
+    answer_status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class FullDocumentAnswerList(BaseModel):
+    data: list[FullDocumentAnswerRead]
 
 
 class FullDocumentProcessingRunResponse(BaseModel):
@@ -76,3 +104,4 @@ class FullDocumentProcessingRunResponse(BaseModel):
     validation_status: str
     items: list[DocumentProcessingItemRead]
     unsupported_items: list[str]
+    answer: FullDocumentAnswerRead | None = None

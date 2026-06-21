@@ -10,7 +10,7 @@ from app.models.case import CaseModel
 from app.models.claim import ClaimModel, ClaimSourceModel
 from app.models.contradiction import ContradictionCandidateModel, ContradictionCandidateSourceModel
 from app.models.document import DocumentChunkModel, DocumentModel
-from app.models.document_processing import DocumentProcessingItemModel
+from app.models.document_processing import DocumentProcessingItemModel, FullDocumentAnswerModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.missing_item import MissingItemCandidateModel, MissingItemCandidateSourceModel
@@ -165,6 +165,15 @@ def analysis_output_summary(db: Session, item: AnalysisRunOutputModel) -> Analys
             title=processing_item.display_label,
             body_text=processing_item.short_description,
             source_count=len(processing_item.source_evidence_json or []),
+        )
+    if item.output_type == "full_document_answer":
+        answer = db.get(FullDocumentAnswerModel, item.output_object_id)
+        if answer is None:
+            return None
+        return AnalysisRunOutputSummary(
+            title=answer.question_text,
+            body_text=answer.answer_text,
+            source_count=answer.source_page_count,
         )
     if item.output_type == "source_reference":
         source = db.get(SourceReferenceModel, item.output_object_id)

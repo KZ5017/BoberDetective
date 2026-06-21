@@ -543,6 +543,10 @@ export type ReviewReportItem = {
   title: string;
   body_text: string | null;
   subtype: string;
+  claim_id_a?: string | null;
+  claim_id_b?: string | null;
+  event_id_a?: string | null;
+  event_id_b?: string | null;
   event_time_start: string | null;
   time_precision: string | null;
   review_status: string;
@@ -909,6 +913,27 @@ export type DocumentProcessingItemRead = {
   updated_at: string;
 };
 
+export type FullDocumentAnswerRead = {
+  id: string;
+  case_id: string;
+  document_id: string;
+  analysis_run_id: string;
+  profile_key: string;
+  question_text: string;
+  answer_text: string;
+  source_summary: string | null;
+  page_start: number;
+  page_end: number;
+  source_page_count: number;
+  source_character_count: number;
+  model_name: string | null;
+  prompt_template_name: string | null;
+  prompt_template_version: string | null;
+  answer_status: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type FullDocumentProcessingRunResponse = {
   analysis_run_id: string;
   document_id: string;
@@ -918,6 +943,7 @@ export type FullDocumentProcessingRunResponse = {
   validation_status: string;
   items: DocumentProcessingItemRead[];
   unsupported_items: string[];
+  answer: FullDocumentAnswerRead | null;
 };
 
 const reviewPathByType: Record<string, (caseId: string, objectId: string) => string> = {
@@ -996,6 +1022,19 @@ export function updateReviewReportItemText(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title, description })
+  });
+}
+
+export function detachContradictionCandidateClaim(
+  caseId: string,
+  contradictionCandidateId: string,
+  side: "a" | "b",
+  reviewComment?: string
+): Promise<unknown> {
+  return request(`/cases/${caseId}/contradiction-candidates/${contradictionCandidateId}/claims/${side}/detach`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ review_comment: reviewComment || null })
   });
 }
 
@@ -1444,15 +1483,34 @@ export function listDocumentProcessingItems(
   return request(`/cases/${caseId}/documents/${documentId}/full-document-processing/items${suffix}`);
 }
 
+export function listFullDocumentAnswers(
+  caseId: string,
+  documentId: string,
+  filters: { answer_status?: string } = {}
+): Promise<{ data: FullDocumentAnswerRead[] }> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) params.set(key, value);
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return request(`/cases/${caseId}/documents/${documentId}/full-document-processing/answers${suffix}`);
+}
+
 export function runFullDocumentProcessing(
   caseId: string,
   documentId: string,
-  payload: { profile_key: string; page_start?: number | null; page_end?: number | null }
+  payload: { profile_key: string; page_start?: number | null; page_end?: number | null; question_text?: string | null }
 ): Promise<FullDocumentProcessingRunResponse> {
   return request(`/cases/${caseId}/documents/${documentId}/full-document-processing/runs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+}
+
+export function deleteFullDocumentAnswer(caseId: string, answerId: string): Promise<void> {
+  return request(`/cases/${caseId}/full-document-processing/answers/${answerId}`, {
+    method: "DELETE"
   });
 }
 

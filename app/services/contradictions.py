@@ -20,6 +20,7 @@ from app.services.claims import list_claim_sources
 from app.services.reviews import list_object_reviews, record_object_review, review_status_for_action
 from app.services.source_references import ensure_source_reference_document_is_active
 from app.services.storage import StoragePaths
+from app.services.users import get_or_create_dev_user
 
 
 class ContradictionCandidateError(ValueError):
@@ -283,6 +284,44 @@ def review_contradiction_candidate(
     return candidate
 
 
+def detach_contradiction_candidate_claim(
+    db: Session,
+    *,
+    case_id: UUID,
+    contradiction_candidate_id: UUID,
+    side: str,
+    review_comment: str | None = None,
+) -> ContradictionCandidateModel:
+    if side not in {"a", "b"}:
+        raise ContradictionCandidateValidationError("Contradiction candidate claim side must be 'a' or 'b'")
+
+    candidate = get_contradiction_candidate(db, case_id, contradiction_candidate_id)
+    field_name = "claim_id_a" if side == "a" else "claim_id_b"
+    previous_claim_id = getattr(candidate, field_name)
+    if previous_claim_id is None:
+        raise ContradictionCandidateValidationError("Selected contradiction candidate claim side is already detached")
+
+    previous_status = candidate.review_status
+    setattr(candidate, field_name, None)
+    candidate.review_status = "corrected"
+    candidate.updated_at = datetime.now(UTC)
+    db.add(candidate)
+    db.flush()
+
+    _record_contradiction_candidate_claim_detach(
+        db,
+        case_id=case_id,
+        candidate=candidate,
+        side=side,
+        previous_claim_id=previous_claim_id,
+        previous_status=previous_status,
+        review_comment=review_comment,
+    )
+    db.commit()
+    db.refresh(candidate)
+    return candidate
+
+
 def _validate_claim_or_event_pair(
     db: Session,
     case_id: UUID,
@@ -348,3 +387,56 @@ def _manual_contradiction_title(contradiction_type: str) -> str:
         "other": "Kezi ellentmondasjelolt",
     }
     return labels.get(contradiction_type, labels["other"])
+
+
+def _record_contradiction_candidate_claim_detach(
+    db: Session,
+    *,
+    case_id: UUID,
+    candidate: ContradictionCandidateModel,
+    side: str,
+    previous_claim_id: UUID,
+    previous_status: str,
+    review_comment: str | None,
+) -> HumanReviewModel:
+    user = get_or_create_dev_user(db)
+    review = HumanReviewModel(
+        case_id=case_id,
+        object_type="contradiction_candidate",
+        object_id=candidate.id,
+        action_type="correct",
+        previous_review_status=previous_status,
+        new_review_status="corrected",
+        review_comment=review_comment or f"{side.upper()} állítás leválasztva az ellentmondásjelöltről.",
+        correction_patch_json={
+            "operation": "detach_contradiction_candidate_claim",
+            "side": side,
+            "previous_claim_id": str(previous_claim_id),
+            "source_validation_status": candidate.source_validation_status,
+        },
+        performed_by_user_id=user.id,
+    )
+    db.add(review)
+    db.flush()
+
+    audit_event = AuditEvent(
+        event_type="contradiction_candidate_claim_detached",
+        success=True,
+        case_id=str(case_id),
+        user_id=str(user.id),
+        related_object_type="contradiction_candidate",
+        related_object_id=str(candidate.id),
+        input_summary={
+            "side": side,
+            "previous_claim_id": str(previous_claim_id),
+            "previous_review_status": previous_status,
+            "source_validation_status": candidate.source_validation_status,
+        },
+        output_summary={
+            "new_review_status": candidate.review_status,
+            "human_review_id": str(review.id),
+        },
+    )
+    DatabaseAuditWriter(db).write(audit_event)
+    JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(audit_event)
+    return review

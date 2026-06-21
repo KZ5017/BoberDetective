@@ -7,10 +7,14 @@ from app.models.document_processing import DocumentProcessingItemModel
 from app.schemas.full_document_processing import DocumentProcessingItemRead
 from app.services.full_document_processing import (
     FullDocumentProcessingValidationError,
+    FULL_DOCUMENT_FREE_QUESTION_SYSTEM_PROMPT,
     FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT,
     PROFILES,
+    build_full_document_free_question_user_prompt,
     build_full_document_processing_user_prompt,
+    parse_full_document_free_question_llm_json_object,
     parse_full_document_processing_llm_json_object,
+    validate_full_document_free_question_payload,
     validate_full_document_processing_payload,
     list_profiles,
     update_document_processing_item_status,
@@ -39,9 +43,11 @@ class _FakeDb:
 def test_full_document_processing_profiles_are_hungarian_and_stable() -> None:
     profiles = list_profiles()
 
-    assert [profile.key for profile in profiles] == ["person_search_seeds"]
+    assert [profile.key for profile in profiles] == ["person_search_seeds", "free_document_question"]
     assert profiles[0].label == "Személykeresési fókuszok"
     assert "person" in profiles[0].item_kinds
+    assert profiles[1].label == "Szabad iratkérdés"
+    assert profiles[1].item_kinds == ()
 
 
 def test_full_document_processing_prompts_keep_rules_in_system_and_data_in_user_prompt() -> None:
@@ -81,6 +87,35 @@ def test_full_document_processing_prompts_keep_rules_in_system_and_data_in_user_
     assert "JSON forma:" not in user_prompt
     assert "Mezőszabályok:" not in user_prompt
     assert "Add vissza JSON formában" not in user_prompt
+
+
+def test_full_document_free_question_prompt_keeps_rules_in_system_and_data_in_user_prompt() -> None:
+    document = type("Document", (), {"original_filename": "irat.pdf"})()
+    page_sources = [
+        {
+            "source_label": "page_2",
+            "document_id": uuid4(),
+            "page_id": uuid4(),
+            "page_number": 2,
+            "text": "Dupin az ablak és a villámhárító alapján következtetett.",
+        }
+    ]
+
+    user_prompt = build_full_document_free_question_user_prompt(
+        document=document,
+        question_text="Hogyan jutott Dupin a megoldáshoz?",
+        page_sources=page_sources,
+    )
+
+    assert "Forráshű iratválaszoló komponens vagy." in FULL_DOCUMENT_FREE_QUESTION_SYSTEM_PROMPT
+    assert "JSON mezők:" in FULL_DOCUMENT_FREE_QUESTION_SYSTEM_PROMPT
+    assert '{"insufficient_source":false,"source_summary":"...","answer_text":"..."}' in FULL_DOCUMENT_FREE_QUESTION_SYSTEM_PROMPT
+    assert "DOCUMENT:\nirat.pdf" in user_prompt
+    assert "QUERY:\nHogyan jutott Dupin a megoldáshoz?" in user_prompt
+    assert "SOURCE:\npage_2:" in user_prompt
+    assert "Dupin az ablak" in user_prompt
+    assert "JSON mezők:" not in user_prompt
+    assert "Csak érvényes JSON" not in user_prompt
 
 
 def test_document_processing_item_schema_accepts_graph_ready_fields() -> None:
@@ -131,6 +166,58 @@ def test_parse_full_document_processing_llm_json_object_recovers_unescaped_quote
             }
         ]
     }
+
+
+def test_parse_full_document_free_question_recovers_answer_last_json_shape() -> None:
+    payload = parse_full_document_free_question_llm_json_object(
+        '{"insufficient_source":"false","source_summary":"2. oldal","answer_text":"A válasz szerint \\n- első pont\\n- második pont"}'
+    )
+
+    parsed = validate_full_document_free_question_payload(payload)
+
+    assert parsed["insufficient_source"] is False
+    assert parsed["source_summary"] == "2. oldal"
+    assert "első pont" in parsed["answer_text"]
+
+
+def test_parse_full_document_free_question_recovers_missing_final_object_brace() -> None:
+    payload = parse_full_document_free_question_llm_json_object(
+        '{"insufficient_source":false,"source_summary":"1-9. oldal","answer_text":"Az iratban személyek listája szerepel."'
+    )
+
+    parsed = validate_full_document_free_question_payload(payload)
+
+    assert parsed["insufficient_source"] is False
+    assert parsed["source_summary"] == "1-9. oldal"
+    assert "személyek listája" in parsed["answer_text"]
+
+
+def test_parse_full_document_free_question_recovers_unescaped_quote_in_answer_text() -> None:
+    payload = parse_full_document_free_question_llm_json_object(
+        '{"insufficient_source":false,"source_summary":"1. oldal","answer_text":"A válasz "idézett" részt és különleges karaktert tartalmaz."}'
+    )
+
+    parsed = validate_full_document_free_question_payload(payload)
+
+    assert parsed["insufficient_source"] is False
+    assert '"idézett"' in parsed["answer_text"]
+    assert "különleges karaktert" in parsed["answer_text"]
+
+
+def test_validate_full_document_free_question_keeps_answer_when_insufficient_source_is_malformed() -> None:
+    parsed = validate_full_document_free_question_payload({
+        "insufficient_source": "bober",
+        "source_summary": "1. oldal",
+        "answer_text": "Forrással alátámasztott válasz.",
+    })
+
+    assert parsed["insufficient_source"] is False
+    assert parsed["answer_text"] == "Forrással alátámasztott válasz."
+
+
+def test_validate_full_document_free_question_requires_answer_text() -> None:
+    with pytest.raises(FullDocumentProcessingValidationError):
+        validate_full_document_free_question_payload({"insufficient_source": False, "source_summary": ""})
 
 
 def test_update_document_processing_item_status_rejects_converted_target() -> None:
@@ -210,7 +297,42 @@ def test_validate_full_document_processing_payload_keeps_source_exact_items() ->
     assert valid_items[0]["display_label"] == "Pauline Dubourg"
     assert valid_items[0]["recommended_search_focus"] == "Pauline Dubourg mosónő áldozatok"
     assert valid_items[0]["source_evidence"][0]["quote_char_start"] == 0
+    assert (
+        valid_items[0]["source_evidence"][0]["quote_text"]
+        == "Pauline Dubourg, mosónő, kijelenti, hogy három éve ismeri mind a két áldozatot."
+    )
     assert valid_items[0]["source_evidence"][0]["page_id"] == str(page_id)
+
+
+def test_validate_full_document_processing_payload_uses_sentence_quote_and_keeps_abbreviation() -> None:
+    payload = {
+        "items": [
+            {
+                "item_kind": "person",
+                "display_label": "Dr. Torbágy Sándor",
+                "recommended_search_focus": "Dr. Torbágy Sándor sebész",
+                "source_label": "page_2",
+            }
+        ],
+    }
+    page_sources = [
+        {
+            "source_label": "page_2",
+            "document_id": uuid4(),
+            "page_id": uuid4(),
+            "page_number": 2,
+            "text": "Előzmény. Dr. Torbágy Sándor sebész, akibe Anna nővér is szerelmes, később megérkezik. Következő mondat.",
+        }
+    ]
+
+    valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
+
+    assert unsupported == []
+    assert (
+        valid_items[0]["source_evidence"][0]["quote_text"]
+        == "Dr. Torbágy Sándor sebész, akibe Anna nővér is szerelmes, később megérkezik."
+    )
+    assert valid_items[0]["source_evidence"][0]["quote_text"].startswith("Dr.")
 
 
 def test_validate_full_document_processing_payload_falls_back_to_label_when_focus_is_missing() -> None:
@@ -275,7 +397,7 @@ def test_validate_full_document_processing_payload_repairs_wrong_source_label_wh
     assert unsupported == []
     assert valid_items[0]["source_evidence"][0]["source_label"] == "page_2"
     assert valid_items[0]["source_evidence"][0]["page_id"] == str(page_id)
-    assert valid_items[0]["source_evidence"][0]["quote_text"] == "Anna nővér"
+    assert valid_items[0]["source_evidence"][0]["quote_text"] == "Anna nővér, aki hatalmában tartja dr. Torbágyot."
 
 
 def test_validate_full_document_processing_payload_rejects_non_source_quote() -> None:
@@ -333,7 +455,7 @@ def test_validate_full_document_processing_payload_accepts_ocr_spacing_variant()
     valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
 
     assert unsupported == []
-    assert valid_items[0]["source_evidence"][0]["quote_text"] == "Dr. Bloch alorvos"
+    assert valid_items[0]["source_evidence"][0]["quote_text"] == "Dr. Bloch alorvos megjelent."
 
 
 def test_validate_full_document_processing_payload_builds_source_quote_from_label_spacing_variant() -> None:
@@ -361,7 +483,7 @@ def test_validate_full_document_processing_payload_builds_source_quote_from_labe
     valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
 
     assert unsupported == []
-    assert valid_items[0]["source_evidence"][0]["quote_text"] == "Pista bá"
+    assert valid_items[0]["source_evidence"][0]["quote_text"] == "Pista bá megérkezett a helyszínre."
 
 
 def test_validate_full_document_processing_payload_rejects_parenthetical_alias_label() -> None:
@@ -422,7 +544,7 @@ def test_validate_full_document_processing_payload_builds_source_quote_from_reve
     valid_items, unsupported = validate_full_document_processing_payload(payload, PROFILES[0], page_sources)
 
     assert unsupported == []
-    assert valid_items[0]["source_evidence"][0]["quote_text"] == "Márton"
+    assert valid_items[0]["source_evidence"][0]["quote_text"] == "Márton, a vén szanitéc, jól elrendezte az óndobozát."
 
 
 def test_validate_full_document_processing_payload_keeps_repeated_exact_labels() -> None:

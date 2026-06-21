@@ -14,6 +14,7 @@ Megvalositva.
 Implementacios baseline:
 
 - `0048_review_status_cleanup` migracio,
+- `0049_contradiction_partial_pair` migracio,
 - aktiv backend/frontend `new` statusz kivezetes,
 - `corrected` magyar UI cimke: `Korrekcióval kizárt`,
 - merge / vegso forraslevalasztas / vegso forrasathelyezes utan arva
@@ -132,6 +133,49 @@ szamolodik. Ha az entitynek nincs valid mention/source linkje, akkor a report
 `source_invalid`-kent jelenitse meg; a review statusz forrasvesztes eseten
 ugyanugy `corrected` iranyba viheto.
 
+## Kezi ellentmondasjelolt korrekcios szabaly
+
+A kezi ellentmondasjelolt nem kozvetlen forrashivatkozasbol, hanem ket mar
+letezo allitasbol epul fel. Emiatt a forrashivatkozas-allapotot nem szabad
+osszekeverni azzal, hogy a jelolt egyik bemeneti allitasa megszunt vagy
+levalasztasra kerult.
+
+Dontes:
+
+- egy aktiv kezi ellentmondasjelolthez ket allitasoldal tartozik,
+- ha az egyik allitasoldalt a felhasznalo levalasztja, a jelolt
+  `review_status = corrected` allapotba kerul,
+- a frontend ezt `Korrekcióval kizárt` cimkevel jeleniti meg,
+- a `source_validation_status` ilyenkor nem valtozik automatikusan
+  `source_invalid` ertekre, mert az ellentmondasjelolt forrasalapja a ket
+  bemeneti allitason keresztul ertelmezett,
+- a `corrected` allapotba kerult ellentmondasjelolt veglegesen torolheto a
+  review report torlesi workflow-javal.
+
+Ugyanez az elv ervenyes akkor is, ha egy olyan allitast torolnek, amelyre
+ellentmondasjelolt hivatkozik:
+
+- a claim torlese elott az erintett ellentmondasjeloltbol ki kell venni az
+  adott claim oldalt,
+- az erintett ellentmondasjelolt `corrected` allapotba kerul,
+- a jelolt nem torlodik automatikusan a claim torles mellekhatasakent.
+
+Adatbazis-szinten emiatt az ellentmondasjelolt par-kotelezetseget lazitani
+kell ugy, hogy teljes par nelkuli vagy reszleges par csak `corrected`
+allapotban maradhasson meg. Aktiv, nem korrigalt ellentmondasjeloltnel tovabbra
+is teljes claim-par vagy event-par szukseges.
+
+Tervezett API/UI:
+
+- backend muvelet claim-oldal levalasztasara:
+  `POST /api/v1/cases/{case_id}/contradiction-candidates/{candidate_id}/claims/{side}/detach`,
+- `side` erteke `a` vagy `b`,
+- opcionális emberi megjegyzes rogzitheto,
+- frontend gombok a `Talalat reszletei` panelen:
+  `A állítás leválasztása`, `B állítás leválasztása`,
+- a gombok csak akkor jelenjenek meg, ha az adott oldalon meg van claim
+  kapcsolat.
+
 ## `pending_source_validation`
 
 A `pending_source_validation` marad backendben es frontendben is.
@@ -187,3 +231,11 @@ Korrekcioval kizart + Forrashivatkozas ervenyes + nincs forras
    - review report counts/filter,
    - merge source-invalid allapot,
    - detach utani arva objektum allapot.
+
+7. Kezi ellentmondasjelolt claim-oldal levalasztas: **kesz**
+   - partial pair adatbazis-szabaly csak `corrected` allapotban,
+   - claim-oldal levalasztas API/service,
+   - claim torles eseten automatikus jelolt-korrekcio, nem automatikus
+     jelolt-torles,
+   - frontend levalasztas gombok,
+   - regresszios tesztek.

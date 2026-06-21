@@ -41,6 +41,7 @@ import {
   ExportDetail,
   ExportRead,
   FullDocumentProcessingProfileRead,
+  FullDocumentAnswerRead,
   LlmSmokeResponse,
   ManualObjectPayload,
   ManualObjectType,
@@ -91,8 +92,10 @@ import {
   deleteCase,
   deleteDocumentCollection,
   deleteKnowledgeDocument,
+  deleteFullDocumentAnswer,
   deleteRagAnswer,
   detachObjectSource,
+  detachContradictionCandidateClaim,
   discardDocument,
   deleteDetachedSourceItem,
   deleteReviewReportItem,
@@ -123,6 +126,7 @@ import {
   listEvents,
   listExports,
   listFullDocumentProcessingProfiles,
+  listFullDocumentAnswers,
   listKnowledgeDocuments,
   listMissingItemCandidates,
   listRagAnswers,
@@ -297,6 +301,8 @@ const busyLabels: Record<string, string> = {
   "relationship-graph": "Kapcsolati térkép betöltése",
   "full-document-profiles": "Teljes iratfeldolgozási profilok betöltése",
   "full-document-items": "Teljes iratfeldolgozási munkalista betöltése",
+  "full-document-answers": "Iratválaszok betöltése",
+  "full-document-answer-delete": "Iratválasz törlése",
   "full-document-run": "Teljes iratfeldolgozás futtatása",
   "full-document-status": "Teljes iratfeldolgozási elem állapota",
   "chunk-index": "Chunk indexeles",
@@ -476,6 +482,9 @@ export function App() {
   const [fullDocumentProfile, setFullDocumentProfile] = useState("person_search_seeds");
   const [fullDocumentProfiles, setFullDocumentProfiles] = useState<FullDocumentProcessingProfileRead[]>([]);
   const [documentProcessingItems, setDocumentProcessingItems] = useState<DocumentProcessingItemRead[]>([]);
+  const [fullDocumentAnswers, setFullDocumentAnswers] = useState<FullDocumentAnswerRead[]>([]);
+  const [fullDocumentCurrentAnswer, setFullDocumentCurrentAnswer] = useState<FullDocumentAnswerRead | null>(null);
+  const [fullDocumentQuestion, setFullDocumentQuestion] = useState("");
   const [fullDocumentWorkStatus, setFullDocumentWorkStatus] = useState<"active" | "set_aside">("active");
   const [documentProcessingItemSearch, setDocumentProcessingItemSearch] = useState("");
   const [documentProcessingItemsMarkedForDeletion, setDocumentProcessingItemsMarkedForDeletion] = useState<string[]>([]);
@@ -498,7 +507,7 @@ export function App() {
   const [ragCollectionId, setRagCollectionId] = useState("");
   const [ragAnswerMode, setRagAnswerMode] = useState<RagAnswerMode>("detailed");
   const [ragRetrievalStrategy, setRagRetrievalStrategy] = useState<RetrievalStrategy>("hybrid");
-  const [ragMaxChunks, setRagMaxChunks] = useState(30);
+  const [ragMaxChunks, setRagMaxChunks] = useState(45);
   const [ragCurrentResponse, setRagCurrentResponse] = useState<RagQueryResponse | null>(null);
   const [lastRagRun, setLastRagRun] = useState<RagLatestRunSummary | null>(null);
   const [ragSaveTitle, setRagSaveTitle] = useState("");
@@ -543,7 +552,7 @@ export function App() {
   const [analysisDocumentIds, setAnalysisDocumentIds] = useState<string[]>([]);
   const [analysisCollectionId, setAnalysisCollectionId] = useState("");
   const [analysisDocumentSearch, setAnalysisDocumentSearch] = useState("");
-  const [maxChunks, setMaxChunks] = useState(30);
+  const [maxChunks, setMaxChunks] = useState(45);
   const [batchSize, setBatchSize] = useState(3);
   const [claimReviewScope, setClaimReviewScope] = useState<ClaimReviewScope>("reviewable");
   const [contradictionCandidateLimit, setContradictionCandidateLimit] = useState(5);
@@ -687,6 +696,7 @@ export function App() {
     () => fullDocumentProfiles.find((profile) => profile.key === fullDocumentProfile) ?? null,
     [fullDocumentProfiles, fullDocumentProfile]
   );
+  const fullDocumentProfileIsFreeQuestion = fullDocumentProfile === "free_document_question";
   const fullDocumentMaxPage = Math.max(1, selectedFullDocument?.page_count ?? 1);
   const fullDocumentPageStartNumber = Number(fullDocumentPageStart);
   const fullDocumentPageEndNumber = Number(fullDocumentPageEnd);
@@ -1014,6 +1024,8 @@ export function App() {
       setFullDocumentId("");
       setDocumentProcessingItems([]);
       setDocumentProcessingItemsMarkedForDeletion([]);
+      setFullDocumentAnswers([]);
+      setFullDocumentCurrentAnswer(null);
     }
   }, [activeDocuments, fullDocumentId]);
 
@@ -1031,10 +1043,20 @@ export function App() {
     if (!selectedCaseId || !fullDocumentId) {
       setDocumentProcessingItems([]);
       setDocumentProcessingItemsMarkedForDeletion([]);
+      setFullDocumentAnswers([]);
+      setFullDocumentCurrentAnswer(null);
       return;
     }
+    if (fullDocumentProfileIsFreeQuestion) {
+      setDocumentProcessingItems([]);
+      setDocumentProcessingItemsMarkedForDeletion([]);
+      void refreshFullDocumentAnswers(false);
+      return;
+    }
+    setFullDocumentAnswers([]);
+    setFullDocumentCurrentAnswer(null);
     void refreshFullDocumentItems(false);
-  }, [selectedCaseId, fullDocumentId, fullDocumentProfile, fullDocumentWorkStatus]);
+  }, [selectedCaseId, fullDocumentId, fullDocumentProfile, fullDocumentWorkStatus, fullDocumentProfileIsFreeQuestion]);
 
   useEffect(() => {
     const visibleIds = new Set(documentProcessingItems.map((item) => item.id));
@@ -1636,6 +1658,33 @@ export function App() {
     }
   }
 
+  async function refreshFullDocumentAnswers(showNotice = true) {
+    if (!selectedCaseId || !fullDocumentId) return;
+    const action = async () => {
+      const response = await listFullDocumentAnswers(selectedCaseId, fullDocumentId, { answer_status: "active" });
+      setFullDocumentAnswers(response.data);
+      setFullDocumentCurrentAnswer((current) => {
+        if (current && response.data.some((answer) => answer.id === current.id)) {
+          return current;
+        }
+        return response.data[0] ?? null;
+      });
+      if (showNotice) {
+        setNotice("Iratválaszok frissítve.");
+      }
+      setLastActionSummary(`${response.data.length} aktív iratválasz.`);
+    };
+    if (showNotice) {
+      await perform("full-document-answers", action);
+    } else {
+      try {
+        await action();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Iratválaszok betöltése sikertelen.");
+      }
+    }
+  }
+
   async function refreshCaseData(showNotice = true) {
     if (!selectedCaseId) return;
     await perform("case-data", async () => {
@@ -1700,11 +1749,20 @@ export function App() {
       const response = await runFullDocumentProcessing(selectedCaseId, fullDocumentId, {
         profile_key: fullDocumentProfile,
         page_start: fullDocumentPageStartNumber,
-        page_end: fullDocumentPageEndNumber
+        page_end: fullDocumentPageEndNumber,
+        question_text: fullDocumentProfileIsFreeQuestion ? fullDocumentQuestion.trim() : null
       });
       setFullDocumentWorkStatus("active");
-      setDocumentProcessingItems(response.items);
-      setDocumentProcessingItemsMarkedForDeletion([]);
+      if (response.answer) {
+        setFullDocumentCurrentAnswer(response.answer);
+        setFullDocumentAnswers((current) => [response.answer!, ...current.filter((answer) => answer.id !== response.answer!.id)]);
+        setDocumentProcessingItems([]);
+        setDocumentProcessingItemsMarkedForDeletion([]);
+      } else {
+        setDocumentProcessingItems(response.items);
+        setDocumentProcessingItemsMarkedForDeletion([]);
+        setFullDocumentCurrentAnswer(null);
+      }
       setLastFullDocumentRun({
         validation_status: response.validation_status,
         created_item_count: response.created_item_count,
@@ -1715,8 +1773,22 @@ export function App() {
       setAnalysisRuns(runsResponse.data);
       setNotice("Teljes iratfeldolgozás lefutott.");
       setLastActionSummary(
-        `Teljes iratfeldolgozás: ${labelValidationStatus(response.validation_status)}, ${response.created_item_count} elem, ${response.unsupported_count} nem megerősített jelölt.`
+        response.answer
+          ? `Szabad iratkérdés: ${labelValidationStatus(response.validation_status)}, iratválasz létrejött.`
+          : `Teljes iratfeldolgozás: ${labelValidationStatus(response.validation_status)}, ${response.created_item_count} elem, ${response.unsupported_count} nem megerősített jelölt.`
       );
+    });
+  }
+
+  async function handleDeleteFullDocumentAnswer(answerId: string) {
+    if (!selectedCaseId || !fullDocumentId) return;
+    await perform("full-document-answer-delete", async () => {
+      await deleteFullDocumentAnswer(selectedCaseId, answerId);
+      const response = await listFullDocumentAnswers(selectedCaseId, fullDocumentId, { answer_status: "active" });
+      setFullDocumentAnswers(response.data);
+      setFullDocumentCurrentAnswer(response.data[0] ?? null);
+      setNotice("Iratválasz törölve.");
+      setLastActionSummary(String(response.data.length) + " aktív iratválasz.");
     });
   }
 
@@ -2712,6 +2784,37 @@ export function App() {
       setSelectedReportItem(null);
       setNotice("Találat véglegesen törölve.");
       setLastActionSummary(`${labelObjectType(item.object_type)}: véglegesen törölve.`);
+    });
+  }
+
+  async function handleDetachContradictionCandidateClaim(item: ReviewReportItem, side: "a" | "b") {
+    if (!selectedCaseId || item.object_type !== "contradiction_candidate") return;
+    const claimId = side === "a" ? item.claim_id_a : item.claim_id_b;
+    if (!claimId) return;
+    const confirmed = window.confirm(
+      `Biztosan leválasztod a(z) ${side.toUpperCase()} állítást erről az ellentmondásjelöltről?\n\n${item.title}`
+    );
+    if (!confirmed) return;
+    const reviewComment = reviewComments[item.object_id] ?? "";
+    await perform("contradiction-claim-detach", async () => {
+      await detachContradictionCandidateClaim(selectedCaseId, item.object_id, side, reviewComment);
+      const [reportResponse, manualClaimsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse] = await Promise.all([
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId)
+      ]);
+      setReport(reportResponse);
+      setClaims(claimsResponse.data);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(reportResponse.items.find((reportItem) => reportItem.object_id === item.object_id) ?? null);
+      setNotice(`${side.toUpperCase()} állítás leválasztva. Az ellentmondásjelölt korrekcióval kizárt állapotba került.`);
+      setLastActionSummary(`Ellentmondásjelölt: ${side.toUpperCase()} állítás leválasztva.`);
     });
   }
 
@@ -5372,9 +5475,9 @@ export function App() {
                   <input
                     type="number"
                     min={1}
-                    max={60}
+                    max={90}
                     value={ragMaxChunks}
-                    onChange={(event) => setRagMaxChunks(clampNumberInput(event.target.value, 1, 60, 30))}
+                    onChange={(event) => setRagMaxChunks(clampNumberInput(event.target.value, 1, 90, 45))}
                   />
                 </label>
                 <label>
@@ -6345,9 +6448,9 @@ export function App() {
                   <input
                     type="number"
                     min={1}
-                    max={60}
+                    max={90}
                     value={maxChunks}
-                    onChange={(event) => setMaxChunks(clampNumberInput(event.target.value, 1, 60, 30))}
+                    onChange={(event) => setMaxChunks(clampNumberInput(event.target.value, 1, 90, 45))}
                   />
                 </label>
                 <label>
@@ -6944,6 +7047,28 @@ export function App() {
                 {selectedReportItem.object_type === "contradiction_candidate" && (
                   <p className="review-note">A jelölt két forráshivatkozott állítás párját emeli ki emberi ellenőrzésre. Önmagában nem bizonyított ténymegállapítás.</p>
                 )}
+                {selectedReportItem.object_type === "contradiction_candidate" && (selectedReportItem.claim_id_a || selectedReportItem.claim_id_b) && (
+                  <div className="source-action-row">
+                    {selectedReportItem.claim_id_a && (
+                      <button
+                        className="secondary-button"
+                        onClick={() => handleDetachContradictionCandidateClaim(selectedReportItem, "a")}
+                        disabled={Boolean(busy)}
+                      >
+                        A állítás leválasztása
+                      </button>
+                    )}
+                    {selectedReportItem.claim_id_b && (
+                      <button
+                        className="secondary-button"
+                        onClick={() => handleDetachContradictionCandidateClaim(selectedReportItem, "b")}
+                        disabled={Boolean(busy)}
+                      >
+                        B állítás leválasztása
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="object-facts">
                   {objectDetailFacts(selectedReportItem).map((fact) => (
                     <div key={fact.label}>
@@ -7187,12 +7312,31 @@ export function App() {
                     />
                   </label>
                 </div>
+                {fullDocumentProfileIsFreeQuestion && (
+                  <label>
+                    Kérdés
+                    <input
+                      type="text"
+                      value={fullDocumentQuestion}
+                      onChange={(event) => setFullDocumentQuestion(event.target.value)}
+                      placeholder="Írd le, mire keressen választ a kijelölt irat megadott oldalai alapján"
+                      disabled={!selectedFullDocument}
+                    />
+                  </label>
+                )}
                 {!fullDocumentPageRangeValid && selectedFullDocument && (
                   <p className="error-text">Az oldaltartomány csak 1 és {fullDocumentMaxPage} között lehet, és az első oldal nem lehet nagyobb az utolsónál.</p>
                 )}
                 <button
                   onClick={handleRunFullDocumentProcessing}
-                  disabled={!selectedCaseId || !selectedFullDocument || !fullDocumentProfile || !fullDocumentPageRangeValid || Boolean(busy)}
+                  disabled={
+                    !selectedCaseId ||
+                    !selectedFullDocument ||
+                    !fullDocumentProfile ||
+                    !fullDocumentPageRangeValid ||
+                    (fullDocumentProfileIsFreeQuestion && !fullDocumentQuestion.trim()) ||
+                    Boolean(busy)
+                  }
                 >
                   <Play size={18} /> Feldolgozás indítása
                 </button>
@@ -7222,10 +7366,10 @@ export function App() {
             </section>
             <section className="panel">
               <div className="section-heading">
-                <h2>Előkészített munkalista</h2>
-                <Search size={20} />
+                <h2>{fullDocumentProfileIsFreeQuestion ? "Iratválasz" : "Előkészített munkalista"}</h2>
+                {fullDocumentProfileIsFreeQuestion ? <MessageSquare size={20} /> : <Search size={20} />}
               </div>
-              {lastFullDocumentRun && (
+              {lastFullDocumentRun && !fullDocumentProfileIsFreeQuestion && (
                 <div className="detail-stack">
                   <div className="metrics">
                     <span>{labelValidationStatus(lastFullDocumentRun.validation_status)}</span>
@@ -7247,6 +7391,78 @@ export function App() {
                   )}
                 </div>
               )}
+              {fullDocumentProfileIsFreeQuestion ? (
+                <>
+                  <div className="full-document-worklist-toolbar">
+                    <button
+                      className="secondary-button"
+                      onClick={() => refreshFullDocumentAnswers()}
+                      disabled={!selectedCaseId || !selectedFullDocument || Boolean(busy)}
+                    >
+                      <RefreshCw size={18} /> Iratválaszok frissítése
+                    </button>
+                    <div className="metrics">
+                      <span>{fullDocumentAnswers.length} mentett iratválasz</span>
+                      {fullDocumentCurrentAnswer && <span>{formatDateTime(fullDocumentCurrentAnswer.created_at)}</span>}
+                    </div>
+                  </div>
+                  {!selectedFullDocument && <p className="muted">Válassz iratot az iratválaszok betöltéséhez.</p>}
+                  {selectedFullDocument && !fullDocumentCurrentAnswer && (
+                    <div className="research-empty-state rag-empty-state full-document-answer-empty-state">
+                      <strong>Nincs iratválasz</strong>
+                      <p>Adj meg kérdést, majd futtasd a Szabad iratkérdés profilt.</p>
+                    </div>
+                  )}
+                  {fullDocumentCurrentAnswer && (
+                    <div className="rag-answer-layout full-document-answer-layout">
+                      <article className="rag-answer-card full-document-answer-card">
+                        <div className="item-card-header">
+                          <div>
+                            <strong>{fullDocumentCurrentAnswer.question_text}</strong>
+                            <div className="metrics">
+                              <span>{fullDocumentCurrentAnswer.page_start}-{fullDocumentCurrentAnswer.page_end}. oldal</span>
+                              <span>{fullDocumentCurrentAnswer.source_page_count} forrásoldal</span>
+                              <span>{formatDateTime(fullDocumentCurrentAnswer.created_at)}</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() => handleDeleteFullDocumentAnswer(fullDocumentCurrentAnswer.id)}
+                            disabled={Boolean(busy)}
+                          >
+                            <Trash2 size={16} /> Törlés
+                          </button>
+                        </div>
+                        <MarkdownAnswer>{fullDocumentCurrentAnswer.answer_text}</MarkdownAnswer>
+                        {fullDocumentCurrentAnswer.source_summary && (
+                          <div className="module-note">
+                            Forrásalap: <strong>{fullDocumentCurrentAnswer.source_summary}</strong>
+                          </div>
+                        )}
+                      </article>
+                      {fullDocumentAnswers.length > 0 && (
+                        <aside className="rag-source-card compact-item full-document-answer-history">
+                          <strong>Korábbi iratválaszok</strong>
+                          <div className="compact-list">
+                            {fullDocumentAnswers.map((answer) => (
+                              <button
+                                key={answer.id}
+                                type="button"
+                                className={answer.id === fullDocumentCurrentAnswer.id ? "surface-tab full-document-answer-history-button is-active" : "surface-tab full-document-answer-history-button"}
+                                onClick={() => setFullDocumentCurrentAnswer(answer)}
+                              >
+                                <span className="full-document-answer-history-label">{answer.question_text}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </aside>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
               <div className="full-document-worklist-toolbar">
                 <button
                   className="secondary-button"
@@ -7424,6 +7640,8 @@ export function App() {
                     );
                     })}
                   </div>
+                </>
+              )}
                 </>
               )}
             </section>

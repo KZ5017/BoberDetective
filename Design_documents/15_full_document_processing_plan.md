@@ -12,6 +12,7 @@ Kapcsolodo dokumentumok:
 - `Design_documents/16_large_case_document_storage_and_retrieval_plan.md`
 - `Design_documents/12_source_bound_findings_model_plan.md`
 - `Design_documents/13_legacy_analysis_module_retirement_plan.md`
+- `Design_documents/29_full_document_free_question_plan.md`
 
 Aktualis UI allapot:
 
@@ -161,6 +162,38 @@ Indok:
 - felkesz, pontatlan profil ne maradjon valaszthato vagy kodszemetkent az aktiv workflow-ban.
 
 Ha kesobb nem-szemely teljesirat-profil kell, azt uj tervezesi korben kell visszahozni, kulon prompttal es validacios szerzodessel.
+
+### 4.3 `free_document_question`
+
+Uj profil elso implementacios szelete:
+
+```text
+Szabad iratkérdés
+```
+
+Ez nem `document_processing_item` munkalistat gyart, hanem a kivalasztott
+irat/oldaltartomany es felhasznaloi kerdes alapjan egy tartos iratvalaszt.
+
+Reszletes terv:
+
+```text
+Design_documents/29_full_document_free_question_plan.md
+```
+
+Fontos dontes:
+
+- a szemelyprofil marad person-only munkalista,
+- a szabad iratkerdes kulon `full_document_answers` adatmodellre epul,
+- a ket eredmeny UI-ban is profilfuggoen jelenik meg:
+  - `Előkészített munkalista`,
+  - `Iratválasz`.
+
+Elso szelet allapota:
+
+- backend modell/migracio/API kesz,
+- full-document run endpoint profilfuggoen kezeli,
+- frontend kerdesmezo es `Iratválasz` panel kesz,
+- tovabbi UX/prompt finomitas csak konkret live hiba vagy minosegi problema alapjan tortenjen.
 
 ## 5. Javasolt adatmodell
 

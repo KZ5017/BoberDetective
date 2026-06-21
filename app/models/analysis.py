@@ -92,7 +92,8 @@ class AnalysisRunOutputModel(Base):
     __table_args__ = (
         CheckConstraint(
             "output_type in ('document', 'page', 'chunk', 'entity', 'mention', 'event', 'claim', 'contradiction_candidate', "
-            "'missing_item_candidate', 'export', 'source_reference', 'research_finding', 'document_processing_item')",
+            "'missing_item_candidate', 'export', 'source_reference', 'research_finding', 'document_processing_item', "
+            "'full_document_answer')",
             name="ck_analysis_run_outputs_output_type",
         ),
         CheckConstraint("output_position is null or output_position >= 0", name="ck_analysis_run_outputs_position_non_negative"),

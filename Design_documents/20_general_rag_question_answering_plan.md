@@ -173,8 +173,8 @@ Aktualis alapertelmezesek:
 
 ```text
 retrieval_strategy = hybrid
-max_chunks default = 30
-max_chunks hard cap = 60
+max_chunks default = 45
+max_chunks hard cap = 90
 ```
 
 Tobbdokumentumos RAG valaszgeneraltas:
@@ -1900,7 +1900,7 @@ Elso korben ne legyen automatikus indexeles a kerdezes kozben.
 Javasolt elso backend default:
 
 ```text
-max_chunks = 30
+max_chunks = 45
 ```
 
 Javasolt backend cap:

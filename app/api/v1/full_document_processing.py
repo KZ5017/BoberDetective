@@ -11,6 +11,8 @@ from app.schemas.full_document_processing import (
     DocumentProcessingItemList,
     DocumentProcessingItemRead,
     DocumentProcessingItemUpdateRequest,
+    FullDocumentAnswerList,
+    FullDocumentAnswerRead,
     FullDocumentProcessingProfileList,
     FullDocumentProcessingProfileRead,
     FullDocumentProcessingRunRequest,
@@ -20,8 +22,11 @@ from app.services.full_document_processing import (
     FullDocumentProcessingNotFoundError,
     FullDocumentProcessingValidationError,
     bulk_delete_document_processing_items,
+    delete_full_document_answer,
     document_processing_item_reads,
+    get_full_document_answer,
     list_document_processing_items,
+    list_full_document_answers,
     list_profiles,
     run_full_document_processing,
     update_document_processing_item_status,
@@ -93,6 +98,56 @@ def post_full_document_processing_run(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except FullDocumentProcessingValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/cases/{case_id}/documents/{document_id}/full-document-processing/answers",
+    response_model=FullDocumentAnswerList,
+)
+def get_full_document_answers(
+    case_id: UUID,
+    document_id: UUID,
+    answer_status: str = Query(default="active"),
+    db: Session = Depends(get_db),
+) -> FullDocumentAnswerList:
+    try:
+        answers = list_full_document_answers(db, case_id=case_id, document_id=document_id, answer_status=answer_status)
+    except FullDocumentProcessingNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except FullDocumentProcessingValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return FullDocumentAnswerList(data=[FullDocumentAnswerRead.model_validate(answer) for answer in answers])
+
+
+@router.get(
+    "/cases/{case_id}/full-document-processing/answers/{answer_id}",
+    response_model=FullDocumentAnswerRead,
+)
+def get_full_document_answer_detail(
+    case_id: UUID,
+    answer_id: UUID,
+    db: Session = Depends(get_db),
+) -> FullDocumentAnswerRead:
+    try:
+        return FullDocumentAnswerRead.model_validate(get_full_document_answer(db, case_id=case_id, answer_id=answer_id))
+    except FullDocumentProcessingNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.delete(
+    "/cases/{case_id}/full-document-processing/answers/{answer_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_full_document_answer_endpoint(
+    case_id: UUID,
+    answer_id: UUID,
+    db: Session = Depends(get_db),
+) -> None:
+    try:
+        delete_full_document_answer(db, case_id=case_id, answer_id=answer_id)
+    except FullDocumentProcessingNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return None
 
 
 @router.post(

@@ -48,12 +48,12 @@ def test_rag_query_request_accepts_collection_scope() -> None:
     assert payload.collection_id == collection_id
     assert payload.answer_mode == "detailed"
     assert payload.retrieval_strategy == "hybrid"
-    assert payload.max_chunks == 30
+    assert payload.max_chunks == 45
 
 
 def test_rag_query_request_caps_max_chunks() -> None:
     with pytest.raises(ValidationError):
-        RagQueryRequest(question="Mit tudunk erről?", max_chunks=61)
+        RagQueryRequest(question="Mit tudunk erről?", max_chunks=91)
 
 
 def test_rag_query_request_rejects_retired_answer_modes() -> None:

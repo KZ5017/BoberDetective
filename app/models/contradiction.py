@@ -34,7 +34,9 @@ class ContradictionCandidateModel(Base):
             name="ck_contradiction_candidates_confidence_range",
         ),
         CheckConstraint(
-            "(claim_id_a is not null and claim_id_b is not null) or (event_id_a is not null and event_id_b is not null)",
+            "(claim_id_a is not null and claim_id_b is not null) or "
+            "(event_id_a is not null and event_id_b is not null) or "
+            "review_status = 'corrected'",
             name="ck_contradiction_candidates_has_pair",
         ),
     )

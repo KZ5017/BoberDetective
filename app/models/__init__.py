@@ -13,7 +13,7 @@ from app.models.document import (
     DocumentSearchEntryModel,
     DocumentTextLayerModel,
 )
-from app.models.document_processing import DocumentProcessingItemModel
+from app.models.document_processing import DocumentProcessingItemModel, FullDocumentAnswerModel
 from app.models.event import EventModel, EventSourceModel
 from app.models.entity import EntityMentionModel, EntityModel
 from app.models.export import ExportItemModel, ExportModel
@@ -44,6 +44,7 @@ __all__ = [
     "DocumentModel",
     "DocumentPageModel",
     "DocumentProcessingItemModel",
+    "FullDocumentAnswerModel",
     "DocumentSearchEntryModel",
     "DocumentTextLayerModel",
     "EventModel",

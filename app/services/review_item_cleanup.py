@@ -177,6 +177,7 @@ def delete_review_report_item(db: Session, *, case_id: UUID, object_type: str, o
             "deleted": True,
             "deleted_source_links": snapshot["deleted_source_links"],
             "deleted_dependent_contradiction_candidates": snapshot.get("deleted_dependent_contradiction_candidates", []),
+            "corrected_dependent_contradiction_candidates": snapshot.get("corrected_dependent_contradiction_candidates", []),
         },
     )
     DatabaseAuditWriter(db).write(audit_event)
@@ -195,10 +196,10 @@ def _delete_claim(db: Session, case_id: UUID, claim_id: UUID) -> dict:
         "review_status": claim.review_status,
         "source_validation_status": claim.source_validation_status,
         "deleted_source_links": source_count,
-        "deleted_dependent_contradiction_candidates": [str(item_id) for item_id in dependent_ids],
+        "corrected_dependent_contradiction_candidates": [str(item_id) for item_id in dependent_ids],
     }
     _ensure_cleanup_allowed(snapshot)
-    _delete_contradiction_candidates_by_ids(db, dependent_ids)
+    _detach_claim_from_dependent_contradiction_candidates(db, case_id, claim.id)
     db.execute(delete(ClaimSourceModel).where(ClaimSourceModel.claim_id == claim.id))
     db.delete(claim)
     return snapshot
@@ -227,10 +228,10 @@ def _delete_event(db: Session, case_id: UUID, event_id: UUID) -> dict:
         "review_status": event.review_status,
         "source_validation_status": event.source_validation_status,
         "deleted_source_links": source_count,
-        "deleted_dependent_contradiction_candidates": [str(item_id) for item_id in dependent_ids],
+        "corrected_dependent_contradiction_candidates": [str(item_id) for item_id in dependent_ids],
     }
     _ensure_cleanup_allowed(snapshot)
-    _delete_contradiction_candidates_by_ids(db, dependent_ids)
+    _detach_event_from_dependent_contradiction_candidates(db, case_id, event.id)
     db.execute(update(ClaimModel).where(ClaimModel.related_event_id == event.id).values(related_event_id=None, updated_at=datetime.now(UTC)))
     db.execute(delete(EventSourceModel).where(EventSourceModel.event_id == event.id))
     db.delete(event)
@@ -371,15 +372,44 @@ def _contradiction_candidate_ids_for_event(db: Session, case_id: UUID, event_id:
     )
 
 
-def _delete_contradiction_candidates_by_ids(db: Session, candidate_ids: list[UUID]) -> None:
-    if not candidate_ids:
-        return
-    db.execute(
-        delete(ContradictionCandidateSourceModel).where(
-            ContradictionCandidateSourceModel.contradiction_candidate_id.in_(candidate_ids)
-        )
+def _detach_claim_from_dependent_contradiction_candidates(db: Session, case_id: UUID, claim_id: UUID) -> None:
+    candidates = list(
+        db.execute(
+            select(ContradictionCandidateModel).where(
+                ContradictionCandidateModel.case_id == case_id,
+                or_(ContradictionCandidateModel.claim_id_a == claim_id, ContradictionCandidateModel.claim_id_b == claim_id),
+            )
+        ).scalars()
     )
-    db.execute(delete(ContradictionCandidateModel).where(ContradictionCandidateModel.id.in_(candidate_ids)))
+    now = datetime.now(UTC)
+    for candidate in candidates:
+        if candidate.claim_id_a == claim_id:
+            candidate.claim_id_a = None
+        if candidate.claim_id_b == claim_id:
+            candidate.claim_id_b = None
+        candidate.review_status = "corrected"
+        candidate.updated_at = now
+        db.add(candidate)
+
+
+def _detach_event_from_dependent_contradiction_candidates(db: Session, case_id: UUID, event_id: UUID) -> None:
+    candidates = list(
+        db.execute(
+            select(ContradictionCandidateModel).where(
+                ContradictionCandidateModel.case_id == case_id,
+                or_(ContradictionCandidateModel.event_id_a == event_id, ContradictionCandidateModel.event_id_b == event_id),
+            )
+        ).scalars()
+    )
+    now = datetime.now(UTC)
+    for candidate in candidates:
+        if candidate.event_id_a == event_id:
+            candidate.event_id_a = None
+        if candidate.event_id_b == event_id:
+            candidate.event_id_b = None
+        candidate.review_status = "corrected"
+        candidate.updated_at = now
+        db.add(candidate)
 
 
 def _count_claim_sources(db: Session, claim_id: UUID) -> int:

@@ -74,6 +74,7 @@ Completed:
 - Analysis module retrieval fallback for broader natural-language Hungarian prompts
 - Historical `summarize_case` smoke passed before summary items and the raw summary module were retired
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion
+- Manual contradiction candidates can be corrected by detaching their A/B input claim side; corrected partial candidates remain explicit, audited, and deletable instead of disappearing as claim-deletion side effects
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs
 - Live `detect_contradiction_candidates` smoke passed on a two-claim time conflict sample
 - `detect_contradiction_candidates` now treats fewer than two source-valid claims as a clean warning precondition and records claim-selection metadata in the analysis run
@@ -126,6 +127,7 @@ Completed:
 - Source-bound `Kutatási találatok` workflow: `search_findings` creates source-cited research worklist items, users can set aside/restore/delete/bulk-delete them, and selected findings can be converted into structured claim/entity/event/missing item candidate objects
 - Full-case deletion through `Ügy végleges törlése`, preserving global audit history while removing case-owned rows, files, and Qdrant points
 - Full-document processing surface: selected active document plus page range can create backend source-evidence-validated person-search `document_processing_items`; users can switch between active/félretett views, restore set-aside items, filter by item name, mark one or all visible items for deletion, bulk-delete marked items, see repeated-label tags, and hand a recommended focus back to the `Ügy munkapad`
+- Full-document `Szabad iratkérdés` profile: selected active document pages plus a one-line user question create persistent `full_document_answers`, shown in an `Iratválasz` panel separate from the person worklist, with saved-answer switching/deletion, automatic list refresh after deletion, safe Markdown rendering, and tolerant answer JSON recovery when `answer_text` is salvageable
 - Iratgyűjtemények: users can create source-scope collections, preview active-document scope resolution, select a target collection in the `Iratok` panel, mark individual or all visible documents, bulk-add marked batches, inspect collection contents, search within collection members, and bulk-remove marked documents without duplicating source documents
 - Retired raw chunk extraction modules (`extract_claims`, `extract_events`, `extract_entities`, `summarize_case`, `detect_missing_items`) are no longer active backend/frontend workflows
 
@@ -144,6 +146,7 @@ Next:
 - Keep `search_findings`, full-document person seeds, source validation, and contradiction detection as strict auditable workbench workflows beside the freer RAG question-answering layer
 - Treat a serious `Jogszabályi kereső` as a later specialized module with law/section/paragraph/effective-date semantics, not as a small mode inside generic RAG
 - Continue live-test driven hardening for the implemented `Általános iratkérdező`, full-document person profile, and responsive UI layers as concrete issues appear
+- Treat the first `Szabad iratkérdés` full-document slice as implemented baseline: `Design_documents/29_full_document_free_question_plan.md` records the design, and the code now uses a separate `full_document_answers` workflow over selected document pages rather than another `document_processing_items` profile. Current UX hardening includes previous-answer choice buttons, refreshed answer lists after deletion, and a placeholder state for empty answer history.
 - Keep documentation cleanup around retired raw modules opportunistic; active capability lists should continue to point to `search_findings`
 - Consider durable job supervision if indexing grows beyond FastAPI background tasks
 
@@ -192,6 +195,7 @@ See:
 - `Design_documents/26_review_report_status_cleanup_plan.md`
 - `Design_documents/27_relationship_map_graph_implementation_plan.md`
 - `Design_documents/28_relationship_map_horizontal_layout_plan.md`
+- `Design_documents/29_full_document_free_question_plan.md`
 
 ## Handoff notes
 
@@ -258,5 +262,5 @@ Frontend:
 - Dev server: `cd frontend && npm run dev`
 - API proxy: `/api` -> `http://127.0.0.1:8000`
 - Current UI workflows: case create/list, multi-file TXT/PDF import without import-time taxonomy selection, document list, document lifecycle actions, page/chunk drill-down, OCR recommendation, explicit PDF text review and chunk creation, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
-- Active `search_findings` UI supports selected-document and whole-case source scopes with required focus text, `Szovegresz plafon` defaulting to 30 and capped at 60, retrieval strategy, and batch controls. Selected-document mode searches the full selected document.
+- Active `search_findings` UI supports selected-document and whole-case source scopes with required focus text, `Szovegresz plafon` defaulting to 45 and capped at 90, retrieval strategy, and batch controls. Selected-document mode searches the full selected document.
 - Raw-chunk analysis can choose keyword, semantic, or hybrid source retrieval after chunk indexing

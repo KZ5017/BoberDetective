@@ -10,9 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.document import DocumentModel, DocumentPageModel
-from app.models.document_processing import DocumentProcessingItemModel
+from app.models.document_processing import DocumentProcessingItemModel, FullDocumentAnswerModel
 from app.schemas.full_document_processing import (
     DocumentProcessingItemRead,
+    FullDocumentAnswerRead,
     FullDocumentProcessingRunRequest,
     FullDocumentProcessingRunResponse,
 )
@@ -49,12 +50,19 @@ PROFILES: tuple[FullDocumentProcessingProfile, ...] = (
         description="Teljes iratból kinyert személyek és személyhez köthető keresési fókuszok előállítása.",
         item_kinds=("person",),
     ),
+    FullDocumentProcessingProfile(
+        key="free_document_question",
+        label="Szabad iratkérdés",
+        description="Kérdés megválaszolása a kijelölt irat megadott oldalai alapján.",
+        item_kinds=(),
+    ),
 )
 
 PROFILE_KEYS = {profile.key for profile in PROFILES}
 WORK_STATUSES = {"active", "set_aside", "converted", "deleted"}
 USER_SETTABLE_WORK_STATUSES = {"active", "set_aside", "deleted"}
 FULL_DOCUMENT_PROCESSING_MAX_OUTPUT_TOKENS = 9000
+FULL_DOCUMENT_FREE_QUESTION_MAX_OUTPUT_TOKENS = None
 FULL_DOCUMENT_PROCESSING_SYSTEM_PROMPT = """Forráshű teljes iratfeldolgozó komponens vagy.
 
 Alapelvek:
@@ -89,6 +97,38 @@ Ha nincs használható elem:
 {"items":[]}
 """
 
+FULL_DOCUMENT_FREE_QUESTION_SYSTEM_PROMPT = """Forráshű iratválaszoló komponens vagy.
+
+Alapelvek:
+- A SOURCE az egyetlen igazságforrás.
+- A QUERY a felhasználó kérdése.
+- Csak a SOURCE alapján válaszolhatsz.
+- Ne használj külső tudást, ne pótolj hiányzó adatot, ne feltételezz.
+- Ha a SOURCE nem ad elég alapot a válaszhoz, mondd ki.
+- Ne állapíts meg bűnösséget, felelősséget, jogi minősítést, kockázatot vagy személyes hibát.
+- Ne tegyél kész tényként olyan állítást, amelyet a SOURCE csak feltételezésként, következtetésként vagy lehetőségként fogalmaz meg.
+
+Feladat:
+- Válaszolj magyar nyelven a QUERY-re a kijelölt iratoldalak alapján.
+- A válasz lehet részletes, ha a SOURCE ezt alátámasztja.
+- Őrizd meg a SOURCE bizonyossági szintjét.
+
+JSON mezők:
+- insufficient_source: boolean. true, ha a SOURCE nem ad elég alapot érdemi válaszhoz, különben false.
+- source_summary: legfeljebb egy rövid mondat arról, mely oldalak vagy forrásrészek adják a válasz alapját. Ha nem ad hozzá hasznos információt, legyen üres string.
+- answer_text: a QUERY-re adott forráshű válasz.
+
+JSON szabályok:
+- Csak érvényes JSON objektumot adhatsz vissza.
+- Ne írj magyarázatot, markdown blokkot vagy JSON-on kívüli szöveget.
+- A JSON objektumok minden mezőneve dupla idézőjelben legyen.
+- A JSON stringeken belüli dupla idézőjeleket escape-eld.
+- Sortörést csak JSON escape-ként használhatsz: \\n.
+
+Elvárt JSON forma:
+{"insufficient_source":false,"source_summary":"...","answer_text":"..."}
+"""
+
 def list_profiles() -> list[FullDocumentProcessingProfile]:
     return list(PROFILES)
 
@@ -111,6 +151,17 @@ def run_full_document_processing(
     page_sources = _page_sources(db, selected_pages)
     if not page_sources:
         raise FullDocumentProcessingValidationError("Az iratnak nincs feldolgozható aktuális szövegrétege")
+    if profile.key == "free_document_question":
+        return _run_full_document_free_question(
+            db,
+            case_id=case_id,
+            document_id=document_id,
+            document=document,
+            payload=payload,
+            page_start=page_start,
+            page_end=page_end,
+            page_sources=page_sources,
+        )
 
     settings = get_settings()
     run = start_analysis_run(
@@ -234,6 +285,152 @@ def run_full_document_processing(
         raise FullDocumentProcessingValidationError(str(exc)) from exc
 
 
+def _run_full_document_free_question(
+    db: Session,
+    *,
+    case_id: UUID,
+    document_id: UUID,
+    document: DocumentModel,
+    payload: FullDocumentProcessingRunRequest,
+    page_start: int,
+    page_end: int,
+    page_sources: list[dict[str, Any]],
+) -> FullDocumentProcessingRunResponse:
+    question_text = (payload.question_text or "").strip()
+    if not question_text:
+        raise FullDocumentProcessingValidationError("A szabad iratkérdés profilhoz kérdést kell megadni")
+
+    settings = get_settings()
+    prompt_template_name = "full_document_free_question_v1"
+    prompt_template_version = "1"
+    run = start_analysis_run(
+        db,
+        case_id,
+        "full_document_processing",
+        provider_type="lm_studio_native",
+        model_name=settings.llm_chat_model,
+        input_parameters={
+            "document_id": str(document_id),
+            "profile_key": payload.profile_key,
+            "page_start": page_start,
+            "page_end": page_end,
+            "question_text": question_text,
+        },
+        prompt_template_name=prompt_template_name,
+        prompt_template_version=prompt_template_version,
+        output_schema_name="full_document_answer",
+        output_schema_version="1",
+        retrieval_strategy="current_document_pages_v1",
+        raw_prompt_text=FULL_DOCUMENT_FREE_QUESTION_SYSTEM_PROMPT,
+    )
+    try:
+        add_analysis_run_input(
+            db,
+            run.id,
+            "document",
+            0,
+            document_id=document.id,
+            payload_json={
+                "profile_key": payload.profile_key,
+                "original_filename": document.original_filename,
+                "page_start": page_start,
+                "page_end": page_end,
+                "selected_page_count": len(page_sources),
+            },
+        )
+        add_analysis_run_input(db, run.id, "query_text", 1, payload_json={"query": question_text})
+        for index, page_source in enumerate(page_sources, start=2):
+            add_analysis_run_input(
+                db,
+                run.id,
+                "page",
+                index,
+                document_id=document.id,
+                page_id=page_source["page_id"],
+                payload_json={"source_label": page_source["source_label"], "text_char_count": len(page_source["text"])},
+            )
+
+        completion = LMStudioNativeProvider(settings).chat_completion(
+            settings.llm_chat_model,
+            [
+                LLMChatMessage(role="system", content=FULL_DOCUMENT_FREE_QUESTION_SYSTEM_PROMPT),
+                LLMChatMessage(
+                    role="user",
+                    content=build_full_document_free_question_user_prompt(
+                        document=document,
+                        question_text=question_text,
+                        page_sources=page_sources,
+                    ),
+                ),
+            ],
+            temperature=0.1,
+            max_tokens=FULL_DOCUMENT_FREE_QUESTION_MAX_OUTPUT_TOKENS,
+        )
+        parsed = parse_full_document_free_question_llm_json_object(completion.content)
+        answer_payload = validate_full_document_free_question_payload(parsed)
+        source_summary = answer_payload["source_summary"] or _default_free_question_source_summary(document, page_start, page_end)
+        now = datetime.now(UTC)
+        answer = FullDocumentAnswerModel(
+            case_id=case_id,
+            document_id=document_id,
+            analysis_run_id=run.id,
+            profile_key="free_document_question",
+            question_text=question_text,
+            answer_text=answer_payload["answer_text"],
+            source_summary=source_summary,
+            page_start=page_start,
+            page_end=page_end,
+            source_page_count=len(page_sources),
+            source_character_count=sum(len(page_source["text"]) for page_source in page_sources),
+            model_name=settings.llm_chat_model,
+            prompt_template_name=prompt_template_name,
+            prompt_template_version=prompt_template_version,
+            answer_status="active",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(answer)
+        db.flush()
+        add_analysis_run_output(db, run.id, "full_document_answer", answer.id, 0)
+        validation_status = "warning" if answer_payload["insufficient_source"] else "passed"
+        finish_analysis_run(
+            db,
+            run,
+            status="succeeded",
+            validation_status=validation_status,
+            output_summary={
+                "profile_key": "free_document_question",
+                "document_id": str(document_id),
+                "page_start": page_start,
+                "page_end": page_end,
+                "question_text": question_text,
+                "answer_id": str(answer.id),
+                "insufficient_source": answer_payload["insufficient_source"],
+                "source_page_count": len(page_sources),
+                "source_character_count": answer.source_character_count,
+            },
+        )
+        db.commit()
+        db.refresh(answer)
+        return FullDocumentProcessingRunResponse(
+            analysis_run_id=run.id,
+            document_id=document_id,
+            profile_key="free_document_question",
+            created_item_count=0,
+            unsupported_count=0,
+            validation_status=validation_status,
+            items=[],
+            unsupported_items=[],
+            answer=FullDocumentAnswerRead.model_validate(answer),
+        )
+    except Exception as exc:
+        if run.status == "running":
+            finish_analysis_run(db, run, status="failed", validation_status="failed", error_message=str(exc))
+        if isinstance(exc, FullDocumentProcessingError):
+            raise
+        raise FullDocumentProcessingValidationError(str(exc)) from exc
+
+
 def list_document_processing_items(
     db: Session,
     *,
@@ -279,6 +476,42 @@ def document_processing_item_reads(items: list[DocumentProcessingItemModel]) -> 
         read.occurrence_status = "repeated" if _dedupe_key_for_item(item.item_kind, item.display_label, {}) in repeated_keys else "unique"
         reads.append(read)
     return reads
+
+
+def list_full_document_answers(
+    db: Session,
+    *,
+    case_id: UUID,
+    document_id: UUID | None = None,
+    answer_status: str = "active",
+) -> list[FullDocumentAnswerModel]:
+    if answer_status not in {"active", "deleted"}:
+        raise FullDocumentProcessingValidationError("Ismeretlen iratválasz-állapot")
+    statement = select(FullDocumentAnswerModel).where(
+        FullDocumentAnswerModel.case_id == case_id,
+        FullDocumentAnswerModel.answer_status == answer_status,
+    )
+    if document_id is not None:
+        _ensure_document_belongs_to_case(db, case_id=case_id, document_id=document_id)
+        statement = statement.where(FullDocumentAnswerModel.document_id == document_id)
+    statement = statement.order_by(FullDocumentAnswerModel.created_at.desc())
+    return list(db.execute(statement).scalars())
+
+
+def get_full_document_answer(db: Session, *, case_id: UUID, answer_id: UUID) -> FullDocumentAnswerModel:
+    answer = db.get(FullDocumentAnswerModel, answer_id)
+    if answer is None or answer.case_id != case_id:
+        raise FullDocumentProcessingNotFoundError("Az iratválasz nem található")
+    return answer
+
+
+def delete_full_document_answer(db: Session, *, case_id: UUID, answer_id: UUID) -> None:
+    answer = get_full_document_answer(db, case_id=case_id, answer_id=answer_id)
+    if answer.answer_status != "deleted":
+        answer.answer_status = "deleted"
+        answer.updated_at = datetime.now(UTC)
+        db.add(answer)
+        db.commit()
 
 
 def get_document_processing_item(db: Session, *, case_id: UUID, item_id: UUID) -> DocumentProcessingItemModel:
@@ -359,6 +592,29 @@ SOURCE:
 {source_pages}"""
 
 
+def build_full_document_free_question_user_prompt(
+    *,
+    document: DocumentModel,
+    question_text: str,
+    page_sources: list[dict[str, Any]],
+) -> str:
+    source_pages = "\n\n".join(
+        f"{page_source['source_label']}:\n"
+        f"document_id: {page_source['document_id']}\n"
+        f"page_number: {page_source['page_number']}\n"
+        f"text:\n{page_source['text']}"
+        for page_source in page_sources
+    )
+    return f"""DOCUMENT:
+{document.original_filename}
+
+QUERY:
+{question_text}
+
+SOURCE:
+{source_pages}"""
+
+
 def parse_full_document_processing_llm_json_object(raw_content: str) -> dict[str, Any]:
     try:
         return parse_llm_json_object(raw_content)
@@ -367,6 +623,88 @@ def parse_full_document_processing_llm_json_object(raw_content: str) -> dict[str
         if recovered is None:
             raise exc
         return recovered
+
+
+def parse_full_document_free_question_llm_json_object(raw_content: str) -> dict[str, Any]:
+    try:
+        return parse_llm_json_object(raw_content)
+    except Exception as exc:
+        recovered = _recover_full_document_free_question_json_fields(raw_content)
+        if recovered is None:
+            raise exc
+        return recovered
+
+
+def validate_full_document_free_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    answer_text = _clean_string(payload.get("answer_text"))
+    if answer_text is None:
+        raise FullDocumentProcessingValidationError("A szabad iratkérdés LLM válasz nem tartalmaz answer_text mezőt")
+    insufficient_source = _coerce_bool(payload.get("insufficient_source", False))
+    if insufficient_source is None:
+        insufficient_source = False
+    return {
+        "answer_text": answer_text,
+        "source_summary": _clean_string(payload.get("source_summary")) or "",
+        "insufficient_source": insufficient_source,
+    }
+
+
+def _recover_full_document_free_question_json_fields(raw_content: str) -> dict[str, Any] | None:
+    cleaned = raw_content.strip()
+    object_start = cleaned.find("{")
+    object_end = cleaned.rfind("}")
+    if object_start != -1:
+        cleaned = cleaned[object_start : object_end + 1] if object_end > object_start else cleaned[object_start:]
+    insufficient_source = _extract_json_bool_field(cleaned, "insufficient_source")
+    source_summary = _extract_json_string_field_any(cleaned, "source_summary", next_fields=["answer_text"]) or ""
+    answer_text = _extract_json_string_field_any(cleaned, "answer_text", next_fields=[])
+    if answer_text is None:
+        return None
+    return {
+        "insufficient_source": False if insufficient_source is None else insufficient_source,
+        "source_summary": source_summary,
+        "answer_text": answer_text,
+    }
+
+
+def _extract_json_string_field_any(raw_content: str, field_name: str, *, next_fields: list[str]) -> str | None:
+    if next_fields:
+        next_pattern = "|".join(re.escape(next_field) for next_field in next_fields)
+        pattern = rf'"{re.escape(field_name)}"\s*:\s*"(.*?)"\s*,\s*"({next_pattern})"\s*:'
+    else:
+        pattern = rf'"{re.escape(field_name)}"\s*:\s*"(.*)"\s*(?:}})?\s*$'
+    match = re.search(pattern, raw_content, flags=re.DOTALL)
+    if match is None:
+        return None
+    return _decode_json_string_fragment(match.group(1))
+
+
+def _extract_json_bool_field(raw_content: str, field_name: str) -> bool | None:
+    pattern = rf'"{re.escape(field_name)}"\s*:\s*(true|false|"true"|"false"|0|1|"0"|"1")'
+    match = re.search(pattern, raw_content, flags=re.IGNORECASE)
+    if match is None:
+        return None
+    return _coerce_bool(match.group(1).strip('"'))
+
+
+def _coerce_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "igen", "yes"}:
+            return True
+        if normalized in {"false", "0", "nem", "no"}:
+            return False
+    return None
+
+
+def _default_free_question_source_summary(document: DocumentModel, page_start: int, page_end: int) -> str:
+    if page_start == page_end:
+        return f"Forrás: {document.original_filename}, {page_start}. oldal."
+    return f"Forrás: {document.original_filename}, {page_start}-{page_end}. oldal."
 
 
 def _recover_full_document_processing_json_fields(raw_content: str) -> dict[str, Any] | None:
@@ -620,7 +958,7 @@ def _build_source_evidence_from_item(
     if quote_span is None:
         return None
 
-    quote_start, quote_end = quote_span
+    quote_start, quote_end = _expand_span_to_sentence(page_source["text"], quote_span)
     exact_quote_text = page_source["text"][quote_start:quote_end]
     return [
         {
@@ -633,6 +971,55 @@ def _build_source_evidence_from_item(
             "quote_char_end": quote_end,
         }
     ]
+
+
+def _expand_span_to_sentence(source_text: str, span: tuple[int, int]) -> tuple[int, int]:
+    start, end = span
+    sentence_start = _sentence_start_before(source_text, start)
+    sentence_end = _sentence_end_after(source_text, end)
+    return _trim_span_whitespace(source_text, sentence_start, sentence_end)
+
+
+def _sentence_start_before(source_text: str, index: int) -> int:
+    paragraph_break = source_text.rfind("\n\n", 0, index)
+    start_limit = paragraph_break + 2 if paragraph_break >= 0 else 0
+    for position in range(index - 1, start_limit - 1, -1):
+        char = source_text[position]
+        if char in "!?":
+            return position + 1
+        if char == "." and _is_sentence_period(source_text, position):
+            return position + 1
+    return start_limit
+
+
+def _sentence_end_after(source_text: str, index: int) -> int:
+    paragraph_break = source_text.find("\n\n", index)
+    end_limit = paragraph_break if paragraph_break >= 0 else len(source_text)
+    for position in range(index, end_limit):
+        char = source_text[position]
+        if char in "!?":
+            return position + 1
+        if char == "." and _is_sentence_period(source_text, position):
+            return position + 1
+    return end_limit
+
+
+def _is_sentence_period(source_text: str, position: int) -> bool:
+    token_start = position - 1
+    while token_start >= 0 and source_text[token_start].isalpha():
+        token_start -= 1
+    token = source_text[token_start + 1 : position].casefold()
+    if token in {"dr", "ifj", "id", "özv", "stb", "pl", "kb", "u", "ti", "sz"}:
+        return False
+    return True
+
+
+def _trim_span_whitespace(source_text: str, start: int, end: int) -> tuple[int, int]:
+    while start < end and source_text[start].isspace():
+        start += 1
+    while end > start and source_text[end - 1].isspace():
+        end -= 1
+    return start, end
 
 
 def _find_label_on_any_page(

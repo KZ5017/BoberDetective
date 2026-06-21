@@ -48,6 +48,10 @@ class ManualContradictionCandidateCreate(BaseModel):
         return self
 
 
+class ContradictionCandidateClaimDetachRequest(BaseModel):
+    review_comment: str | None = Field(default=None, max_length=4000)
+
+
 class ContradictionCandidateRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
