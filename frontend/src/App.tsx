@@ -13,9 +13,11 @@ import {
   Loader2,
   MessageSquare,
   Moon,
+  MoreVertical,
   Play,
   RefreshCw,
   Search,
+  Send,
   ShieldCheck,
   Sun,
   Trash2,
@@ -23,6 +25,9 @@ import {
 } from "lucide-react";
 import {
   AnalysisResponse,
+  AssistantChatDetail,
+  AssistantChatListItem,
+  AssistantMessageRead,
   AnalysisRunDetail,
   AnalysisRunRead,
   ApiError,
@@ -84,6 +89,7 @@ import {
   bulkDeleteDocumentProcessingItems,
   bulkDeleteResearchFindings,
   convertResearchFinding,
+  createAssistantChat,
   createCase,
   createDocumentChunks,
   createDocumentCollection,
@@ -91,6 +97,7 @@ import {
   createManualObject,
   createManualContradictionCandidate,
   createManualObjectFromDetachedSource,
+  deleteAssistantChat,
   deleteCase,
   deleteDocumentCollection,
   deleteKnowledgeDocument,
@@ -102,6 +109,7 @@ import {
   deleteDetachedSourceItem,
   deleteReviewReportItem,
   getAnalysisRun,
+  getAssistantChat,
   getChunkIndexStatus,
   getLatestResearchFindingRunSummary,
   getLatestRagRunSummary,
@@ -120,6 +128,7 @@ import {
   listDocumentChunks,
   listDocumentPages,
   listAnalysisRuns,
+  listAssistantChats,
   listCases,
   listClaims,
   listDocuments,
@@ -151,10 +160,12 @@ import {
   runDocumentOcr,
   runRagQuery,
   saveRagAnswer,
+  sendAssistantMessage,
   setAsideResearchFinding,
   startChunkIndexJob,
   unloadChatModel,
   unloadEmbeddingModel,
+  updateAssistantChat,
   updateDocumentLifecycle,
   updateDocumentProcessingItemStatus,
   updateReviewReportItemText
@@ -179,10 +190,26 @@ const analysisSourceModes: AnalysisSourceMode[] = ["case", "document", "collecti
 const claimReviewScopes: ClaimReviewScope[] = ["reviewable", "verified", "needs_review", "all_source_valid"];
 const retrievalStrategies: RetrievalStrategy[] = ["keyword", "semantic", "hybrid"];
 const ragAnswerModes: RagAnswerMode[] = ["short", "detailed"];
-const workSurfaces = ["document_organizer", "case_workbench", "relationship_map", "full_document_processing", "general_rag", "knowledge_base", "audit_log"] as const;
+const workSurfaces = ["document_organizer", "case_workbench", "relationship_map", "full_document_processing", "general_rag", "knowledge_base", "ai_assistant", "audit_log"] as const;
 
 type WorkSurface = (typeof workSurfaces)[number];
 type ThemeMode = "light" | "dark";
+
+type AppDialogMode = "confirm" | "text_confirm";
+
+type AppDialogState = {
+  mode: AppDialogMode;
+  title: string;
+  message: string;
+  detail?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+  inputLabel?: string;
+  expectedValue?: string;
+};
+
+type AppDialogResult = boolean | string | null;
 
 
 type DocumentProcessingUnconfirmedDetail = {
@@ -208,6 +235,7 @@ const workSurfaceLabels: Record<WorkSurface, string> = {
   full_document_processing: "Teljes iratfeldolgozás",
   general_rag: "Általános iratkérdező",
   knowledge_base: "Tudásbázis",
+  ai_assistant: "AI-asszisztens",
   audit_log: "Audit napló"
 };
 
@@ -302,6 +330,11 @@ const busyLabels: Record<string, string> = {
   "knowledge-archive": "Tudásbázis dokumentum archiválása",
   "knowledge-restore": "Tudásbázis dokumentum visszaállítása",
   "knowledge-delete": "Tudásbázis dokumentum törlése",
+  "assistant-chats": "AI-asszisztens beszélgetések betöltése",
+  "assistant-chat-create": "AI-asszisztens beszélgetés létrehozása",
+  "assistant-chat-load": "AI-asszisztens beszélgetés megnyitása",
+  "assistant-chat-delete": "AI-asszisztens beszélgetés törlése",
+  "assistant-message": "AI-asszisztens válasz generálása",
   "relationship-graph": "Kapcsolati térkép betöltése",
   "full-document-profiles": "Teljes iratfeldolgozási profilok betöltése",
   "full-document-items": "Teljes iratfeldolgozási munkalista betöltése",
@@ -323,6 +356,7 @@ const aiOperationLabels = new Set([
   "rag-query",
   "knowledge-query",
   "knowledge-index",
+  "assistant-message",
   "chunk-index",
   "chat-load",
   "embedding-load",
@@ -488,6 +522,17 @@ export function App() {
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const [documentListSearch, setDocumentListSearch] = useState("");
   const [activeSurface, setActiveSurface] = useState<WorkSurface>("document_organizer");
+  const [assistantChats, setAssistantChats] = useState<AssistantChatListItem[]>([]);
+  const [assistantActiveChatId, setAssistantActiveChatId] = useState("");
+  const [assistantActiveChat, setAssistantActiveChat] = useState<AssistantChatDetail | null>(null);
+  const [assistantDraft, setAssistantDraft] = useState("");
+  const [assistantMenu, setAssistantMenu] = useState<{ chatId: string; left: number; top: number } | null>(null);
+  const [assistantRenameDialog, setAssistantRenameDialog] = useState<{ chatId: string; currentTitle: string } | null>(null);
+  const [assistantRenameDraft, setAssistantRenameDraft] = useState("");
+  const [assistantPendingMessage, setAssistantPendingMessage] = useState<{ chatId: string; content: string } | null>(null);
+  const assistantMessageListRef = useRef<HTMLDivElement | null>(null);
+  const assistantDraftRef = useRef<HTMLTextAreaElement | null>(null);
+  const assistantRenameInputRef = useRef<HTMLInputElement | null>(null);
   const [fullDocumentId, setFullDocumentId] = useState("");
   const [fullDocumentProfile, setFullDocumentProfile] = useState("person_search_seeds");
   const [fullDocumentProfiles, setFullDocumentProfiles] = useState<FullDocumentProcessingProfileRead[]>([]);
@@ -627,6 +672,66 @@ export function App() {
   const [notice, setNotice] = useState("");
   const [, setLastActionSummary] = useState("");
   const [lastAiOperation, setLastAiOperation] = useState<AiOperationStatus | null>(null);
+  const [appDialog, setAppDialog] = useState<AppDialogState | null>(null);
+  const [appDialogInput, setAppDialogInput] = useState("");
+  const appDialogInputRef = useRef<HTMLInputElement | null>(null);
+  const appDialogResolveRef = useRef<((value: AppDialogResult) => void) | null>(null);
+
+  useEffect(() => {
+    if (appDialog?.mode !== "text_confirm") return;
+    window.requestAnimationFrame(() => {
+      appDialogInputRef.current?.focus();
+      appDialogInputRef.current?.select();
+    });
+  }, [appDialog]);
+
+  useEffect(() => {
+    if (!appDialog) return;
+
+    function closeAppDialogWithKeyboard(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        resolveAppDialog(null);
+      }
+    }
+
+    window.addEventListener("keydown", closeAppDialogWithKeyboard);
+    return () => window.removeEventListener("keydown", closeAppDialogWithKeyboard);
+  }, [appDialog]);
+
+  function openAppDialog(dialog: AppDialogState): Promise<AppDialogResult> {
+    setAppDialogInput("");
+    setAppDialog(dialog);
+    return new Promise((resolve) => {
+      appDialogResolveRef.current = resolve;
+    });
+  }
+
+  async function requestAppConfirmation(dialog: Omit<AppDialogState, "mode">) {
+    const result = await openAppDialog({ ...dialog, mode: "confirm" });
+    return result === true;
+  }
+
+  async function requestAppTextConfirmation(dialog: Omit<AppDialogState, "mode">) {
+    const result = await openAppDialog({ ...dialog, mode: "text_confirm" });
+    return typeof result === "string" ? result : null;
+  }
+
+  function resolveAppDialog(result: AppDialogResult) {
+    const resolver = appDialogResolveRef.current;
+    appDialogResolveRef.current = null;
+    setAppDialog(null);
+    setAppDialogInput("");
+    resolver?.(result);
+  }
+
+  function submitAppDialog() {
+    if (!appDialog) return;
+    if (appDialog.mode === "text_confirm") {
+      resolveAppDialog(appDialogInput);
+      return;
+    }
+    resolveAppDialog(true);
+  }
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -1123,6 +1228,74 @@ export function App() {
   }, [activeSurface]);
 
   useEffect(() => {
+    if (activeSurface !== "ai_assistant") return;
+    void refreshAssistantChats(false);
+  }, [activeSurface]);
+
+  useEffect(() => {
+    if (!assistantMenu) return;
+
+    function closeAssistantMenu(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(".assistant-history-menu-popover") || target.closest(".assistant-history-menu-button")) return;
+      setAssistantMenu(null);
+    }
+
+    function closeAssistantMenuWithKeyboard(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setAssistantMenu(null);
+      }
+    }
+
+    window.addEventListener("pointerdown", closeAssistantMenu);
+    window.addEventListener("keydown", closeAssistantMenuWithKeyboard);
+    return () => {
+      window.removeEventListener("pointerdown", closeAssistantMenu);
+      window.removeEventListener("keydown", closeAssistantMenuWithKeyboard);
+    };
+  }, [assistantMenu]);
+
+
+  useEffect(() => {
+    if (!assistantRenameDialog) return;
+    window.requestAnimationFrame(() => {
+      assistantRenameInputRef.current?.focus();
+      assistantRenameInputRef.current?.select();
+    });
+  }, [assistantRenameDialog]);
+
+  useEffect(() => {
+    if (!assistantRenameDialog) return;
+
+    function closeAssistantRenameWithKeyboard(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setAssistantRenameDialog(null);
+        setAssistantRenameDraft("");
+      }
+    }
+
+    window.addEventListener("keydown", closeAssistantRenameWithKeyboard);
+    return () => window.removeEventListener("keydown", closeAssistantRenameWithKeyboard);
+  }, [assistantRenameDialog]);
+
+
+  useEffect(() => {
+    const element = assistantMessageListRef.current;
+    if (!element) return;
+    window.requestAnimationFrame(() => {
+      element.scrollTop = element.scrollHeight;
+    });
+  }, [assistantActiveChat?.id, assistantActiveChat?.messages.length, assistantPendingMessage?.content]);
+
+  useEffect(() => {
+    const element = assistantDraftRef.current;
+    if (!element) return;
+    element.style.height = "auto";
+    element.style.height = Math.min(element.scrollHeight, 180) + "px";
+  }, [assistantDraft]);
+
+  useEffect(() => {
     const validIds = new Set(knowledgeDocuments.map((document) => document.id));
     setKnowledgeDocumentIds((current) => current.filter((documentId) => validIds.has(documentId)));
   }, [knowledgeDocuments]);
@@ -1316,6 +1489,129 @@ export function App() {
     }
   }
 
+  async function refreshAssistantChats(showNotice = false) {
+    const action = async () => {
+      const response = await listAssistantChats();
+      setAssistantChats(response.data);
+      if (showNotice) {
+        setNotice("AI-asszisztens beszélgetések frissítve.");
+        setLastActionSummary(String(response.data.length) + " beszélgetés.");
+      }
+      return response.data;
+    };
+    if (showNotice) {
+      let data: AssistantChatListItem[] = [];
+      await perform("assistant-chats", async () => {
+        data = await action();
+      });
+      return data;
+    }
+    try {
+      return await action();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI-asszisztens beszélgetések betöltése sikertelen.");
+      return [];
+    }
+  }
+
+  async function handleCreateAssistantChat() {
+    await perform("assistant-chat-create", async () => {
+      const chat = await createAssistantChat({});
+      setAssistantActiveChat(chat);
+      setAssistantActiveChatId(chat.id);
+      setAssistantDraft("");
+      setAssistantMenu(null);
+      await refreshAssistantChats(false);
+      setNotice("Új AI-asszisztens beszélgetés létrehozva.");
+    });
+  }
+
+  async function handleLoadAssistantChat(chatId: string) {
+    await perform("assistant-chat-load", async () => {
+      const chat = await getAssistantChat(chatId);
+      setAssistantActiveChat(chat);
+      setAssistantActiveChatId(chat.id);
+      setAssistantMenu(null);
+    });
+  }
+
+  async function handleDeleteAssistantChat(chat: AssistantChatListItem) {
+    const confirmed = await requestAppConfirmation({
+      title: "Beszélgetés törlése",
+      message: "Törlöd ezt a beszélgetést?",
+      detail: chat.title,
+      confirmLabel: "Törlés",
+      danger: true
+    });
+    if (!confirmed) return;
+    await perform("assistant-chat-delete", async () => {
+      setAssistantMenu(null);
+      await deleteAssistantChat(chat.id);
+      if (assistantActiveChatId === chat.id) {
+        setAssistantActiveChat(null);
+        setAssistantActiveChatId("");
+        setAssistantDraft("");
+      }
+      await refreshAssistantChats(false);
+      setNotice("AI-asszisztens beszélgetés törölve.");
+    });
+  }
+
+  function openAssistantRenameDialog(chat: AssistantChatListItem) {
+    setAssistantMenu(null);
+    setAssistantRenameDialog({ chatId: chat.id, currentTitle: chat.title });
+    setAssistantRenameDraft(chat.title);
+  }
+
+  function closeAssistantRenameDialog() {
+    setAssistantRenameDialog(null);
+    setAssistantRenameDraft("");
+  }
+
+  async function handleRenameAssistantChat() {
+    if (!assistantRenameDialog) return;
+    const title = assistantRenameDraft.trim();
+    if (!title || title === assistantRenameDialog.currentTitle) {
+      closeAssistantRenameDialog();
+      return;
+    }
+    const chatId = assistantRenameDialog.chatId;
+    await perform("assistant-chat-load", async () => {
+      const updatedChat = await updateAssistantChat(chatId, { title });
+      if (assistantActiveChatId === chatId) {
+        setAssistantActiveChat(updatedChat);
+        setAssistantActiveChatId(updatedChat.id);
+      }
+      await refreshAssistantChats(false);
+      closeAssistantRenameDialog();
+      setNotice("Beszélgetés címe mentve.");
+    });
+  }
+
+  async function handleSendAssistantMessage() {
+    const content = assistantDraft.trim();
+    if (!content) return;
+    setAssistantDraft("");
+    await perform("assistant-message", async () => {
+      let chat = assistantActiveChat;
+      if (!chat) {
+        chat = await createAssistantChat({});
+        setAssistantActiveChat(chat);
+        setAssistantActiveChatId(chat.id);
+      }
+      setAssistantPendingMessage({ chatId: chat.id, content });
+      try {
+        const response = await sendAssistantMessage(chat.id, { content, reasoning_mode: "normal" });
+        setAssistantActiveChat(response.chat);
+        setAssistantActiveChatId(response.chat.id);
+        await refreshAssistantChats(false);
+        setNotice("AI-asszisztens válasz elkészült.");
+      } finally {
+        setAssistantPendingMessage(null);
+      }
+    });
+  }
+
   async function refreshRagAnswers(showNotice = false) {
     if (!selectedCaseId) return;
     const action = async () => {
@@ -1506,7 +1802,15 @@ export function App() {
 
   async function handleDeleteDocumentCollection() {
     if (!selectedCaseId || !selectedDocumentCollection) return;
-    if (!window.confirm(`Törlöd ezt az iratgyűjteményt?\n\n${selectedDocumentCollection.name}\n\nAz iratok nem törlődnek.`)) return;
+    const confirmed = await requestAppConfirmation({
+      title: "Iratgyűjtemény törlése",
+      message: "Törlöd ezt az iratgyűjteményt?",
+      detail: `${selectedDocumentCollection.name}
+Az iratok nem törlődnek.`,
+      confirmLabel: "Törlés",
+      danger: true
+    });
+    if (!confirmed) return;
     await perform("document-collection-delete", async () => {
       await deleteDocumentCollection(selectedCaseId, selectedDocumentCollection.id);
       const response = await listDocumentCollections(selectedCaseId);
@@ -1846,7 +2150,14 @@ export function App() {
   async function handleBulkDeleteDocumentProcessingItems() {
     if (!selectedCaseId || documentProcessingItemsMarkedForDeletion.length === 0) return;
     const count = documentProcessingItemsMarkedForDeletion.length;
-    if (!window.confirm(`Törlöd a kijelölt teljes iratfeldolgozási elemeket?\n\nKijelölt elemek száma: ${count}`)) return;
+    const confirmed = await requestAppConfirmation({
+      title: "Kijelölt elemek törlése",
+      message: "Törlöd a kijelölt teljes iratfeldolgozási elemeket?",
+      detail: `Kijelölt elemek száma: ${count}`,
+      confirmLabel: "Törlés",
+      danger: true
+    });
+    if (!confirmed) return;
     await perform("full-document-status", async () => {
       const response = await bulkDeleteDocumentProcessingItems(selectedCaseId, documentProcessingItemsMarkedForDeletion);
       setDocumentProcessingItems((current) =>
@@ -1935,7 +2246,13 @@ export function App() {
       setError("Az irat jelenlegi állapotában nem vethető el végleges törléssel.");
       return;
     }
-    const confirmed = window.confirm("Biztosan végleg elveted ezt az iratot? Ez csak korai, elemzési alapként még nem használt iratnál engedélyezett.");
+    const confirmed = await requestAppConfirmation({
+      title: "Irat végleges elvetése",
+      message: "Biztosan végleg elveted ezt az iratot?",
+      detail: "Ez csak korai, elemzési alapként még nem használt iratnál engedélyezett.",
+      confirmLabel: "Elvetés",
+      danger: true
+    });
     if (!confirmed) return;
     const documentId = selectedDocument.id;
     const filename = selectedDocument.original_filename;
@@ -2053,9 +2370,15 @@ export function App() {
 
   async function handleDeleteSelectedCase() {
     if (!selectedCase) return;
-    const typedName = window.prompt(
-      `Ez véglegesen törli a teljes ügyet és minden hozzá tartozó munkatartalmat.\n\nA megerősítéshez írd be pontosan az ügy nevét:\n${selectedCase.case_name}`
-    );
+    const typedName = await requestAppTextConfirmation({
+      title: "Ügy végleges törlése",
+      message: "Ez véglegesen törli a teljes ügyet és minden hozzá tartozó munkatartalmat.",
+      detail: selectedCase.case_name,
+      inputLabel: "A megerősítéshez írd be pontosan az ügy nevét",
+      expectedValue: selectedCase.case_name,
+      confirmLabel: "Végleges törlés",
+      danger: true
+    });
     if (typedName !== selectedCase.case_name) {
       if (typedName !== null) {
         setError("Az ügy törlése megszakadt: a beírt név nem egyezik.");
@@ -2228,7 +2551,14 @@ export function App() {
 
   async function handleDeleteRagAnswer(answer: RagSavedAnswerListItem) {
     if (!selectedCaseId) return;
-    if (!window.confirm(`Törlöd ezt a mentett iratkérdező választ?\n\n${answer.title || answer.question}`)) return;
+    const confirmed = await requestAppConfirmation({
+      title: "Mentett válasz törlése",
+      message: "Törlöd ezt a mentett iratkérdező választ?",
+      detail: answer.title || answer.question,
+      confirmLabel: "Törlés",
+      danger: true
+    });
+    if (!confirmed) return;
     await perform("rag-answer-delete", async () => {
       await deleteRagAnswer(selectedCaseId, answer.id);
       const response = await listRagAnswers(selectedCaseId);
@@ -2369,7 +2699,13 @@ export function App() {
 
   async function handleDeleteSelectedKnowledgeDocuments() {
     if (selectedKnowledgeDocuments.length === 0) return;
-    const confirmed = window.confirm(`Végleg törlöd a kijelölt tudásbázis dokumentumokat?\n\n${selectedKnowledgeDocuments.length} dokumentum`);
+    const confirmed = await requestAppConfirmation({
+      title: "Tudásbázis dokumentumok törlése",
+      message: "Végleg törlöd a kijelölt tudásbázis dokumentumokat?",
+      detail: `${selectedKnowledgeDocuments.length} dokumentum`,
+      confirmLabel: "Végleges törlés",
+      danger: true
+    });
     if (!confirmed) return;
     await perform("knowledge-delete-selected", async () => {
       for (const document of selectedKnowledgeDocuments) {
@@ -2779,9 +3115,13 @@ export function App() {
 
   async function handleDeleteReviewReportItem(item: ReviewReportItem) {
     if (!selectedCaseId || !reviewItemCanBeDeleted(item)) return;
-    const confirmed = window.confirm(
-      `Biztosan véglegesen törlöd ezt a találatot az áttekintési jelentésből?\n\n${item.title}`
-    );
+    const confirmed = await requestAppConfirmation({
+      title: "Találat végleges törlése",
+      message: "Biztosan véglegesen törlöd ezt a találatot az áttekintési jelentésből?",
+      detail: item.title,
+      confirmLabel: "Végleges törlés",
+      danger: true
+    });
     if (!confirmed) return;
     await perform("review-item-delete", async () => {
       await deleteReviewReportItem(selectedCaseId, item.object_type, item.object_id);
@@ -2811,9 +3151,13 @@ export function App() {
     if (!selectedCaseId || item.object_type !== "contradiction_candidate") return;
     const claimId = side === "a" ? item.claim_id_a : item.claim_id_b;
     if (!claimId) return;
-    const confirmed = window.confirm(
-      `Biztosan leválasztod a(z) ${side.toUpperCase()} állítást erről az ellentmondásjelöltről?\n\n${item.title}`
-    );
+    const confirmed = await requestAppConfirmation({
+      title: "Állítás leválasztása",
+      message: `Biztosan leválasztod a(z) ${side.toUpperCase()} állítást erről az ellentmondásjelöltről?`,
+      detail: item.title,
+      confirmLabel: "Leválasztás",
+      danger: true
+    });
     if (!confirmed) return;
     const reviewComment = reviewComments[item.object_id] ?? "";
     await perform("contradiction-claim-detach", async () => {
@@ -3116,7 +3460,12 @@ export function App() {
 
   async function handleDeleteDetachedSource(item: DetachedSourceItemRead) {
     if (!selectedCaseId) return;
-    const confirmed = window.confirm("Biztosan véglegesen törlöd ezt a leválasztott forráshivatkozást a munkalistából?");
+    const confirmed = await requestAppConfirmation({
+      title: "Leválasztott forráshivatkozás törlése",
+      message: "Biztosan véglegesen törlöd ezt a leválasztott forráshivatkozást a munkalistából?",
+      confirmLabel: "Végleges törlés",
+      danger: true
+    });
     if (!confirmed) return;
     await perform("detached-source-delete", async () => {
       await deleteDetachedSourceItem(selectedCaseId, item.id);
@@ -3403,7 +3752,14 @@ export function App() {
   async function handleBulkDeleteResearchFindings() {
     if (!selectedCaseId || researchFindingsMarkedForDeletion.length === 0) return;
     const count = researchFindingsMarkedForDeletion.length;
-    if (!window.confirm(`Törlöd a kijelölt kutatási találatokat?\n\nKijelölt elemek száma: ${count}`)) return;
+    const confirmed = await requestAppConfirmation({
+      title: "Kutatási találatok törlése",
+      message: "Törlöd a kijelölt kutatási találatokat?",
+      detail: `Kijelölt elemek száma: ${count}`,
+      confirmLabel: "Törlés",
+      danger: true
+    });
+    if (!confirmed) return;
     await perform("finding-delete", async () => {
       const response = await bulkDeleteResearchFindings(selectedCaseId, researchFindingsMarkedForDeletion);
       setResearchFindings((current) => current.filter((item) => !researchFindingsMarkedForDeletion.includes(item.id)));
@@ -5024,6 +5380,195 @@ export function App() {
     );
   }
 
+  function renderAssistantMessage(message: AssistantMessageRead) {
+    const isUser = message.role === "user";
+    return (
+      <article key={message.id} className={"assistant-message " + (isUser ? "is-user" : "is-assistant")}>
+        <div className="assistant-message-meta">
+          <span>{isUser ? "Te" : "AI-asszisztens"}</span>
+          <span>{new Date(message.created_at).toLocaleString()}</span>
+        </div>
+        {isUser ? (
+          <p className="assistant-user-text">{message.content}</p>
+        ) : (
+          <MarkdownAnswer>{message.content}</MarkdownAnswer>
+        )}
+        {message.error_message && <p className="field-hint">{message.error_message}</p>}
+      </article>
+    );
+  }
+
+  function renderAssistantPendingUser(content: string) {
+    return (
+      <article className="assistant-message is-user is-pending">
+        <div className="assistant-message-meta">
+          <span>Te</span>
+          <span>küldés alatt</span>
+        </div>
+        <p className="assistant-user-text">{content}</p>
+      </article>
+    );
+  }
+
+  function renderAssistantTyping() {
+    return (
+      <article className="assistant-message is-assistant is-typing" aria-label="AI-asszisztens válaszol">
+        <div className="assistant-typing-dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      </article>
+    );
+  }
+
+  function renderAssistantSurface() {
+    const messages = assistantActiveChat?.messages ?? [];
+    const pendingMessage = assistantPendingMessage?.chatId === assistantActiveChatId ? assistantPendingMessage : null;
+    const hasConversationContent = messages.length > 0 || Boolean(pendingMessage);
+    const canSend = assistantDraft.trim().length > 0 && !busy;
+    const assistantMenuChat = assistantMenu ? assistantChats.find((chat) => chat.id === assistantMenu.chatId) : null;
+    return (
+      <section className="assistant-surface">
+        <section className="assistant-shell">
+          <aside className="assistant-history-rail" aria-label="AI-asszisztens beszélgetések">
+            <div className="assistant-rail-actions">
+              <button onClick={handleCreateAssistantChat} disabled={Boolean(busy)}>
+                <FilePlus2 size={18} /> Új chat
+              </button>
+              <button className="secondary-button" onClick={() => void refreshAssistantChats(true)} disabled={Boolean(busy)} title="Beszélgetések frissítése">
+                <RefreshCw size={18} />
+              </button>
+            </div>
+            <div className="assistant-history-list">
+              {assistantChats.length === 0 && <p className="muted">Nincs mentett beszélgetés.</p>}
+              {assistantChats.map((chat) => (
+                <div key={chat.id} className={"assistant-history-item " + (assistantActiveChatId === chat.id ? "is-active" : "")}>
+                  <button
+                    type="button"
+                    className="assistant-history-title"
+                    onClick={() => void handleLoadAssistantChat(chat.id)}
+                    disabled={Boolean(busy)}
+                    title={chat.title}
+                  >
+                    <span>{chat.title}</span>
+                    <small>{new Date(chat.updated_at).toLocaleString()}</small>
+                  </button>
+                  <button
+                    type="button"
+                    className="assistant-history-menu-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const menuWidth = 150;
+                      setAssistantMenu((current) => current?.chatId === chat.id ? null : {
+                        chatId: chat.id,
+                        left: Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8)),
+                        top: Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 96))
+                      });
+                    }}
+                    disabled={Boolean(busy)}
+                    aria-label="Beszélgetés műveletei"
+                    title="Beszélgetés műveletei"
+                  >
+                    <MoreVertical size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </aside>
+
+          <section className={"assistant-chat-canvas " + (hasConversationContent ? "has-messages" : "is-empty")}>
+
+            <div className="assistant-thread" ref={assistantMessageListRef}>
+              {!hasConversationContent && (
+                <div className="assistant-start-state">
+                  <h2>Miben segíthetek?</h2>
+                </div>
+              )}
+              {messages.map(renderAssistantMessage)}
+              {pendingMessage && renderAssistantPendingUser(pendingMessage.content)}
+              {pendingMessage && renderAssistantTyping()}
+            </div>
+
+            <div className="assistant-composer-shell">
+              <div className="assistant-composer">
+                <textarea
+                  ref={assistantDraftRef}
+                  value={assistantDraft}
+                  onChange={(event) => setAssistantDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void handleSendAssistantMessage();
+                    }
+                  }}
+                  placeholder="Kérdezz bármit"
+                  rows={1}
+                  disabled={Boolean(busy)}
+                />
+                <button onClick={handleSendAssistantMessage} disabled={!canSend} title="Küldés" aria-label="Üzenet küldése">
+                  <Send size={18} />
+                </button>
+              </div>
+            </div>
+          </section>
+        </section>
+        {assistantMenu && assistantMenuChat && (
+          <div
+            className="assistant-history-menu-popover"
+            style={{ left: assistantMenu.left, top: assistantMenu.top }}
+          >
+            <button type="button" onClick={() => openAssistantRenameDialog(assistantMenuChat)} disabled={Boolean(busy)}>
+              Átnevezés
+            </button>
+            <button type="button" className="danger-action" onClick={() => void handleDeleteAssistantChat(assistantMenuChat)} disabled={Boolean(busy)}>
+              <Trash2 size={15} /> Törlés
+            </button>
+          </div>
+        )}
+        {assistantRenameDialog && (
+          <div className="assistant-rename-backdrop" onMouseDown={closeAssistantRenameDialog} role="presentation">
+            <form
+              className="assistant-rename-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="assistant-rename-title"
+              onMouseDown={(event) => event.stopPropagation()}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleRenameAssistantChat();
+              }}
+            >
+              <div className="assistant-rename-heading">
+                <strong id="assistant-rename-title">Beszélgetés átnevezése</strong>
+                <span className="field-hint">A név a bal oldali beszélgetéslistában jelenik meg.</span>
+              </div>
+              <label>
+                <span>Új név</span>
+                <input
+                  ref={assistantRenameInputRef}
+                  value={assistantRenameDraft}
+                  onChange={(event) => setAssistantRenameDraft(event.target.value)}
+                  maxLength={160}
+                  disabled={Boolean(busy)}
+                />
+              </label>
+              <div className="assistant-rename-actions">
+                <button type="button" className="secondary-button" onClick={closeAssistantRenameDialog} disabled={Boolean(busy)}>
+                  Mégse
+                </button>
+                <button type="submit" disabled={Boolean(busy) || assistantRenameDraft.trim().length === 0}>
+                  Mentés
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   function renderKnowledgeBaseSurface() {
     return (
       <section className="surface-placeholder general-rag-surface knowledge-surface">
@@ -5669,8 +6214,7 @@ export function App() {
               </section>
             </div>
           )}
-        </section>
-      </section>
+        </section>      </section>
     );
   }
 
@@ -5717,6 +6261,7 @@ export function App() {
                   {surface === "full_document_processing" && <FilePlus2 size={18} />}
                   {surface === "general_rag" && <MessageSquare size={18} />}
                   {surface === "knowledge_base" && <Database size={18} />}
+                  {surface === "ai_assistant" && <MessageSquare size={18} />}
                   {surface === "audit_log" && <Archive size={18} />}
                   <span>{workSurfaceLabels[surface]}</span>
                 </button>
@@ -7278,6 +7823,8 @@ export function App() {
 
         {activeSurface === "knowledge_base" && renderKnowledgeBaseSurface()}
 
+        {activeSurface === "ai_assistant" && renderAssistantSurface()}
+
         {activeSurface === "full_document_processing" && (
           <section className="surface-placeholder">
             {renderSurfaceHeader("full_document_processing")}
@@ -7701,6 +8248,50 @@ export function App() {
           </div>
         </div>
       </section>
+      {appDialog && (
+        <div className="app-dialog-backdrop" onMouseDown={() => resolveAppDialog(null)} role="presentation">
+          <form
+            className="app-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="app-dialog-title"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitAppDialog();
+            }}
+          >
+            <div className="app-dialog-heading">
+              <strong id="app-dialog-title">{appDialog.title}</strong>
+              <span className="field-hint">{appDialog.message}</span>
+            </div>
+            {appDialog.detail && <p className="app-dialog-detail">{appDialog.detail}</p>}
+            {appDialog.mode === "text_confirm" && (
+              <label className="app-dialog-field">
+                <span>{appDialog.inputLabel ?? "Megerősítés"}</span>
+                <input
+                  ref={appDialogInputRef}
+                  value={appDialogInput}
+                  onChange={(event) => setAppDialogInput(event.target.value)}
+                  disabled={Boolean(busy)}
+                />
+              </label>
+            )}
+            <div className="app-dialog-actions">
+              <button type="button" className="secondary-button" onClick={() => resolveAppDialog(null)} disabled={Boolean(busy)}>
+                {appDialog.cancelLabel ?? "Mégse"}
+              </button>
+              <button
+                type="submit"
+                className={appDialog.danger ? "danger-button" : undefined}
+                disabled={Boolean(busy) || (appDialog.mode === "text_confirm" && appDialog.expectedValue !== undefined && appDialogInput !== appDialog.expectedValue)}
+              >
+                {appDialog.confirmLabel ?? "Rendben"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </main>
   );
 }

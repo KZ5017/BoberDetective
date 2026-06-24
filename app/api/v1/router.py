@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.analysis_modules import router as analysis_modules_router
 from app.api.v1.analysis_smoke import router as analysis_smoke_router
+from app.api.v1.assistant import router as assistant_router
 from app.api.v1.analysis_runs import router as analysis_runs_router
 from app.api.v1.cases import router as cases_router
 from app.api.v1.claims import router as claims_router
@@ -27,6 +28,7 @@ from app.api.v1.system import router as system_router
 api_router = APIRouter()
 api_router.include_router(analysis_modules_router, tags=["analysis"])
 api_router.include_router(analysis_smoke_router, tags=["analysis"])
+api_router.include_router(assistant_router, tags=["assistant"])
 api_router.include_router(analysis_runs_router, tags=["analysis-runs"])
 api_router.include_router(cases_router, prefix="/cases", tags=["cases"])
 api_router.include_router(claims_router, tags=["claims"])

@@ -174,6 +174,25 @@ def test_lm_studio_native_provider_omits_reasoning_for_non_reasoning_model() -> 
     assert "reasoning" not in captured_payload
 
 
+def test_lm_studio_native_provider_model_default_omits_reasoning_for_qwen() -> None:
+    captured_payload = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_payload.update(__import__("json").loads(request.content))
+        return httpx.Response(200, json={"output": [{"type": "message", "content": "{\"ok\": true}"}]})
+
+    client = httpx.Client(base_url="http://llm.local", transport=httpx.MockTransport(handler))
+    provider = LMStudioNativeProvider(_settings(auto_load=False), client)
+
+    provider.chat_completion(
+        "qwen/qwen3.5-9b",
+        [LLMChatMessage(role="user", content="hello")],
+        reasoning_mode="model_default",
+    )
+
+    assert "reasoning" not in captured_payload
+
+
 def test_lm_studio_native_provider_can_omit_max_output_tokens() -> None:
     captured_payload = {}
 

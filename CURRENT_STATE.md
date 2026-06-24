@@ -32,6 +32,7 @@ Read these first:
 - `Design_documents/28_relationship_map_horizontal_layout_plan.md`
 - `Design_documents/29_full_document_free_question_plan.md`
 - `Design_documents/30_dark_mode_theme_plan.md`
+- `Design_documents/31_ai_assistant_chat_module_plan.md`
 
 Then run:
 
@@ -49,7 +50,9 @@ latest targeted knowledge query/API slice: 52 passed
 latest targeted relationship graph backend slice: 10 passed
 latest targeted full-document/documents/RAG slice: 85 passed
 latest targeted full-document free-question unit slice: 22 passed
-alembic: 0050_full_document_answers (head)
+latest targeted AI-asszisztens/LLM slice: 23 passed
+latest focused assistant contract/UI check: tests/test_assistant.py, 6 passed
+alembic: 0051_assistant_chats (head)
 npm --prefix frontend run build: passed
 ```
 
@@ -59,7 +62,7 @@ npm --prefix frontend run build: passed
 - Minimal React/Vite frontend workbench scaffold under `frontend/`.
 - PostgreSQL and Qdrant Docker Compose development runtime.
 - SQLAlchemy/psycopg database layer.
-- Alembic migrations through `0050_full_document_answers`.
+- Alembic migrations through `0051_assistant_chats`.
 - Immutable TXT import with page/chunk persistence plus first physical text-store writes.
 - Explicit imported-document processing validation run flow.
 - Native-text PDF import foundation with configurable `docling_then_pypdf` parser profile, page persistence, and `parse_document` analysis run provenance.
@@ -96,7 +99,7 @@ npm --prefix frontend run build: passed
 - The `Ügy munkapad` desktop layout now treats the analysis/research area as a paired workflow: `Elemzés` and `Kézi ellentmondásjelölt` are stacked in the left column, `Kutatási találatok` fills the right column and scrolls internally instead of stretching the page, and the right column keeps the wider `0.8fr / 1.2fr` split. `Teljes iratfeldolgozás` and the document organizer keep their equal-width column structure. Analysis controls have been compacted into a single settings row where possible, and source-scope helper text uses a shared subdued hint style.
 - The `Ügy munkapad` lower panels were reorganized for a full-width readable workflow: `Áttekintési jelentés`, `Találat részletei`, `Leválasztott forráshivatkozások`, and `Elemzési futás részletei` each use full-width rows; `Elemzési előzmények` sits beside the stacked `Export előzmények` / `Export` panels in a 1:1 row; and analysis-run details show source-to-result rows rather than raw technical blocks.
 - Analysis run list/detail APIs now expose UI-facing summary metadata: run list items include `display_label` for search focus or manual-created object title, output summaries include source-reference document/page/chunk/quote fields when available, and input source summaries return full chunk text so the frontend can show exactly what was sent into an analysis run.
-- The frontend visual language has been softened and stabilized into a CSS token/role foundation in `frontend/src/styles.css`: typography, surface/color/border, spacing/layout, radius, shadow, control-height, and state values are centralized as tokens, and existing component classes share CSS-side role primitives for worklist cards, inner panels, compact surfaces, and meta/status chips. Text roles now include explicit control, hint, option, detail, monospace, and chip-weight tokens, so inputs, helper/error text, searchable-select options, source/detail blocks, and technical text can be tuned without one-off selectors. Global buttons remain flatter with subtle color/border state changes and no hover/active movement. The shared searchable-select now has a stable stacking context, and the analysis source-filter panel allows dropdown overflow so collection/document selectors are not clipped by inner panels.
+- The frontend visual language has been softened and stabilized into a CSS token/role foundation in `frontend/src/styles.css`: typography, surface/color/border, spacing/layout, radius, shadow, popup/dropdown, control-height, and state values are centralized as tokens, and existing component classes share CSS-side role primitives for worklist cards, inner panels, compact surfaces, and meta/status chips. Text roles now include explicit control, hint, option, detail, monospace, and chip-weight tokens, so inputs, helper/error text, searchable-select options, source/detail blocks, and technical text can be tuned without one-off selectors. Global buttons remain flatter with subtle color/border state changes and no hover/active movement. The shared searchable-select now has a stable stacking context, and the analysis source-filter panel allows dropdown overflow so collection/document selectors are not clipped by inner panels. Browser-native confirmation/prompt popups are no longer used in the frontend; destructive confirmations and typed-name case deletion use the shared tokenized `app-dialog` layer.
 - Design_documents/30_dark_mode_theme_plan.md records the dark-mode/theme baseline. The implementation extends the existing CSS token system with a dark token layer and a topbar theme toggle rather than repainting panels one by one. The token-audit slice, persisted React theme state, and topbar toggle are implemented and user-reviewed. Relationship-map live corrections are included: selected graph-node border, edge label tokens, MiniMap tokens, a taller top object-selection row cap, and a larger graph canvas/preview work area. No known concrete dark-mode blocker remains; future work should be live-issue-driven token tuning for new or changed UI elements.
 - A targeted Full HD / 1080p media query is active. It overrides the same token system for denser 1080p use: smaller typography/spacing/control heights, compact sidebar/model controls, unified 1080p button sizing, source/detail quote sizing, searchable-select clear-button alignment, and compact object-fact cards. Keep future 1080p tuning inside this media query and prefer token or role-level overrides over broad per-component fixes.
 - A separate mobile-only media query is active at `max-width: 760px`. It leaves the default desktop and Full HD layers untouched while converting multi-column work surfaces into single-column mobile flows, stacking input/button rows, preventing long filenames, source text, hashes, and meta chips from overflowing cards, and giving the `Ügy munkapad` a mobile-specific panel order where analysis/history/detail/export blocks remain readable.
@@ -253,7 +256,7 @@ npm --prefix frontend run build: passed
 - Frontend shows export history; review report filtering is handled through object/review/source dropdown filters.
 - Frontend visible labels are localized to Hungarian, including mapped labels for backend enum/internal values.
 - Frontend dev server is configured under `frontend/`; when running, it is available at `http://localhost:5173` and proxies `/api` to `http://127.0.0.1:8000`.
-- After machine restart, start infrastructure first with `docker compose up -d` from the repo root. Alembic should report `0050_full_document_answers (head)`.
+- After machine restart, start infrastructure first with docker compose up -d from the repo root. Alembic should report 0051_assistant_chats (head).
 - Codex background-start caveat: plain backgrounded WSL commands may die when the non-interactive shell exits. For persistent Codex-started backend/frontend processes, use `setsid -f`:
   - backend: `setsid -f sh -c ".venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/boberdetective-backend.log 2>&1 < /dev/null"`
   - frontend: `setsid -f sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1 < /dev/null"`
@@ -475,6 +478,7 @@ Recommended order:
 5. Later graph work, after the current multi-object view is stable: whole-case graph only if the multi-object view remains usable, mobile fine-tuning through live review, full backend test-matrix expansion, edge filters, layout persistence, audit nodes, and human review nodes.
 6. Continue live-test driven fixes for implemented RAG, Tudásbázis, full-document, review-report, and responsive UI layers only when concrete issues appear. Do not reopen broad tuning loops without a specific failing behavior.
 7. Keep the dedicated `Audit napló` backend/API/panel backed by `audit_events` as a later larger work surface after the graph-view slice unless the user explicitly reprioritizes it.
+8. The `AI-asszisztens` module is implemented and accepted as the current first baseline from `Design_documents/31_ai_assistant_chat_module_plan.md`: migration `0051_assistant_chats`, `assistant_chats` / `assistant_messages` models, assistant CRUD/message API routes, saved chat history, soft delete, request-level reasoning preparation, and the frontend work surface. The menu places it after `Tudásbázis` and before `Audit napló`; the UI now uses a modern chat-style layout with a conversation rail, context-menu rename/delete actions, tokenized in-app rename dialog, shared tokenized delete confirmation, stable internal chat canvas, centered empty-state composer, bottom-row composer during active conversations, internal message-thread scrolling, Markdown-rendered assistant answers, and tokenized popup/dropdown styling. New chats no longer accept a create-time title; they start with the default title, auto-title from the first user message, and can later be renamed. It remains a fully separate, generic local LLM chat surface, not RAG and not an investigative object workflow. Future AI-asszisztens work should be concrete live-issue-driven UX polish or optional enhancements such as streaming/reasoning UI.
 
 Rationale:
 

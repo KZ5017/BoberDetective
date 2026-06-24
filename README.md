@@ -75,6 +75,8 @@ Completed:
 - Historical `summarize_case` smoke passed before summary items and the raw summary module were retired
 - Contradiction candidate persistence, source linkage, API, review workflow, and review report inclusion
 - Manual contradiction candidates can be corrected by detaching their A/B input claim side; corrected partial candidates remain explicit, audited, and deletable instead of disappearing as claim-deletion side effects
+- AI-asszisztens module foundation with saved local LLM chat history, soft delete, rename, generic LM Studio message calls, and a stable token-aligned chat UI independent from case/RAG/object workflows
+- Shared tokenized confirmation dialog layer for destructive confirmations and typed-name deletion flows, replacing browser-native confirm/prompt popups
 - `detect_contradiction_candidates` analysis module foundation over source-cited claim pairs
 - Live `detect_contradiction_candidates` smoke passed on a two-claim time conflict sample
 - `detect_contradiction_candidates` now treats fewer than two source-valid claims as a clean warning precondition and records claim-selection metadata in the analysis run

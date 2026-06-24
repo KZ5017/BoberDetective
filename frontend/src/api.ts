@@ -1,3 +1,46 @@
+
+export type AssistantReasoningMode = "normal" | "model_default";
+
+export type AssistantMessageRead = {
+  id: string;
+  chat_id: string;
+  role: "user" | "assistant";
+  content: string;
+  sequence_index: number;
+  model_name: string | null;
+  reasoning_mode: string | null;
+  runtime_metadata_json: Record<string, unknown>;
+  error_message: string | null;
+  created_at: string;
+};
+
+export type AssistantChatListItem = {
+  id: string;
+  title: string;
+  chat_status: string;
+  model_name: string | null;
+  reasoning_mode: AssistantReasoningMode;
+  temperature: number;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
+export type AssistantChatDetail = AssistantChatListItem & {
+  metadata_json: Record<string, unknown>;
+  messages: AssistantMessageRead[];
+};
+
+export type AssistantChatList = {
+  data: AssistantChatListItem[];
+};
+
+export type AssistantMessageSendResponse = {
+  chat: AssistantChatDetail;
+  user_message: AssistantMessageRead;
+  assistant_message: AssistantMessageRead;
+};
+
 export type CaseRead = {
   id: string;
   case_reference: string | null;
@@ -1773,5 +1816,44 @@ export function createExport(
         source_validation_statuses: filters.sourceValidationStatus ? [filters.sourceValidationStatus] : null
       }
     })
+  });
+}
+
+export function listAssistantChats(): Promise<AssistantChatList> {
+  return request("/assistant/chats");
+}
+
+export function createAssistantChat(payload: { reasoning_mode?: AssistantReasoningMode; temperature?: number } = {}): Promise<AssistantChatDetail> {
+  return request("/assistant/chats", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getAssistantChat(chatId: string): Promise<AssistantChatDetail> {
+  return request("/assistant/chats/" + chatId);
+}
+
+export function updateAssistantChat(chatId: string, payload: { title: string }): Promise<AssistantChatDetail> {
+  return request("/assistant/chats/" + chatId, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteAssistantChat(chatId: string): Promise<void> {
+  return request("/assistant/chats/" + chatId, { method: "DELETE" });
+}
+
+export function sendAssistantMessage(
+  chatId: string,
+  payload: { content: string; reasoning_mode?: AssistantReasoningMode | null; temperature?: number | null }
+): Promise<AssistantMessageSendResponse> {
+  return request("/assistant/chats/" + chatId + "/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
   });
 }

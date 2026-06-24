@@ -1,4 +1,5 @@
 from app.models.analysis import AnalysisRunInputModel, AnalysisRunModel, AnalysisRunOutputModel
+from app.models.assistant import AssistantChatModel, AssistantMessageModel
 from app.models.audit import AuditEventModel
 from app.models.case import CaseModel, CaseUserModel
 from app.models.claim import ClaimModel, ClaimSourceModel
@@ -30,6 +31,8 @@ __all__ = [
     "AnalysisRunInputModel",
     "AnalysisRunModel",
     "AnalysisRunOutputModel",
+    "AssistantChatModel",
+    "AssistantMessageModel",
     "CaseModel",
     "CaseUserModel",
     "ClaimModel",

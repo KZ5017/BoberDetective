@@ -83,6 +83,7 @@ class LLMProvider(Protocol):
         *,
         temperature: float = 0.1,
         max_tokens: int | None = 800,
+        reasoning_mode: str | None = "off",
     ) -> LLMChatCompletion:
         raise NotImplementedError
 
@@ -164,6 +165,7 @@ class OpenAICompatibleLocalProvider:
         *,
         temperature: float = 0.1,
         max_tokens: int | None = 800,
+        reasoning_mode: str | None = "off",
     ) -> LLMChatCompletion:
         client = self._client or self._build_client()
         close_client = self._client is None
@@ -514,6 +516,7 @@ class LMStudioNativeProvider:
         *,
         temperature: float = 0.1,
         max_tokens: int | None = 800,
+        reasoning_mode: str | None = "off",
     ) -> LLMChatCompletion:
         client = self._client or self._build_client()
         close_client = self._client is None
@@ -533,7 +536,9 @@ class LMStudioNativeProvider:
             }
             if max_tokens is not None:
                 payload["max_output_tokens"] = max_tokens
-            if _supports_native_reasoning_toggle(chat_model):
+            if reasoning_mode not in {None, "off", "model_default"}:
+                raise LLMProviderError(f"Unsupported reasoning mode: {reasoning_mode}")
+            if reasoning_mode == "off" and _supports_native_reasoning_toggle(chat_model):
                 payload["reasoning"] = "off"
             response = client.post(
                 "/api/v1/chat",

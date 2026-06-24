@@ -1,5 +1,35 @@
 # CHANGELOG.md
 
+## 2026-06-24
+
+### Changed
+
+- Stabilized the AI-asszisztens frontend into the accepted chat-style baseline: conversation rail plus a stable internal chat canvas, centered empty-state composer, bottom-row composer during conversations, internal message-thread scrolling, Markdown assistant bubbles, typing indicator, and improved scrollbar spacing.
+- Replaced the old explicit conversation-title UI with a three-dot conversation menu for rename/delete actions; neutral outside clicks now close the menu.
+- Replaced the browser-native assistant rename prompt with a tokenized in-app rename dialog that supports focus, Esc close, outside-click close, and the existing light/dark popup/input/button styling.
+- Replaced remaining frontend browser-native confirmation/prompt flows with a shared tokenized `app-dialog` layer, including delete confirmations, detach confirmations, and typed-name case deletion. Future confirmation dialogs should use this shared pattern.
+- Added shared popup role tokens and routed searchable-select dropdowns plus the assistant conversation menu through the same light/dark token layer.
+- Cleaned the assistant create contract: new chats no longer accept a create-time title; they start with the default title, auto-title from the first user message, and can later be renamed through PATCH.
+- Stabilized global shell sizing around the work-surface/sidebar layout so modules without natural overflow do not receive unnecessary page scrollbars and the sidebar width stays token-controlled.
+
+### Verified
+
+- .venv/bin/python -m pytest tests/test_assistant.py
+- npm --prefix frontend run build
+- git diff --check
+
+## 2026-06-23
+
+### Added
+
+- Added the first AI-asszisztens vertical slice: backend chat persistence/API, request-level reasoning preparation, and a token-aligned frontend chat work surface placed after Tudásbázis and before Audit napló.
+
+### Verified
+
+- .venv/bin/python -m pytest tests/test_assistant.py tests/test_llm.py -q
+- npm --prefix frontend run build
+- git diff --check
+
 ## 2026-06-22
 
 ### Added
