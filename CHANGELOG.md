@@ -7,6 +7,7 @@
 ### Changed
 
 - Stabilized the AI-asszisztens frontend into the accepted chat-style baseline: conversation rail plus a stable internal chat canvas, centered empty-state composer, bottom-row composer during conversations, internal message-thread scrolling, Markdown assistant bubbles, typing indicator, Enter-as-line-break composer behavior, active-chat delete fallback to the newest remaining chat, and improved scrollbar spacing. The assistant shell now uses the available viewport height instead of a fixed 54rem cap, assistant/user bubbles are visually cleaner, and the send/reasoning controls sit outside the scrolling textarea.
+- Stabilized the AI-asszisztens composer input shell: focus feedback now uses a size-stable border color change, first-key height jumping was removed, multiline input scroll appears only on real overflow, and scrollbar styling was lifted into global CSS tokens for all scrollable UI areas.
 - Replaced the old explicit conversation-title UI with a three-dot conversation menu for rename/delete actions; neutral outside clicks now close the menu.
 - Replaced the browser-native assistant rename prompt with a tokenized in-app rename dialog that supports focus, Esc close, outside-click close, and the existing light/dark popup/input/button styling.
 - Replaced remaining frontend browser-native confirmation/prompt flows with a shared tokenized `app-dialog` layer, including delete confirmations, detach confirmations, and typed-name case deletion. Future confirmation dialogs should use this shared pattern.

@@ -1298,9 +1298,13 @@ export function App() {
   useEffect(() => {
     const element = assistantDraftRef.current;
     if (!element) return;
+    const minHeight = 38;
+    const maxHeight = 176;
     element.style.height = "auto";
-    element.style.height = Math.min(element.scrollHeight, 180) + "px";
-  }, [assistantDraft]);
+    const nextHeight = Math.min(Math.max(element.scrollHeight, minHeight), maxHeight);
+    element.style.height = nextHeight + "px";
+    element.style.overflowY = element.scrollHeight > maxHeight + 1 ? "auto" : "hidden";
+  }, [activeSurface, assistantDraft]);
 
   useEffect(() => {
     const validIds = new Set(knowledgeDocuments.map((document) => document.id));
@@ -5577,14 +5581,16 @@ Az iratok nem törlődnek.`,
 
             <div className="assistant-composer-shell">
               <div className="assistant-composer">
-                <textarea
-                  ref={assistantDraftRef}
-                  value={assistantDraft}
-                  onChange={(event) => setAssistantDraft(event.target.value)}
-                  placeholder="Kérdezz bármit"
-                  rows={1}
-                  disabled={Boolean(busy)}
-                />
+                <div className="assistant-composer-input">
+                  <textarea
+                    ref={assistantDraftRef}
+                    value={assistantDraft}
+                    onChange={(event) => setAssistantDraft(event.target.value)}
+                    placeholder="Kérdezz bármit"
+                    rows={1}
+                    disabled={Boolean(busy)}
+                  />
+                </div>
                 <button
                   type="button"
                   className={"assistant-reasoning-toggle " + (assistantReasoningEnabled ? "is-active" : "")}

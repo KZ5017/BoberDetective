@@ -207,6 +207,10 @@
   --graph-edge-stroke-width: 1.6;
   --graph-edge-selected-stroke-width: 2.4;
   --graph-attribution-bg: rgba(255, 255, 255, 0.72);
+  --scrollbar-thumb: var(--color-border-strong);
+  --scrollbar-track: transparent;
+  --scrollbar-size: 0.72rem;
+  --scrollbar-thumb-padding: 0.16rem;
 }
 
 
@@ -414,6 +418,27 @@ textarea {
   min-height: var(--control-min-height);
   padding: var(--layout-input-padding);
   width: 100%;
+}
+
+* {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: auto;
+}
+
+*::-webkit-scrollbar {
+  height: var(--scrollbar-size);
+  width: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background-clip: content-box;
+  background-color: var(--scrollbar-thumb);
+  border: var(--scrollbar-thumb-padding) solid transparent;
+  border-radius: var(--radius-pill);
 }
 
 textarea {
@@ -3177,17 +3202,41 @@ pre {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
-.assistant-composer textarea {
+.assistant-composer-input {
   background: var(--color-surface-soft);
-  border: 1px solid var(--color-border-input);
+  border: 1px solid var(--color-surface-soft);
   border-radius: 22px;
   box-shadow: var(--shadow-subtle);
-  max-height: 11rem;
   min-height: 2.35rem;
   order: 1;
-  overflow: auto;
-  padding: 0.55rem 0.9rem;
+  overflow: hidden;
+  padding: 0;
+}
+
+.assistant-composer-input:focus-within {
+  border-color: var(--color-border-input);
+}
+
+.assistant-composer textarea {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  box-sizing: border-box;
+  display: block;
+  height: 2.35rem;
+  line-height: 1.45;
+  margin-right: 0.55rem;
+  max-height: 11rem;
+  min-height: 2.35rem;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  padding: 0.55rem 1.15rem 0.55rem 0.9rem;
   resize: none;
+  width: calc(100% - 0.55rem);
+}
+
+.assistant-composer textarea::-webkit-scrollbar-track {
+  margin-block: 0.75rem;
 }
 
 .assistant-composer textarea:focus {

@@ -397,8 +397,9 @@ Javasolt sorrend:
 - Backend API kesz az elso baseline-hoz: chat lista, letrehozas, reszlet, atnevezes, soft delete, uzenet kuldese, utolso assistant valasz ujrageneralasa.
 - A chat letrehozas backend contractja megtisztitva: nincs create-time title, csak alapcim, elso uzenetbol automatikus cim, es PATCH-alapu kesobbi atnevezes.
 - LLM adapter kesz az elso verziohoz: az AI-asszisztens optionalis request-szintu reasoning_mode mezot tud hasznalni, mikozben a tobbi modul stabil Qwen reasoning: off alapviselkedese megmarad.
-- Frontend baseline elfogadva: kulon AI-asszisztens modul a Tudásbázis es az Audit napló kozott, beszelgetes rail, context-menu atnevezes/torles, sajat tokenizalt atnevezo dialogus, megosztott tokenizalt torlesi megerosites, stabil belso chat canvas, belso uzenet-thread scroll, also soros composer, centered empty-state composer, Markdown valaszmegjelenites, typing indicator, valaszmasolas, csak-utolso-valasz ujrageneralas in-flight zarral, Gondolkodo reasoning toggle, gombos kuldes Enter-sortoressel, beviteli mezon kivuli kuldes/reasoning gombokkal, aktiv chat torlese utani automatikus kovetkezo-chat betoltes, token-alapu vilagos/sotet stilus, mobil torodes.
+- Frontend baseline elfogadva: kulon AI-asszisztens modul a Tudásbázis es az Audit napló kozott, beszelgetes rail, context-menu atnevezes/torles, sajat tokenizalt atnevezo dialogus, megosztott tokenizalt torlesi megerosites, stabil belso chat canvas, belso uzenet-thread scroll, also soros composer, centered empty-state composer, Markdown valaszmegjelenites, typing indicator, valaszmasolas, csak-utolso-valasz ujrageneralas in-flight zarral, Gondolkodo reasoning toggle, gombos kuldes Enter-sortoressel, beviteli mezon kivuli kuldes/reasoning gombokkal, aktiv chat torlese utani automatikus kovetkezo-chat betoltes, token-alapu vilagos/sotet stilus, mobil torodes. A composer textarea belso input shellt hasznal, a fokusz allapot szinvaltassal jelzett, de meretugrast nem okoz, a tobbsoros szoveg csak valodi tulcsordulasnal kap scrollbart.
 - Popup/dropdown vizualis szereptokenek bevezetve: searchable-select dropdownok es az asszisztens context menu ugyanarra a light/dark token retegre epulnek.
+- Globalis scrollbar role tokenek bevezetve: a gorgetosav merete, thumb szine, trackje es belso paddingje CSS tokenekbol jon; az AI-asszisztens composer csak a sajat belso track margojat tartja lokalisan.
 - Tudatosan nincs ugyirat-, dokumentum-, RAG-, objektum- vagy audit/provenance integracio.
 
 Ellenorzes:
@@ -423,6 +424,8 @@ Lezart elso-baseline dontesek:
 8. Ujrageneralas kesz, de csak az utolso assistant valaszon; a regi assistant valasz torlodik, majd uj LLM-hivas keszul az elozo user uzenetbol.
 9. Enter nem kuld uzenetet, hanem sortorest ad; kuldes csak a composer kuldes gombjaval tortenik.
 10. Aktiv chat torlese utan a felulet automatikusan a legfrissebb megmaradt chatet tolti be.
+11. A composer fokuszvisszajelzese meretstabil border-szinvaltassal tortenik; uj plusz outline vagy layout-ugras nem hasznalhato.
+12. A scrollbark kinezetet globalis CSS tokenek adjak, nem komponensenkenti ad hoc szabalyok.
 
 Nyitott ismert AI-asszisztens szal nincs; tovabbi munka konkret live UX vagy mukodesi problema alapjan induljon.
 
