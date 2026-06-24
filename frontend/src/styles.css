@@ -60,8 +60,9 @@
   --layout-button-padding: 0.48rem 0.78rem;
   --layout-input-padding: 0.5rem 0.6rem;
   --surface-sidebar-width: 15rem;
-  --assistant-panel-height: min(54rem, calc(100vh - 9rem));
+  --assistant-panel-height: calc(100vh - 9rem);
   --assistant-composer-fade-height: 2.25rem;
+  --assistant-user-message-bg: #ffffff;
 
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -233,6 +234,7 @@
   --color-primary-border: #66a2c7;
   --color-primary-border-hover: #80b8d8;
   --color-primary-text: #f8fbfd;
+  --assistant-user-message-bg: var(--color-primary-soft);
   --color-secondary-border: #4c6575;
   --color-secondary-hover: #22313a;
   --color-secondary-border-hover: #6f8fa2;
@@ -3076,15 +3078,12 @@ pre {
 }
 
 .assistant-message.is-user {
-  background: var(--color-primary-soft);
-  border: 1px solid var(--color-primary-border);
+  background: var(--assistant-user-message-bg);
   border-radius: 18px 18px var(--radius-sm) 18px;
   justify-self: end;
 }
 
 .assistant-message.is-assistant {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-card);
   border-radius: 18px 18px 18px var(--radius-sm);
   justify-self: start;
 }
@@ -3173,23 +3172,21 @@ pre {
 
 .assistant-composer {
   align-items: end;
+  display: grid;
+  gap: var(--layout-toolbar-gap);
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.assistant-composer textarea {
   background: var(--color-surface-soft);
   border: 1px solid var(--color-border-input);
   border-radius: 22px;
   box-shadow: var(--shadow-subtle);
-  display: grid;
-  gap: var(--layout-toolbar-gap);
-  grid-template-columns: minmax(0, 1fr) auto;
-  padding: 0.45rem;
-}
-
-.assistant-composer textarea {
-  background: transparent;
-  border: 0;
   max-height: 11rem;
   min-height: 2.35rem;
+  order: 1;
   overflow: auto;
-  padding: 0.55rem 0.7rem;
+  padding: 0.55rem 0.9rem;
   resize: none;
 }
 
@@ -3203,6 +3200,7 @@ pre {
   border-radius: var(--radius-pill);
   display: inline-flex;
   height: 2.35rem;
+  order: 2;
   justify-content: center;
   min-height: 2.35rem;
   min-width: 2.35rem;
@@ -4157,6 +4155,11 @@ pre {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
+  .assistant-composer .assistant-reasoning-toggle {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
   .analysis-readiness-actions {
     min-width: 0;
   }
@@ -4898,4 +4901,53 @@ pre {
   flex-wrap: wrap;
   gap: var(--layout-toolbar-gap);
   justify-content: flex-end;
+}
+
+.assistant-message-actions {
+  align-items: center;
+  display: flex;
+  gap: var(--layout-inline-gap);
+  justify-content: flex-start;
+  padding-top: var(--layout-compact-gap);
+}
+
+.assistant-message-actions button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  box-shadow: none;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  height: 1.9rem;
+  justify-content: center;
+  min-height: 1.9rem;
+  min-width: 1.9rem;
+  padding: 0;
+  width: 1.9rem;
+}
+
+.assistant-message-actions button:hover:not(:disabled) {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-border);
+  color: var(--color-primary-active);
+}
+
+.assistant-composer .assistant-reasoning-toggle {
+  gap: 0.35rem;
+  order: 3;
+  min-width: max-content;
+  padding: 0 0.72rem;
+  width: auto;
+}
+
+.assistant-composer .assistant-reasoning-toggle span {
+  font-size: var(--text-meta-compact-size);
+  font-weight: var(--font-weight-medium);
+}
+
+.assistant-composer .assistant-reasoning-toggle.is-active {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-border);
+  color: var(--color-primary-active);
 }

@@ -12,6 +12,7 @@ from app.schemas.assistant import (
     AssistantChatListItem,
     AssistantChatUpdateRequest,
     AssistantMessageRead,
+    AssistantMessageRegenerateRequest,
     AssistantMessageSendRequest,
     AssistantMessageSendResponse,
 )
@@ -108,17 +109,63 @@ def send_assistant_message(db: Session, chat_id: UUID, payload: AssistantMessage
     db.add(user_message)
     db.commit()
 
-    reasoning_mode = payload.reasoning_mode or chat.reasoning_mode
-    temperature = payload.temperature if payload.temperature is not None else chat.temperature
+    return _generate_assistant_response(
+        db,
+        chat,
+        user_message,
+        reasoning_mode=payload.reasoning_mode,
+        temperature=payload.temperature,
+    )
+
+
+def regenerate_last_assistant_message(
+    db: Session,
+    chat_id: UUID,
+    payload: AssistantMessageRegenerateRequest,
+) -> AssistantMessageSendResponse:
+    chat = _get_active_chat(db, chat_id)
+    messages = sorted(chat.messages, key=lambda item: item.sequence_index)
+    if len(messages) < 2:
+        raise AssistantValidationError("Nincs újragenerálható asszisztens válasz.")
+    last_message = messages[-1]
+    previous_message = messages[-2]
+    if last_message.role != "assistant" or previous_message.role != "user":
+        raise AssistantValidationError("Csak az utolsó asszisztens válasz generálható újra.")
+
+    db.delete(last_message)
+    chat.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(previous_message)
+    db.refresh(chat)
+
+    return _generate_assistant_response(
+        db,
+        chat,
+        previous_message,
+        reasoning_mode=payload.reasoning_mode,
+        temperature=payload.temperature,
+    )
+
+
+def _generate_assistant_response(
+    db: Session,
+    chat: AssistantChatModel,
+    user_message: AssistantMessageModel,
+    *,
+    reasoning_mode: str | None,
+    temperature: float | None,
+) -> AssistantMessageSendResponse:
+    effective_reasoning_mode = reasoning_mode or chat.reasoning_mode
+    effective_temperature = temperature if temperature is not None else chat.temperature
     messages = _context_messages_for_llm(db, chat.id)
     settings = get_settings()
     try:
         completion = LMStudioNativeProvider(settings).chat_completion(
             settings.llm_chat_model,
             messages,
-            temperature=temperature,
+            temperature=effective_temperature,
             max_tokens=None,
-            reasoning_mode=_llm_reasoning_mode(reasoning_mode),
+            reasoning_mode=_llm_reasoning_mode(effective_reasoning_mode),
         )
     except LLMProviderError as exc:
         raise AssistantLLMError(str(exc)) from exc
@@ -127,14 +174,14 @@ def send_assistant_message(db: Session, chat_id: UUID, payload: AssistantMessage
         chat_id=chat.id,
         role="assistant",
         content=completion.content.strip(),
-        sequence_index=sequence_index + 1,
+        sequence_index=_next_message_sequence(db, chat.id),
         model_name=completion.model,
-        reasoning_mode=reasoning_mode,
-        runtime_metadata_json={"temperature": temperature},
+        reasoning_mode=effective_reasoning_mode,
+        runtime_metadata_json={"temperature": effective_temperature},
     )
     chat.model_name = completion.model
-    chat.reasoning_mode = reasoning_mode
-    chat.temperature = temperature
+    chat.reasoning_mode = effective_reasoning_mode
+    chat.temperature = effective_temperature
     chat.updated_at = datetime.now(UTC)
     db.add(assistant_message)
     db.commit()

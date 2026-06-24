@@ -9,6 +9,7 @@ from app.schemas.assistant import (
     AssistantChatDetail,
     AssistantChatList,
     AssistantChatUpdateRequest,
+    AssistantMessageRegenerateRequest,
     AssistantMessageSendRequest,
     AssistantMessageSendResponse,
 )
@@ -20,6 +21,7 @@ from app.services.assistant import (
     delete_assistant_chat,
     get_assistant_chat,
     list_assistant_chats,
+    regenerate_last_assistant_message,
     send_assistant_message,
     update_assistant_chat,
 )
@@ -75,6 +77,22 @@ def post_assistant_message(
 ) -> AssistantMessageSendResponse:
     try:
         return send_assistant_message(db, chat_id, payload)
+    except AssistantNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AssistantValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except AssistantLLMError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post("/assistant/chats/{chat_id}/messages/regenerate-last", response_model=AssistantMessageSendResponse)
+def post_assistant_regenerate_last_message(
+    chat_id: UUID,
+    payload: AssistantMessageRegenerateRequest,
+    db: Session = Depends(get_db),
+) -> AssistantMessageSendResponse:
+    try:
+        return regenerate_last_assistant_message(db, chat_id, payload)
     except AssistantNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except AssistantValidationError as exc:

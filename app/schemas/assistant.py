@@ -24,6 +24,11 @@ class AssistantMessageSendRequest(BaseModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
 
 
+class AssistantMessageRegenerateRequest(BaseModel):
+    reasoning_mode: AssistantReasoningMode | None = None
+    temperature: float | None = Field(default=None, ge=0, le=2)
+
+
 class AssistantMessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

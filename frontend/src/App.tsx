@@ -4,7 +4,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   Archive,
+  Brain,
   CheckCircle2,
+  Copy,
   Database,
   Download,
   FilePlus2,
@@ -16,6 +18,7 @@ import {
   MoreVertical,
   Play,
   RefreshCw,
+  RotateCcw,
   Search,
   Send,
   ShieldCheck,
@@ -143,6 +146,7 @@ import {
   listRagAnswers,
   listResearchFindings,
   previewKnowledgeDocumentBatch,
+  regenerateLastAssistantMessage,
   loadChatModel,
   loadEmbeddingModel,
   mergeClaim,
@@ -530,6 +534,9 @@ export function App() {
   const [assistantRenameDialog, setAssistantRenameDialog] = useState<{ chatId: string; currentTitle: string } | null>(null);
   const [assistantRenameDraft, setAssistantRenameDraft] = useState("");
   const [assistantPendingMessage, setAssistantPendingMessage] = useState<{ chatId: string; content: string } | null>(null);
+  const [assistantRegeneratingChatId, setAssistantRegeneratingChatId] = useState("");
+  const [assistantReasoningEnabled, setAssistantReasoningEnabled] = useState(false);
+  const assistantMessageInFlightRef = useRef(false);
   const assistantMessageListRef = useRef<HTMLDivElement | null>(null);
   const assistantDraftRef = useRef<HTMLTextAreaElement | null>(null);
   const assistantRenameInputRef = useRef<HTMLInputElement | null>(null);
@@ -1547,12 +1554,21 @@ export function App() {
     await perform("assistant-chat-delete", async () => {
       setAssistantMenu(null);
       await deleteAssistantChat(chat.id);
+      const remainingChats = await refreshAssistantChats(false);
       if (assistantActiveChatId === chat.id) {
-        setAssistantActiveChat(null);
-        setAssistantActiveChatId("");
         setAssistantDraft("");
+        setAssistantPendingMessage(null);
+        setAssistantRegeneratingChatId("");
+        const nextChat = remainingChats[0];
+        if (nextChat) {
+          const nextChatDetail = await getAssistantChat(nextChat.id);
+          setAssistantActiveChat(nextChatDetail);
+          setAssistantActiveChatId(nextChatDetail.id);
+        } else {
+          setAssistantActiveChat(null);
+          setAssistantActiveChatId("");
+        }
       }
-      await refreshAssistantChats(false);
       setNotice("AI-asszisztens beszélgetés törölve.");
     });
   }
@@ -1588,28 +1604,77 @@ export function App() {
     });
   }
 
+  async function handleCopyAssistantMessage(message: AssistantMessageRead) {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setNotice("AI-asszisztens válasz másolva.");
+    } catch {
+      setError("A válasz másolása nem sikerült.");
+    }
+  }
+
+  async function handleRegenerateLastAssistantMessage() {
+    if (!assistantActiveChatId || assistantMessageInFlightRef.current) return;
+    const currentChat = assistantActiveChat;
+    const messages = currentChat?.messages ?? [];
+    const lastMessage = messages[messages.length - 1];
+    if (!currentChat || lastMessage?.role !== "assistant") return;
+    assistantMessageInFlightRef.current = true;
+    setAssistantRegeneratingChatId(currentChat.id);
+    setAssistantActiveChat({ ...currentChat, messages: messages.slice(0, -1) });
+    try {
+      await perform("assistant-message", async () => {
+        try {
+          const response = await regenerateLastAssistantMessage(currentChat.id, {
+            reasoning_mode: assistantReasoningEnabled ? "model_default" : "normal"
+          });
+          setAssistantActiveChat(response.chat);
+          setAssistantActiveChatId(response.chat.id);
+          await refreshAssistantChats(false);
+          setNotice("AI-asszisztens válasz újragenerálva.");
+          setLastActionSummary(response.chat.title);
+        } catch (err) {
+          setAssistantActiveChat(currentChat);
+          throw err;
+        } finally {
+          setAssistantRegeneratingChatId("");
+        }
+      });
+    } finally {
+      assistantMessageInFlightRef.current = false;
+    }
+  }
+
   async function handleSendAssistantMessage() {
     const content = assistantDraft.trim();
-    if (!content) return;
+    if (!content || assistantMessageInFlightRef.current) return;
+    assistantMessageInFlightRef.current = true;
     setAssistantDraft("");
-    await perform("assistant-message", async () => {
-      let chat = assistantActiveChat;
-      if (!chat) {
-        chat = await createAssistantChat({});
-        setAssistantActiveChat(chat);
-        setAssistantActiveChatId(chat.id);
-      }
-      setAssistantPendingMessage({ chatId: chat.id, content });
-      try {
-        const response = await sendAssistantMessage(chat.id, { content, reasoning_mode: "normal" });
-        setAssistantActiveChat(response.chat);
-        setAssistantActiveChatId(response.chat.id);
-        await refreshAssistantChats(false);
-        setNotice("AI-asszisztens válasz elkészült.");
-      } finally {
-        setAssistantPendingMessage(null);
-      }
-    });
+    try {
+      await perform("assistant-message", async () => {
+        let chat = assistantActiveChat;
+        if (!chat) {
+          chat = await createAssistantChat({});
+          setAssistantActiveChat(chat);
+          setAssistantActiveChatId(chat.id);
+        }
+        setAssistantPendingMessage({ chatId: chat.id, content });
+        try {
+          const response = await sendAssistantMessage(chat.id, {
+            content,
+            reasoning_mode: assistantReasoningEnabled ? "model_default" : "normal"
+          });
+          setAssistantActiveChat(response.chat);
+          setAssistantActiveChatId(response.chat.id);
+          await refreshAssistantChats(false);
+          setNotice("AI-asszisztens válasz elkészült.");
+        } finally {
+          setAssistantPendingMessage(null);
+        }
+      });
+    } finally {
+      assistantMessageInFlightRef.current = false;
+    }
   }
 
   async function refreshRagAnswers(showNotice = false) {
@@ -5380,6 +5445,12 @@ Az iratok nem törlődnek.`,
     );
   }
 
+  function isLastAssistantMessage(message: AssistantMessageRead) {
+    const messages = assistantActiveChat?.messages ?? [];
+    const lastMessage = messages[messages.length - 1];
+    return message.role === "assistant" && lastMessage?.id === message.id;
+  }
+
   function renderAssistantMessage(message: AssistantMessageRead) {
     const isUser = message.role === "user";
     return (
@@ -5391,7 +5462,19 @@ Az iratok nem törlődnek.`,
         {isUser ? (
           <p className="assistant-user-text">{message.content}</p>
         ) : (
-          <MarkdownAnswer>{message.content}</MarkdownAnswer>
+          <>
+            <MarkdownAnswer>{message.content}</MarkdownAnswer>
+            <div className="assistant-message-actions">
+              <button type="button" onClick={() => void handleCopyAssistantMessage(message)} disabled={Boolean(busy)} title="Válasz másolása" aria-label="Válasz másolása">
+                <Copy size={15} />
+              </button>
+              {isLastAssistantMessage(message) && (
+                <button type="button" onClick={() => void handleRegenerateLastAssistantMessage()} disabled={Boolean(busy)} title="Utolsó válasz újragenerálása" aria-label="Utolsó válasz újragenerálása">
+                  <RotateCcw size={15} />
+                </button>
+              )}
+            </div>
+          </>
         )}
         {message.error_message && <p className="field-hint">{message.error_message}</p>}
       </article>
@@ -5425,7 +5508,8 @@ Az iratok nem törlődnek.`,
   function renderAssistantSurface() {
     const messages = assistantActiveChat?.messages ?? [];
     const pendingMessage = assistantPendingMessage?.chatId === assistantActiveChatId ? assistantPendingMessage : null;
-    const hasConversationContent = messages.length > 0 || Boolean(pendingMessage);
+    const isRegeneratingAssistantMessage = Boolean(assistantActiveChatId) && assistantRegeneratingChatId === assistantActiveChatId;
+    const hasConversationContent = messages.length > 0 || Boolean(pendingMessage) || isRegeneratingAssistantMessage;
     const canSend = assistantDraft.trim().length > 0 && !busy;
     const assistantMenuChat = assistantMenu ? assistantChats.find((chat) => chat.id === assistantMenu.chatId) : null;
     return (
@@ -5488,7 +5572,7 @@ Az iratok nem törlődnek.`,
               )}
               {messages.map(renderAssistantMessage)}
               {pendingMessage && renderAssistantPendingUser(pendingMessage.content)}
-              {pendingMessage && renderAssistantTyping()}
+              {(pendingMessage || isRegeneratingAssistantMessage) && renderAssistantTyping()}
             </div>
 
             <div className="assistant-composer-shell">
@@ -5497,16 +5581,21 @@ Az iratok nem törlődnek.`,
                   ref={assistantDraftRef}
                   value={assistantDraft}
                   onChange={(event) => setAssistantDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      void handleSendAssistantMessage();
-                    }
-                  }}
                   placeholder="Kérdezz bármit"
                   rows={1}
                   disabled={Boolean(busy)}
                 />
+                <button
+                  type="button"
+                  className={"assistant-reasoning-toggle " + (assistantReasoningEnabled ? "is-active" : "")}
+                  onClick={() => setAssistantReasoningEnabled((current) => !current)}
+                  disabled={Boolean(busy)}
+                  title="Gondolkodó mód"
+                  aria-pressed={assistantReasoningEnabled}
+                >
+                  <Brain size={16} />
+                  <span>Gondolkodó</span>
+                </button>
                 <button onClick={handleSendAssistantMessage} disabled={!canSend} title="Küldés" aria-label="Üzenet küldése">
                   <Send size={18} />
                 </button>

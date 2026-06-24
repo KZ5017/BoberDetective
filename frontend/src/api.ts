@@ -41,6 +41,8 @@ export type AssistantMessageSendResponse = {
   assistant_message: AssistantMessageRead;
 };
 
+export type AssistantMessageRegenerateResponse = AssistantMessageSendResponse;
+
 export type CaseRead = {
   id: string;
   case_reference: string | null;
@@ -1852,6 +1854,18 @@ export function sendAssistantMessage(
   payload: { content: string; reasoning_mode?: AssistantReasoningMode | null; temperature?: number | null }
 ): Promise<AssistantMessageSendResponse> {
   return request("/assistant/chats/" + chatId + "/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+
+export function regenerateLastAssistantMessage(
+  chatId: string,
+  payload: { reasoning_mode?: AssistantReasoningMode | null; temperature?: number | null }
+): Promise<AssistantMessageRegenerateResponse> {
+  return request("/assistant/chats/" + chatId + "/messages/regenerate-last", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)

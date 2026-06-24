@@ -2,9 +2,11 @@
 
 ## 2026-06-24
 
+- Added AI-asszisztens answer convenience controls: assistant answers can be copied from the bubble action row, only the latest assistant answer can be regenerated, and the composer now has a Gondolkodó toggle that sends per-message/per-regeneration normal / model_default reasoning mode. Regeneration deletes the latest assistant answer, reuses the previous user message, shows typing state, and is guarded against repeated clicks. Streaming was deliberately removed from the active assistant roadmap.
+
 ### Changed
 
-- Stabilized the AI-asszisztens frontend into the accepted chat-style baseline: conversation rail plus a stable internal chat canvas, centered empty-state composer, bottom-row composer during conversations, internal message-thread scrolling, Markdown assistant bubbles, typing indicator, and improved scrollbar spacing.
+- Stabilized the AI-asszisztens frontend into the accepted chat-style baseline: conversation rail plus a stable internal chat canvas, centered empty-state composer, bottom-row composer during conversations, internal message-thread scrolling, Markdown assistant bubbles, typing indicator, Enter-as-line-break composer behavior, active-chat delete fallback to the newest remaining chat, and improved scrollbar spacing. The assistant shell now uses the available viewport height instead of a fixed 54rem cap, assistant/user bubbles are visually cleaner, and the send/reasoning controls sit outside the scrolling textarea.
 - Replaced the old explicit conversation-title UI with a three-dot conversation menu for rename/delete actions; neutral outside clicks now close the menu.
 - Replaced the browser-native assistant rename prompt with a tokenized in-app rename dialog that supports focus, Esc close, outside-click close, and the existing light/dark popup/input/button styling.
 - Replaced remaining frontend browser-native confirmation/prompt flows with a shared tokenized `app-dialog` layer, including delete confirmations, detach confirmations, and typed-name case deletion. Future confirmation dialogs should use this shared pattern.
@@ -14,7 +16,7 @@
 
 ### Verified
 
-- .venv/bin/python -m pytest tests/test_assistant.py
+- .venv/bin/python -m pytest tests/test_assistant.py tests/test_llm.py
 - npm --prefix frontend run build
 - git diff --check
 

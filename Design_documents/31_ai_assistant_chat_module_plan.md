@@ -252,7 +252,8 @@ Ketsavos, de nem hagyomanyos panel-a-panelben elrendezes:
    - a chat buborekok nem mozgatjak a teljes oldalt, csak a thread sajat scrollpoziciojat,
    - user uzenetek es assistant valaszok buborekformaban jelennek meg,
    - assistant valaszok biztonsagos Markdown rendererrel jelennek meg,
-   - valaszgeneralas kozben typing indicator jelenik meg.
+   - valaszgeneralas kozben typing indicator jelenik meg,
+   - ujrageneralas kozben a regi utolso asszisztens-valasz eltunik, typing indicator jelenik meg, majd az uj valasz kerul a helyere.
 
 Fontos UI dontes:
 
@@ -281,16 +282,19 @@ Elso baseline-ban kesz:
 - hibaallapot,
 - chat lista frissitese,
 - chat torles soft delete modellel,
+- aktiv beszelgetes torlese utan a felulet automatikusan betolti a legfrissebb megmaradt beszelgetest; ha nincs ilyen, tiszta ures kezdooldal jelenik meg,
 - automatikus chat cim az elso uzenetbol,
 - kezi atnevezes context menubol nyilo sajat dialogussal,
-- enter kuldes / shift+enter sortores.
+- Enter a beviteli mezon belul sortorest ad; kuldes csak a composer kuldes gombjaval tortenik,
+- assistant valasz masolasa frontend-only modon,
+- csak az utolso assistant valasz ujrageneralasa,
+- ujrageneralasnal az utolso assistant valasz torlodik, majd az elozo user uzenetre kerul uj valasz,
+- ujrageneralas kozben a frontend in-flight zarat es typing allapotot hasznal, hogy ne indulhasson tobb parhuzamos regenerate keres,
+- Gondolkodo UI kapcsolo, amely uzenetkuldesenkent es ujrageneralasenkent normal vagy model_default reasoning modot kuld.
 
-Kesobbi opcionlis kenyelmi elemek:
+Tudatosan kihuzott irany:
 
-- valasz masolasa,
-- uzenet ujrageneralasa,
-- streaming valasz, ha a provider/API oldalon stabilan tamogatott,
-- reasoning kapcsolo UI, ha live teszt utan biztosan ertelmes.
+- streaming valasz. Az LM Studio technikailag tamogat SSE streaminget, de ehhez kulon backend streaming endpoint, stream-fogyaszto frontend es reszleges uzenetmentes kellene. Jelenleg nem akarjuk ezt a komplexitast.
 
 ## 10. CSS token es dark mode kovetelmeny
 
@@ -390,38 +394,37 @@ Javasolt sorrend:
 2026-06-24 allapot:
 
 - Backend adatmodell es migracio kesz: assistant_chats, assistant_messages, Alembic 0051_assistant_chats.
-- Backend API kesz az elso baseline-hoz: chat lista, letrehozas, reszlet, atnevezes, soft delete, uzenet kuldese.
+- Backend API kesz az elso baseline-hoz: chat lista, letrehozas, reszlet, atnevezes, soft delete, uzenet kuldese, utolso assistant valasz ujrageneralasa.
 - A chat letrehozas backend contractja megtisztitva: nincs create-time title, csak alapcim, elso uzenetbol automatikus cim, es PATCH-alapu kesobbi atnevezes.
 - LLM adapter kesz az elso verziohoz: az AI-asszisztens optionalis request-szintu reasoning_mode mezot tud hasznalni, mikozben a tobbi modul stabil Qwen reasoning: off alapviselkedese megmarad.
-- Frontend baseline elfogadva: kulon AI-asszisztens modul a Tudásbázis es az Audit napló kozott, beszelgetes rail, context-menu atnevezes/torles, sajat tokenizalt atnevezo dialogus, megosztott tokenizalt torlesi megerosites, stabil belso chat canvas, belso uzenet-thread scroll, also soros composer, centered empty-state composer, Markdown valaszmegjelenites, typing indicator, token-alapu vilagos/sotet stilus, mobil torodes.
+- Frontend baseline elfogadva: kulon AI-asszisztens modul a Tudásbázis es az Audit napló kozott, beszelgetes rail, context-menu atnevezes/torles, sajat tokenizalt atnevezo dialogus, megosztott tokenizalt torlesi megerosites, stabil belso chat canvas, belso uzenet-thread scroll, also soros composer, centered empty-state composer, Markdown valaszmegjelenites, typing indicator, valaszmasolas, csak-utolso-valasz ujrageneralas in-flight zarral, Gondolkodo reasoning toggle, gombos kuldes Enter-sortoressel, beviteli mezon kivuli kuldes/reasoning gombokkal, aktiv chat torlese utani automatikus kovetkezo-chat betoltes, token-alapu vilagos/sotet stilus, mobil torodes.
 - Popup/dropdown vizualis szereptokenek bevezetve: searchable-select dropdownok es az asszisztens context menu ugyanarra a light/dark token retegre epulnek.
 - Tudatosan nincs ugyirat-, dokumentum-, RAG-, objektum- vagy audit/provenance integracio.
 
 Ellenorzes:
 
-- .venv/bin/python -m pytest tests/test_assistant.py tests/test_llm.py -q -> 23 passed korabbi celzott slice
-- .venv/bin/python -m pytest tests/test_assistant.py -> 6 passed friss contract/UI-adjacent check
+- .venv/bin/python -m pytest tests/test_assistant.py tests/test_llm.py -> 25 passed friss celzott AI-asszisztens/LLM slice
 - npm --prefix frontend run build -> passed
 - git diff --check -> passed
 
-Kovetkezo logikus lepes: nincs kotelezo AI-asszisztens alapszelet. Kovetkezo munka csak konkret live issue vagy opcionlis kenyelmi fejlesztes legyen, peldaul streaming, valaszmasolas, ujrageneralas, vagy reasoning UI.
+Kovetkezo logikus lepes: az AI-asszisztens jelenlegi baseline-ja elfogadott, tovabbi munka csak konkret live UX vagy mukodesi problema alapjan induljon. Streaming tovabbra sem cel.
 
 ## 15. Lezart es nyitott dontesek
 
 Lezart elso-baseline dontesek:
 
 1. A chat history elso korben soft delete modellt hasznal.
-2. Reasoning UI nincs az elso frontendben; backend/API szinten elokeszitett request-level mezo marad.
+2. A Gondolkodo reasoning UI kesz; uzenetkuldesnel es ujrageneralasnal request-szinten kuld normal vagy model_default modot.
 3. A chat cim automatikusan az elso user uzenetbol kepzodik, kezi modositas context-menu atnevezessel tortenik.
-4. Streaming nincs az elso baseline-ban; stabil non-stream valasz a cel.
+4. Streaming nincs az elso baseline-ban es tovabbra sem cel; stabil non-stream valasz a cel.
 5. Kulon investigative audit esemeny nincs chat kuldeshez, mert ez nem nyomozati provenance workflow.
+6. A kesobbi hasonlo megerosito vagy beirasos muveletekhez is a megosztott sajat tokenizalt app-dialog minta hasznalando; browser-native confirm / prompt nem legyen ujra bevezetve.
+7. Valaszmasolas kesz frontend-only ikonnal az assistant buborek alatt.
+8. Ujrageneralas kesz, de csak az utolso assistant valaszon; a regi assistant valasz torlodik, majd uj LLM-hivas keszul az elozo user uzenetbol.
+9. Enter nem kuld uzenetet, hanem sortorest ad; kuldes csak a composer kuldes gombjaval tortenik.
+10. Aktiv chat torlese utan a felulet automatikusan a legfrissebb megmaradt chatet tolti be.
 
-Nyitott opcionlis jovobeli dontesek:
-
-- kell-e streaming,
-- kell-e lathato reasoning kapcsolo,
-- kell-e valaszmasolas / ujrageneralas,
-- A kesobbi hasonlo muveletekhez is a megosztott sajat tokenizalt `app-dialog` minta hasznalando; browser-native `confirm` / `prompt` nem legyen ujra bevezetve.
+Nyitott ismert AI-asszisztens szal nincs; tovabbi munka konkret live UX vagy mukodesi problema alapjan induljon.
 
 ## 16. Elfogadasi kriterium
 

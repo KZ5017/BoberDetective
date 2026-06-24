@@ -6,7 +6,8 @@ import pytest
 from fastapi import HTTPException
 
 import app.api.v1.assistant as assistant_api
-from app.schemas.assistant import AssistantChatCreateRequest, AssistantChatListItem, AssistantMessageSendRequest
+import app.services.assistant as assistant_service
+from app.schemas.assistant import AssistantChatCreateRequest, AssistantChatListItem, AssistantMessageRegenerateRequest, AssistantMessageSendRequest
 from app.services.assistant import AssistantLLMError, AssistantNotFoundError, _llm_reasoning_mode, _title_from_message
 
 
@@ -69,3 +70,59 @@ def test_assistant_api_maps_llm_error(monkeypatch) -> None:
         assistant_api.post_assistant_message(uuid4(), AssistantMessageSendRequest(content="Szia"), db=object())
 
     assert exc.value.status_code == 502
+
+
+def test_assistant_api_maps_regenerate_validation_error(monkeypatch) -> None:
+    def _validation_error(db, chat_id, payload):
+        raise assistant_api.AssistantValidationError("no assistant answer")
+
+    monkeypatch.setattr(assistant_api, "regenerate_last_assistant_message", _validation_error)
+
+    with pytest.raises(HTTPException) as exc:
+        assistant_api.post_assistant_regenerate_last_message(uuid4(), AssistantMessageRegenerateRequest(), db=object())
+
+    assert exc.value.status_code == 400
+
+
+def test_assistant_regenerate_reuses_previous_user_message(monkeypatch) -> None:
+    chat_id = uuid4()
+    user_message = SimpleNamespace(id=uuid4(), role="user", content="Eredeti kérdés", sequence_index=1)
+    assistant_message = SimpleNamespace(id=uuid4(), role="assistant", content="Régi válasz", sequence_index=2)
+    chat = SimpleNamespace(id=chat_id, messages=[user_message, assistant_message], updated_at=None)
+    calls = []
+
+    class FakeDb:
+        def __init__(self) -> None:
+            self.deleted = []
+            self.commits = 0
+            self.refreshed = []
+
+        def delete(self, item) -> None:
+            self.deleted.append(item)
+
+        def commit(self) -> None:
+            self.commits += 1
+
+        def refresh(self, item) -> None:
+            self.refreshed.append(item)
+
+    db = FakeDb()
+
+    def fake_generate(db_arg, chat_arg, user_arg, *, reasoning_mode, temperature):
+        calls.append((db_arg, chat_arg, user_arg, reasoning_mode, temperature))
+        return SimpleNamespace(chat=chat, user_message=user_arg, assistant_message=SimpleNamespace(role="assistant"))
+
+    monkeypatch.setattr(assistant_service, "_get_active_chat", lambda db_arg, chat_id_arg: chat)
+    monkeypatch.setattr(assistant_service, "_generate_assistant_response", fake_generate)
+
+    assistant_service.regenerate_last_assistant_message(
+        db,
+        chat_id,
+        AssistantMessageRegenerateRequest(reasoning_mode="model_default", temperature=0.4),
+    )
+
+    assert db.deleted == [assistant_message]
+    assert db.commits == 1
+    assert calls[0][2] is user_message
+    assert calls[0][3] == "model_default"
+    assert calls[0][4] == 0.4
