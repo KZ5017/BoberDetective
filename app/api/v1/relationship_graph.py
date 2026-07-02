@@ -4,11 +4,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.schemas.relationship_graph import RelationshipGraph, RelationshipGraphMultiFocusRequest
+from app.schemas.relationship_graph import (
+    RelationshipGraph,
+    RelationshipGraphMultiFocusRequest,
+    RelationshipRelatedByDocumentRequest,
+    RelationshipRelatedByDocumentResponse,
+)
 from app.services.relationship_graph import (
     RelationshipGraphNotFoundError,
     RelationshipGraphValidationError,
     build_relationship_graph_for_objects,
+    find_related_objects_by_documents,
 )
 
 router = APIRouter()
@@ -25,9 +31,26 @@ def get_relationship_graph_for_objects(
             db,
             case_id=case_id,
             focus_objects=request.focus_objects,
-            include_shared_sources=request.include_shared_sources,
-            max_nodes=request.max_nodes,
-            max_edges=request.max_edges,
+        )
+    except RelationshipGraphNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except RelationshipGraphValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/cases/{case_id}/graph/related-by-documents", response_model=RelationshipRelatedByDocumentResponse)
+def get_relationship_related_objects_by_documents(
+    case_id: UUID,
+    request: RelationshipRelatedByDocumentRequest,
+    db: Session = Depends(get_db),
+) -> RelationshipRelatedByDocumentResponse:
+    try:
+        return find_related_objects_by_documents(
+            db,
+            case_id=case_id,
+            object_type=request.object_type,
+            object_id=request.object_id,
+            max_results=request.max_results,
         )
     except RelationshipGraphNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

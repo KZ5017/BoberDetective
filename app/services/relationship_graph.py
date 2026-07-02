@@ -20,18 +20,17 @@ from app.schemas.relationship_graph import (
     RelationshipGraphNode,
     RelationshipGraphNodeStatus,
     RelationshipGraphWarning,
+    RelationshipRelatedByDocumentResponse,
+    RelationshipRelatedDocument,
+    RelationshipRelatedObject,
+    RelationshipRelatedSourceObject,
 )
 from app.services.review_report import _entity_source_validation_status
 from app.services.text_store import read_chunk_text_from_store, read_page_text_from_store
 
 
 SUPPORTED_FOCUS_OBJECT_TYPES = {"claim", "event", "entity", "missing_item_candidate", "contradiction_candidate"}
-MAX_BACKEND_NODES = 120
-MAX_BACKEND_EDGES = 200
-MAX_MULTI_FOCUS_BACKEND_NODES = 200
-MAX_MULTI_FOCUS_BACKEND_EDGES = 350
-MAX_FOCUS_OBJECTS = 20
-SHARED_SOURCE_OBJECT_LIMIT = 10
+MAX_FOCUS_OBJECTS = 50
 
 
 class RelationshipGraphError(ValueError):
@@ -104,19 +103,11 @@ def build_relationship_graph(
     case_id: UUID,
     object_type: str,
     object_id: UUID,
-    include_shared_sources: bool = True,
-    max_nodes: int = 80,
-    max_edges: int = 120,
 ) -> RelationshipGraph:
     return build_relationship_graph_for_objects(
         db,
         case_id=case_id,
         focus_objects=[RelationshipGraphFocusObject(object_type=object_type, object_id=object_id)],
-        include_shared_sources=include_shared_sources,
-        max_nodes=max_nodes,
-        max_edges=max_edges,
-        max_backend_nodes=MAX_BACKEND_NODES,
-        max_backend_edges=MAX_BACKEND_EDGES,
     )
 
 
@@ -125,20 +116,12 @@ def build_relationship_graph_for_objects(
     *,
     case_id: UUID,
     focus_objects: list[RelationshipGraphFocusObject],
-    include_shared_sources: bool = True,
-    max_nodes: int = 150,
-    max_edges: int = 250,
-    max_backend_nodes: int = MAX_MULTI_FOCUS_BACKEND_NODES,
-    max_backend_edges: int = MAX_MULTI_FOCUS_BACKEND_EDGES,
 ) -> RelationshipGraph:
     requested_focuses = _deduplicate_focus_objects(focus_objects)
     if not requested_focuses:
         raise RelationshipGraphValidationError("At least one graph focus object is required")
     if len(requested_focuses) > MAX_FOCUS_OBJECTS:
         raise RelationshipGraphValidationError("Too many graph focus objects")
-
-    effective_max_nodes = min(max(1, max_nodes), max_backend_nodes)
-    effective_max_edges = min(max(1, max_edges), max_backend_edges)
     builder = _GraphBuilder()
     loaded_focuses: list[FocusObject] = []
     focus_node_ids: list[str] = []
@@ -170,22 +153,9 @@ def build_relationship_graph_for_objects(
         elif focus.object_type == "contradiction_candidate":
             _add_claim_pair_for_contradiction(db, builder, case_id, focus.model, focus_node_id)
 
-        if include_shared_sources and focus.object_type != "contradiction_candidate":
-            _add_shared_source_neighbors(db, builder, case_id, focus, focus_node_id, source_links)
 
     nodes = list(builder.nodes.values())
     edges = list(builder.edges.values())
-    truncated = len(nodes) > effective_max_nodes or len(edges) > effective_max_edges
-    if truncated:
-        builder.warnings.append(
-            RelationshipGraphWarning(
-                code="graph_truncated",
-                message="A kapcsolati térkép elemszám-limit miatt rövidítve lett.",
-            )
-        )
-        allowed_node_ids = {node.id for node in nodes[:effective_max_nodes]}
-        nodes = [node for node in nodes if node.id in allowed_node_ids]
-        edges = [edge for edge in edges if edge.source in allowed_node_ids and edge.target in allowed_node_ids][:effective_max_edges]
 
     primary_focus = loaded_focuses[0]
     return RelationshipGraph(
@@ -202,11 +172,11 @@ def build_relationship_graph_for_objects(
         edges=edges,
         warnings=builder.warnings,
         limits=RelationshipGraphLimits(
-            max_nodes=effective_max_nodes,
-            max_edges=effective_max_edges,
+            max_nodes=len(nodes),
+            max_edges=len(edges),
             node_count=len(nodes),
             edge_count=len(edges),
-            truncated=truncated,
+            truncated=False,
         ),
     )
 
@@ -599,69 +569,6 @@ def _focus_from_claim(claim: ClaimModel) -> FocusObject:
     )
 
 
-def _add_shared_source_neighbors(
-    db: Session,
-    builder: _GraphBuilder,
-    case_id: UUID,
-    focus: FocusObject,
-    focus_node_id: str,
-    source_links: list[SourceLink],
-) -> None:
-    count = 0
-    for link in source_links:
-        for object_type, obj in _objects_sharing_source(db, case_id, focus, link.source_reference_id):
-            if count >= SHARED_SOURCE_OBJECT_LIMIT:
-                builder.warnings.append(
-                    RelationshipGraphWarning(
-                        code="shared_source_limit",
-                        message="Az azonos forrásból származó kapcsolódó objektumok listája rövidítve lett.",
-                    )
-                )
-                return
-            neighbor = _focus_from_model(db, case_id, object_type, obj)
-            if neighbor is None:
-                continue
-            neighbor_node_id = _node_id(neighbor.object_type, neighbor.object_id)
-            builder.add_node(
-                _object_node(
-                    neighbor.object_type,
-                    neighbor.object_id,
-                    neighbor.title,
-                    neighbor.body,
-                    neighbor.subtype,
-                    neighbor.review_status,
-                    neighbor.source_validation_status,
-                )
-            )
-            builder.add_edge("SHARES_SOURCE_WITH", focus_node_id, neighbor_node_id, "azonos forrás", {"source_reference_id": str(link.source_reference_id)})
-            count += 1
-
-
-def _objects_sharing_source(db: Session, case_id: UUID, focus: FocusObject, source_reference_id: UUID) -> list[tuple[str, object]]:
-    rows: list[tuple[str, object]] = []
-    for source_link in db.execute(select(ClaimSourceModel).where(ClaimSourceModel.source_reference_id == source_reference_id)).scalars():
-        claim = db.get(ClaimModel, source_link.claim_id)
-        if claim is not None and claim.case_id == case_id and not (focus.object_type == "claim" and claim.id == focus.object_id):
-            rows.append(("claim", claim))
-    for source_link in db.execute(select(EventSourceModel).where(EventSourceModel.source_reference_id == source_reference_id)).scalars():
-        event = db.get(EventModel, source_link.event_id)
-        if event is not None and event.case_id == case_id and not (focus.object_type == "event" and event.id == focus.object_id):
-            rows.append(("event", event))
-    for source_link in db.execute(
-        select(MissingItemCandidateSourceModel).where(MissingItemCandidateSourceModel.source_reference_id == source_reference_id)
-    ).scalars():
-        candidate = db.get(MissingItemCandidateModel, source_link.missing_item_candidate_id)
-        if candidate is not None and candidate.case_id == case_id and not (
-            focus.object_type == "missing_item_candidate" and candidate.id == focus.object_id
-        ):
-            rows.append(("missing_item_candidate", candidate))
-    for mention in db.execute(select(EntityMentionModel).where(EntityMentionModel.source_reference_id == source_reference_id)).scalars():
-        entity = db.get(EntityModel, mention.entity_id)
-        if entity is not None and entity.case_id == case_id and not (focus.object_type == "entity" and entity.id == focus.object_id):
-            rows.append(("entity", entity))
-    return rows
-
-
 def _focus_from_model(db: Session, case_id: UUID, object_type: str, obj: object) -> FocusObject | None:
     if object_type == "claim" and isinstance(obj, ClaimModel):
         return _focus_from_claim(obj)
@@ -699,3 +606,138 @@ def _focus_from_model(db: Session, case_id: UUID, object_type: str, obj: object)
             source_validation_status=_entity_source_validation_status(db, case_id, obj.id),
         )
     return None
+
+
+@dataclass
+class _RelatedAccumulator:
+    focus: FocusObject
+    document_ids: set[UUID]
+
+
+def find_related_objects_by_documents(
+    db: Session,
+    *,
+    case_id: UUID,
+    object_type: str,
+    object_id: UUID,
+    max_results: int = 100,
+) -> RelationshipRelatedByDocumentResponse:
+    source_focus = _load_valid_focus_object(db, case_id, object_type, object_id)
+    document_ids = _document_ids_for_focus(db, case_id, source_focus)
+    related = _related_objects_for_documents(db, case_id, source_focus, document_ids)
+    ordered = sorted(
+        related.values(),
+        key=lambda item: (-len(item.document_ids), item.focus.object_type, item.focus.title.lower()),
+    )[:max_results]
+    return RelationshipRelatedByDocumentResponse(
+        case_id=case_id,
+        source_object=RelationshipRelatedSourceObject(
+            object_type=source_focus.object_type,
+            object_id=source_focus.object_id,
+            title=source_focus.title,
+        ),
+        documents=_related_documents(db, document_ids),
+        objects=[
+            RelationshipRelatedObject(
+                object_type=item.focus.object_type,
+                object_id=item.focus.object_id,
+                title=item.focus.title,
+                body_excerpt=item.focus.body,
+                review_status=item.focus.review_status,
+                source_validation_status=item.focus.source_validation_status,
+                shared_document_count=len(item.document_ids),
+                shared_documents=_related_documents(db, item.document_ids),
+            )
+            for item in ordered
+        ],
+    )
+
+
+def _document_ids_for_focus(db: Session, case_id: UUID, focus: FocusObject) -> set[UUID]:
+    document_ids = _document_ids_for_source_links(db, case_id, _source_links_for_focus(db, focus))
+    if focus.object_type == "contradiction_candidate" and isinstance(focus.model, ContradictionCandidateModel):
+        for claim_id in (focus.model.claim_id_a, focus.model.claim_id_b):
+            if claim_id is None:
+                continue
+            claim = db.get(ClaimModel, claim_id)
+            if claim is None or claim.case_id != case_id:
+                continue
+            document_ids.update(_document_ids_for_source_links(db, case_id, _source_links_for_focus(db, _focus_from_claim(claim))))
+    return document_ids
+
+
+def _document_ids_for_source_links(db: Session, case_id: UUID, source_links: Iterable[SourceLink]) -> set[UUID]:
+    document_ids: set[UUID] = set()
+    for link in source_links:
+        source_reference = db.get(SourceReferenceModel, link.source_reference_id)
+        if source_reference is not None and source_reference.case_id == case_id and source_reference.document_id is not None:
+            document_ids.add(source_reference.document_id)
+    return document_ids
+
+
+def _related_documents(db: Session, document_ids: Iterable[UUID]) -> list[RelationshipRelatedDocument]:
+    documents: list[RelationshipRelatedDocument] = []
+    for document_id in sorted(set(document_ids), key=str):
+        document = db.get(DocumentModel, document_id)
+        if document is None:
+            continue
+        documents.append(RelationshipRelatedDocument(document_id=document.id, filename=document.original_filename))
+    return documents
+
+
+def _related_objects_for_documents(
+    db: Session,
+    case_id: UUID,
+    source_focus: FocusObject,
+    document_ids: set[UUID],
+) -> dict[tuple[str, UUID], _RelatedAccumulator]:
+    related: dict[tuple[str, UUID], _RelatedAccumulator] = {}
+    if not document_ids:
+        return related
+
+    def add_related(focus: FocusObject | None, document_id: UUID | None) -> None:
+        if focus is None or document_id is None:
+            return
+        if focus.object_type == source_focus.object_type and focus.object_id == source_focus.object_id:
+            return
+        if focus.source_validation_status != "source_valid":
+            return
+        if document_id not in document_ids:
+            return
+        key = (focus.object_type, focus.object_id)
+        if key not in related:
+            related[key] = _RelatedAccumulator(focus=focus, document_ids=set())
+        related[key].document_ids.add(document_id)
+
+    for link in db.execute(select(ClaimSourceModel)).scalars():
+        source_reference = db.get(SourceReferenceModel, link.source_reference_id)
+        claim = db.get(ClaimModel, link.claim_id)
+        if source_reference is not None and source_reference.case_id == case_id and claim is not None and claim.case_id == case_id:
+            add_related(_focus_from_model(db, case_id, "claim", claim), source_reference.document_id)
+
+    for link in db.execute(select(EventSourceModel)).scalars():
+        source_reference = db.get(SourceReferenceModel, link.source_reference_id)
+        event = db.get(EventModel, link.event_id)
+        if source_reference is not None and source_reference.case_id == case_id and event is not None and event.case_id == case_id:
+            add_related(_focus_from_model(db, case_id, "event", event), source_reference.document_id)
+
+    for link in db.execute(select(MissingItemCandidateSourceModel)).scalars():
+        source_reference = db.get(SourceReferenceModel, link.source_reference_id)
+        candidate = db.get(MissingItemCandidateModel, link.missing_item_candidate_id)
+        if source_reference is not None and source_reference.case_id == case_id and candidate is not None and candidate.case_id == case_id:
+            add_related(_focus_from_model(db, case_id, "missing_item_candidate", candidate), source_reference.document_id)
+
+    for mention in db.execute(select(EntityMentionModel)).scalars():
+        entity = db.get(EntityModel, mention.entity_id)
+        source_reference = db.get(SourceReferenceModel, mention.source_reference_id) if mention.source_reference_id is not None else None
+        document_id = source_reference.document_id if source_reference is not None else mention.document_id
+        if entity is not None and entity.case_id == case_id and mention.case_id == case_id:
+            add_related(_focus_from_model(db, case_id, "entity", entity), document_id)
+
+    for link in db.execute(select(ContradictionCandidateSourceModel)).scalars():
+        source_reference = db.get(SourceReferenceModel, link.source_reference_id)
+        candidate = db.get(ContradictionCandidateModel, link.contradiction_candidate_id)
+        if source_reference is not None and source_reference.case_id == case_id and candidate is not None and candidate.case_id == case_id:
+            add_related(_focus_from_model(db, case_id, "contradiction_candidate", candidate), source_reference.document_id)
+
+    return related

@@ -20,7 +20,13 @@ from app.services.llm import LLMChatMessage, LLMProviderError, LMStudioNativePro
 
 
 ASSISTANT_DEFAULT_TITLE = "Új beszélgetés"
-ASSISTANT_CONTEXT_CHARACTER_BUDGET = 30000
+ASSISTANT_SYSTEM_PROMPT = "Válaszolj a legutóbbi felhasználói üzenetre. A korábbi üzeneteket csak beszélgetési kontextusként használd."
+ASSISTANT_CONTEXT_CHARACTER_BUDGET = 120000
+ASSISTANT_CONTEXT_LIMIT_ERROR_CODE = "assistant_context_limit_exceeded"
+ASSISTANT_CONTEXT_LIMIT_MESSAGE = (
+    "A beszélgetés elérte a kontextuskeretet. "
+    "Nyiss új chatet a folytatáshoz, hogy a modell ne veszítsen el korábbi kontextust láthatatlanul."
+)
 
 
 class AssistantError(Exception):
@@ -33,6 +39,10 @@ class AssistantNotFoundError(AssistantError):
 
 class AssistantValidationError(AssistantError):
     pass
+
+
+class AssistantContextLimitError(AssistantValidationError):
+    error_code = ASSISTANT_CONTEXT_LIMIT_ERROR_CODE
 
 
 class AssistantLLMError(AssistantError):
@@ -93,6 +103,7 @@ def send_assistant_message(db: Session, chat_id: UUID, payload: AssistantMessage
     content = payload.content.strip()
     if not content:
         raise AssistantValidationError("Az üzenet nem lehet üres")
+    _validate_assistant_context_budget(db, chat.id, additional_content=content)
 
     sequence_index = _next_message_sequence(db, chat.id)
     user_message = AssistantMessageModel(
@@ -131,6 +142,8 @@ def regenerate_last_assistant_message(
     previous_message = messages[-2]
     if last_message.role != "assistant" or previous_message.role != "user":
         raise AssistantValidationError("Csak az utolsó asszisztens válasz generálható újra.")
+
+    _validate_assistant_context_budget(db, chat.id, excluded_message_id=last_message.id)
 
     db.delete(last_message)
     chat.updated_at = datetime.now(UTC)
@@ -216,6 +229,30 @@ def _next_message_sequence(db: Session, chat_id: UUID) -> int:
 
 
 def _context_messages_for_llm(db: Session, chat_id: UUID) -> list[LLMChatMessage]:
+    messages = _stored_context_messages(db, chat_id)
+    _ensure_context_character_budget(messages)
+    return [LLMChatMessage(role="system", content=ASSISTANT_SYSTEM_PROMPT)] + [
+        LLMChatMessage(role=message.role, content=message.content) for message in messages
+    ]
+
+
+def _validate_assistant_context_budget(
+    db: Session,
+    chat_id: UUID,
+    *,
+    additional_content: str | None = None,
+    excluded_message_id: UUID | None = None,
+) -> None:
+    messages = _stored_context_messages(db, chat_id, excluded_message_id=excluded_message_id)
+    _ensure_context_character_budget(messages, additional_content=additional_content)
+
+
+def _stored_context_messages(
+    db: Session,
+    chat_id: UUID,
+    *,
+    excluded_message_id: UUID | None = None,
+) -> list[AssistantMessageModel]:
     messages = (
         db.execute(
             select(AssistantMessageModel)
@@ -225,16 +262,21 @@ def _context_messages_for_llm(db: Session, chat_id: UUID) -> list[LLMChatMessage
         .scalars()
         .all()
     )
-    selected: list[AssistantMessageModel] = []
-    character_count = 0
-    for message in reversed(messages):
-        next_count = character_count + len(message.content)
-        if selected and next_count > ASSISTANT_CONTEXT_CHARACTER_BUDGET:
-            break
-        selected.append(message)
-        character_count = next_count
-    selected.reverse()
-    return [LLMChatMessage(role=message.role, content=message.content) for message in selected]
+    if excluded_message_id is not None:
+        return [message for message in messages if message.id != excluded_message_id]
+    return messages
+
+
+def _ensure_context_character_budget(
+    messages: list[AssistantMessageModel],
+    *,
+    additional_content: str | None = None,
+) -> None:
+    character_count = sum(len(message.content) for message in messages)
+    if additional_content is not None:
+        character_count += len(additional_content)
+    if character_count > ASSISTANT_CONTEXT_CHARACTER_BUDGET:
+        raise AssistantContextLimitError(ASSISTANT_CONTEXT_LIMIT_MESSAGE)
 
 
 def _chat_detail(chat: AssistantChatModel) -> AssistantChatDetail:

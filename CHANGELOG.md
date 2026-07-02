@@ -1,5 +1,23 @@
 # CHANGELOG.md
 
+## 2026-07-02
+
+### Changed
+
+- Hardened the `AI-asszisztens` context-window handling: assistant LLM calls now include a minimal generic system prompt, use a conservative 120000-character hard budget for the full chat context, allow a single assistant prompt up to the same 120000-character ceiling, reject over-budget sends/regenerations instead of silently dropping old messages, and show frontend guard feedback through inline composer validation or the shared app dialog. The too-long prompt warning now uses its own composer grid row so it does not push the send/reasoning controls out of place.
+- Decoupled the `Kapcsolati térkép` object selector from the `Áttekintési jelentés` panel filters: the graph selector now uses its own source-valid object list, so changing `Találat típusa` in the workbench no longer hides valid graph objects in another module.
+- Reworked the `Kapcsolati térkép` multi-focus guardrail: frontend and backend now enforce a 50 focus-object limit, unchecked objects become disabled after the limit is reached, the selector shows `x kijelölve / 50` plus `Összes: n`, and node/edge truncation is no longer used as the normal graph-size control.
+- Implemented and polished the iratalapú `Kapcsolódó objektumok` workflow: removed the old shared-source checkbox layer and `include_shared_sources` graph projection, added `POST /api/v1/cases/{case_id}/graph/related-by-documents`, placed the dedicated panel directly after `Megjelenítendő objektum`, shortened the primary action to `Keresés`, added `Láthatók kijelölése`, and changed graph object cards to use object-type background colors instead of rendering type/shared-document metadata as a third text line.
+- Refined the `Kapcsolati térkép` React Flow layout with a frontend-only crossing-aware layer ordering pass: the fixed left-to-right columns remain, but nodes inside each visible layer are reordered from neighboring layer positions to reduce avoidable edge crossings; layer checkbox changes now force a fresh canvas layout, and empty-direction passes no longer reset object order back to the fallback focus/label order.
+
+### Verified
+
+- .venv/bin/python -m pytest tests/test_assistant.py tests/test_llm.py -q (`28 passed`)
+- .venv/bin/python -m pytest tests/test_relationship_graph.py -q (`9 passed`)
+- .venv/bin/python -m pytest -q (`409 passed`, 1 Docling deprecation warning)
+- npm --prefix frontend run build
+- git diff --check
+
 ## 2026-06-24
 
 - Added AI-asszisztens answer convenience controls: assistant answers can be copied from the bubble action row, only the latest assistant answer can be regenerated, and the composer now has a Gondolkodó toggle that sends per-message/per-regeneration normal / model_default reasoning mode. Regeneration deletes the latest assistant answer, reuses the previous user message, shows typing state, and is guarded against repeated clicks. Streaming was deliberately removed from the active assistant roadmap.

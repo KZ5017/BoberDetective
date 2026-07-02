@@ -45,7 +45,7 @@ Az elso verzio ne hozzon letre, ne modositson es ne toroljon szakmai objektumot.
 - backend graph projection API,
 - frontend `Kapcsolati terkep` modul,
 - `Ugy munkapad` objektumreszletbol atvezeto gomb,
-- node/edge limit es figyelmeztetes,
+- 50 fokuszobjektumos vedokorlat, node/edge csonkolas nelkul,
 - read-only graph.
 
 ### Nincs benne az elso verzioban
@@ -423,7 +423,7 @@ Tervezett request:
 
 Backend elvek:
 
-- `focus_objects` elemszam: 1..20;
+- `focus_objects` elemszam: 1..50;
 - minden fokuszobjektum legyen case-bound es source-valid;
 - ugyanazok az objektumtipusok tamogatottak, mint az egyfokuszu endpointnal;
 - a service hasznalja ujra a mar meglevo single-focus graph builder logikajat,
@@ -431,16 +431,16 @@ Backend elvek:
 - node/edge deduplikacio stabil `id` alapjan tortenjen;
 - a response maradjon kompatibilis a jelenlegi node/edge semaval, de bovulhet
   `focus_node_ids` / `focus_objects` mezokkel;
-- a backend akkor is ervenyesitse a 20 fokuszobjektumos capet, ha a frontend
+- a backend akkor is ervenyesitse az 50 fokuszobjektumos capet, ha a frontend
   kesobb mas UI-limittel dolgozik.
 
 Frontend elvek:
 
 - az objektumkartyak radio jeloles helyett checkboxos tobbes kijelolest kapnak;
-- latszodjon a kijeloles szamlaloja, peldaul `3 kijelölve / 20`;
+- latszodjon a kijeloles szamlaloja, peldaul `3 kijelölve / 50` es kulon `Összes: n` chip;
 - legyen `Kijelöltek térképre helyezése` akcio;
 - a jelenlegi retegkapcsolok valtozatlanul mukodjenek a tobbfokuszu grafon is;
-- a kesobbi `Összes látható kijelölése` csak akkor keruljon be, ha a 20-as limit
+- a kesobbi `Összes látható kijelölése` csak akkor keruljon be, ha az 50-es limit
   es a vizualis attekinthetoseg live teszten stabilnak bizonyul.
 
 ### Single-focus endpoint allapota
@@ -526,12 +526,7 @@ Edge shape:
 
 Warning shape:
 
-```json
-{
-  "code": "graph_truncated",
-  "message": "A kapcsolati térkép elemszám-limit miatt rövidítve lett."
-}
-```
+A jelenlegi baseline-ban nincs normal node/edge csonkolas es nincs `graph_truncated` warning. A `limits` mezok a visszaadott tenyleges node/edge darabszamot jelzik.
 
 ## Backend implementacios fajlok
 
@@ -556,10 +551,10 @@ Teszt fajl:
 1. validalja az `object_type` erteket,
 2. betolti a fokuszobjektumot case-bound modon,
 3. ellenorzi a source-valid fokuszfeltetelt,
-4. osszegyujti a kozvetlen source/provenance/kapcsolodo node-okat,
+4. osszegyujti a kozvetlen source/kapcsolodo node-okat,
 5. deduplikalja a node-okat es edge-eket stabil id alapjan,
-6. alkalmazza a node/edge limiteket,
-7. visszaadja a projection response-t.
+6. ervenyesiti az 50 fokuszobjektumos vedokorlatot,
+7. node/edge csonkolas nelkul visszaadja a projection response-t.
 
 ## Source-valid fokusz validacio
 
@@ -617,12 +612,12 @@ Elso verzio lehet egyszerubb:
 
 ## Frontend adatforrasok
 
-Objektumvalasztohoz elso korben ket lehetoseg van:
+Objektumvalaszto jelenlegi adatforrasa:
 
-1. hasznaljuk az `Áttekintési jelentés` mar meglevo listajat/szurozott adatait,
-2. keszitunk kesobb kulon graph-focus candidate endpointot.
+- kulon, source-valid `review-report` lekerdezes, amely nem veszi at az `Áttekintési jelentés` panel aktualis szuroit;
+- igy a `Megjelenítendő objektum` lista modulfüggetlen marad, mikozben ugyanazokat a source-valid objektumokat hasznalja.
 
-Javaslat elso implementaciohoz:
+Jelenlegi implementacio:
 
 - ne vezessunk be kulon candidate endpointot azonnal,
 - az `Ügy munkapad` objektumreszletbol indulo atadas legyen az elso biztos
@@ -868,7 +863,8 @@ Backend tesztek:
    - masik ugy objektuma -> 404.
 
 8. limit behavior:
-   - node/edge cap warning.
+   - 50 fokuszobjektum folott validation hiba;
+   - node/edge csonkolas normal mukodesben nincs.
 
 Frontend ellenorzes:
 
@@ -965,11 +961,12 @@ Felhasznaloi oldalrol:
 2. A valaszto tovabbra is csak az aktualis ugy source-valid, tamogatott
    strukturalt objektumait mutatja.
 3. A radio/egyfokuszu valasztas helyett checkboxos tobbes kijeloles jelenik meg.
-4. A user legfeljebb 20 fokuszobjektumot jelolhet ki.
+4. A user legfeljebb 50 fokuszobjektumot jelolhet ki.
 5. A felulet mutatja a kijeloles szamat, peldaul:
 
    ```text
-   3 kijelölve / 20
+   3 kijelölve / 50
+Összes: n
    ```
 
 6. A `Kijelöltek térképre helyezése` akcio egy kozos kapcsolati terkepet ker.
@@ -1024,7 +1021,7 @@ tobbes kijeloles es a kozos graf technikailag stabil legyen.
 Az elso limit:
 
 ```text
-max 20 fokuszobjektum
+max 50 fokuszobjektum
 ```
 
 Indok:
@@ -1035,7 +1032,7 @@ Indok:
 - a backend projection is eroforras-igenyesebb, mert minden fokuszobjektum
   forras/provenance/kornyezeti kapcsolatait ossze kell gyujteni.
 
-A 20-as limit frontend es backend oldalon is legyen ervenyesitve.
+Az 50-es fokuszobjektum-limit frontend es backend oldalon is legyen ervenyesitve.
 
 Kesobb live teszt alapjan:
 
@@ -1235,10 +1232,10 @@ class RelationshipGraphFocusObject(BaseModel):
 
 
 class RelationshipGraphMultiFocusRequest(BaseModel):
-    focus_objects: list[RelationshipGraphFocusObject] = Field(min_length=1, max_length=20)
+    focus_objects: list[RelationshipGraphFocusObject] = Field(min_length=1, max_length=50)
     include_shared_sources: bool = True
-    max_nodes: int = Field(default=150, ge=1, le=200)
-    max_edges: int = Field(default=250, ge=1, le=350)
+    max_nodes: int | None = None
+    max_edges: int | None = None
 ```
 
 Response schema bovites:
@@ -1294,7 +1291,7 @@ def build_relationship_graph_for_objects(
 
 Belso mukodes:
 
-1. validalja, hogy 1..20 fokuszobjektum erkezett;
+1. validalja, hogy 1..50 fokuszobjektum erkezett;
 2. validalja minden `object_type` erteket a `SUPPORTED_FOCUS_OBJECT_TYPES`
    alapjan;
 3. case-bound modon betolti az osszes fokuszobjektumot;
@@ -1306,7 +1303,7 @@ Belso mukodes:
    - source chainjeit,
    - contradiction agat,
    - shared-source szomszedait, ha be van kapcsolva;
-7. node/edge limiteket a vegso, deduplikalt grafra alkalmazza.
+7. a vegso, deduplikalt grafot adja vissza node/edge csonkolas nelkul; a meretvedo korlat a fokuszobjektum limit.
 
 Refaktor irany:
 
@@ -1320,16 +1317,15 @@ Refaktor irany:
 
 Javasolt backend cap:
 
-- `max_nodes` query/body ertek: default 150, hard cap 200;
-- `max_edges` query/body ertek: default 250, hard cap 350;
-- `focus_objects`: hard cap 20.
+- `max_nodes` / `max_edges`: kompatibilitasi mezok, normal mukodesben nem csonkolnak;
+- `focus_objects`: hard cap 50.
 
 Warningok:
 
 - tul sok fokuszobjektum:
   - request validation hiba, ne warning;
-- node/edge vagas:
-  - maradjon `graph_truncated` warning;
+- node/edge vagas nincs normal mukodesben:
+  - ne legyen `graph_truncated` warning;
 - duplikalt fokuszobjektum:
   - ne legyen hiba; deduplikaljuk;
   - opcionálisan adhat `duplicate_focus_ignored` warningot, de elso korben nem
@@ -1374,7 +1370,7 @@ Hibakezeles:
 - source-invalid fokuszobjektum: `400`;
 - mas ugyhoz tartozo vagy nem letezo objektum: `404`;
 - tul sok fokuszobjektum: Pydantic/FastAPI validation `422` vagy explicit
-  `400`; elso korben a Pydantic `max_length=20` eleg.
+  `400`; a Pydantic `max_length=50` es a service oldali azonos limit ervenyes.
 
 Single-focus GET migracios dontes:
 
@@ -1453,7 +1449,7 @@ Javaslat:
 - React state-ben tombot vagy rekordot hasznaljunk, ne mutalhato `Set`-et
   kozvetlenul;
 - a kartyaknal a kulcsbol szamoljuk, hogy kijelolt-e;
-- maximum 20 kijelolesnel a tovabbi checkboxok legyenek disabled, vagy kattintas
+- maximum 50 kijelolesnel a tovabbi checkboxok legyenek disabled, vagy kattintas
   adjon magyar figyelmeztetest.
 
 ### 7. Frontend objektumvalaszto UI
@@ -1472,7 +1468,8 @@ Valtozik:
 - megjelenik a szamlalo:
 
 ```text
-3 kijelölve / 20
+3 kijelölve / 50
+Összes: n
 ```
 
 Gombok:
@@ -1556,8 +1553,8 @@ Uj tesztesetek:
    - masik ugy objektuma a listaban,
    - endpoint hibaval ter vissza.
 
-5. max 20 fokusz cap:
-   - 21 elemnel validation hiba.
+5. max 50 fokusz cap:
+   - 51 elemnel validation hiba.
 
 6. single-focus through POST:
    - egyetlen objektummal ugyanaz a minimalis graf epul, mint a korabbi
@@ -1569,7 +1566,7 @@ Frontend verifikacio:
 - live UI:
   - tobb objektum kijelolheto;
   - szamlalo frissul;
-  - 20 folott nem enged tovabbi kijelolest;
+  - 50 folott nem enged tovabbi kijelolest;
   - `Kijelöltek térképre helyezése` betolti a grafot;
   - retegkapcsolok mukodnek;
   - `Ügy munkapad` handoff tovabbra is mukodik.
@@ -1596,7 +1593,7 @@ Javasolt sorrend:
    - deduplikacio,
    - source-invalid,
    - case isolation,
-   - 20-as cap.
+   - 50-es cap.
 
 5. Kesz: frontend API helper:
    - uj POST helper,
@@ -1622,22 +1619,16 @@ Javasolt sorrend:
 
 Kockazat: a graf tul zsufolt lesz.
 
-- Vedokorlat: 20 fokuszobjektumos limit, node/edge cap, layer toggles.
+- Vedokorlat: 50 fokuszobjektumos limit es layer toggles; node/edge csonkolas nem hasznalt normal mukodesben.
 
 Kockazat: single-focus mukodes regresszal.
 
 - Vedokorlat: a regi `build_relationship_graph(...)` az uj multi-focus service-t
   hivja egy elemmel; legyen single-focus-through-POST teszt.
 
-Kockazat: fokusz node kiesik truncation miatt.
-
-- Vedokorlat: limitezesnel a fokusz node-ok legyenek prioritizalva; ha ez
-  bonyolult, kezdetben node cap legyen eleg magas, es tesztelje a cap viselkedest.
-
 Kockazat: frontend state tul bonyolult lesz.
 
-- Vedokorlat: elso korben nincs `Összes típus`, nincs `Összes látható`, nincs
-  csoportos logika; csak tipus-szuro + checkbox.
+- Vedokorlat: az objektumtipus szuro es a lathato elemek csoportos kijelolese/levetele mar tamogatott, de a kijeloles 50 fokuszobjektumnal megall.
 
 Kockazat: GET endpoint kivezetese tul koran tortenik.
 
@@ -1656,6 +1647,7 @@ Fix tervkent megtartott hianyok:
 
 Jelenlegi baseline allapot:
 
+- 2026-07-02 frissites: a `Kapcsolati térkép` objektumvalasztoja sajat, source-valid objektumlistat hasznal, fuggetlenul az `Áttekintési jelentés` panel aktualis szuroitol. A multi-focus limit 50 fokuszobjektum; a UI `x kijelölve / 50` es `Összes: n` chipeket mutat, 50 utan a tovabbi nem kijelolt checkboxok disabled allapotba kerulnek. A backend nem csonkol node/edge cap alapjan normal mukodesben; a graf `limits` mezoi a visszaadott tenyleges node/edge darabszamot jelzik.
 - a multi-focus backend es frontend mukodes technikailag kesznek tekintheto;
 - a publikus graph betoltes egysegesen a `POST /graph/objects` utvonalon megy;
 - az egyobjektumos handoff is ugyanazt az utat hasznalja;
@@ -1695,3 +1687,7 @@ Kesobbi bovitesre hagyott tiszta helyek:
   source-valid objektumkartyas valaszto is.
 - A kezi UUID inputot a frontend kivaltotta; a backend single-focus endpointot a
   multi-focus POST endpoint atvette es a regi GET utvonal ki lett vezetve.
+
+## Kovetkezo related-object terv
+
+Az iratalapu kapcsolodo objektumok, a regi checkboxos Kapcsolodo objektumok reteg kivezetese, valamint az uj kulon paneles related-by-documents workflow reszletes terve es implementacios allapota kulon dokumentumban van rogzítve: Design_documents/32_relationship_map_related_objects_plan.md. A normal objektumkozpontu grafban a shared-source neighbor projection mar nem aktiv; a kapcsolodo objektumok kulon, user altal inditott backend lekerdezesbol kerulnek vissza. A kapcsolodo objektum panel elfogadott UI-ja a top sorban kozvetlenul a Megjelenitendo objektum panel utan kovetkezik, `Kereses` es `Lathatok kijelolese` muveletekkel, valamint objektumtipus szerinti kartyaszinezessel a kulon meta sor helyett.

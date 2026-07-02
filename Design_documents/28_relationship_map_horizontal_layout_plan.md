@@ -91,6 +91,33 @@ reteget. Az analysis run es kutatasi talalat eletut/provenance informacio
 tovabbra is fontos, de azt az elemzesi/audit feluletek vagy egy kesobbi,
 kulon eletut/provenance terkep kezelje, ne ez a kapcsolati nezeti terkep.
 
+## 2026-07-02 implementacios allapot
+
+A vizszintes layout elso elfogadott finomitasa megvalosult a frontendben.
+
+Aktualis mukodes:
+
+- a backend tovabbra is a forras- es objektumkapcsolati igazsagot adja vissza;
+- a React Flow / XYFlow canvas fix balrol-jobbra retegeket hasznal:
+  `document -> page -> chunk -> source_reference -> object -> contradiction`;
+- a frontend csak az adott retegen beluli fuggoleges sorrendet finomitja;
+- a sorrendezés crossing-aware: a node-ok a szomszedos retegekben levo kapcsolt
+  node-ok aktualis pozicioi alapjan kapnak rendezesi pontot;
+- a rendezés tobb balrol-jobbra es jobbról-balra passzban fut, de ha egy adott
+  iranybol nincs hasznalhato szomszed-informacio, az adott passz nem rendezi
+  vissza a reteget a fallback sorrendre;
+- a fallback sorrend tovabbra is determinisztikus, es csak indulo/stabilizalo
+  szerepet kap;
+- layer checkbox valtasakor a React Flow canvas uj layout-kulcsot kap, igy a
+  lathato node/edge keszlethez tartozo sorrend tenylegesen ujraszamolodik;
+- ez frontend-only vizualis layout finomitas: nem hoz letre uj backend edge-et,
+  nem modosit source truth-ot, es nem ment node poziciokat.
+
+Friss verifikacio:
+
+- `npm --prefix frontend run build` -> passed;
+- `git diff --check` -> passed.
+
 ## Retegek javasolt szerepe
 
 ### 1. Forrasoldali reteg

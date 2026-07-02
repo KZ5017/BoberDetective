@@ -19,7 +19,7 @@ class AssistantChatUpdateRequest(BaseModel):
 
 
 class AssistantMessageSendRequest(BaseModel):
-    content: str = Field(min_length=1, max_length=20000)
+    content: str = Field(min_length=1, max_length=120000)
     reasoning_mode: AssistantReasoningMode | None = None
     temperature: float | None = Field(default=None, ge=0, le=2)
 

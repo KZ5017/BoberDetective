@@ -46,10 +46,42 @@ class RelationshipGraphFocusObject(BaseModel):
 
 
 class RelationshipGraphMultiFocusRequest(BaseModel):
-    focus_objects: list[RelationshipGraphFocusObject] = Field(min_length=1, max_length=20)
-    include_shared_sources: bool = True
-    max_nodes: int = Field(default=150, ge=1, le=200)
-    max_edges: int = Field(default=250, ge=1, le=350)
+    focus_objects: list[RelationshipGraphFocusObject] = Field(min_length=1, max_length=50)
+
+
+class RelationshipRelatedSourceObject(BaseModel):
+    object_type: str
+    object_id: UUID
+    title: str
+
+
+class RelationshipRelatedDocument(BaseModel):
+    document_id: UUID
+    filename: str
+
+
+class RelationshipRelatedObject(BaseModel):
+    object_type: str
+    object_id: UUID
+    title: str
+    body_excerpt: str | None = None
+    review_status: str | None = None
+    source_validation_status: str | None = None
+    shared_document_count: int
+    shared_documents: list[RelationshipRelatedDocument] = Field(default_factory=list)
+
+
+class RelationshipRelatedByDocumentRequest(BaseModel):
+    object_type: str
+    object_id: UUID
+    max_results: int = Field(default=100, ge=1, le=500)
+
+
+class RelationshipRelatedByDocumentResponse(BaseModel):
+    case_id: UUID
+    source_object: RelationshipRelatedSourceObject
+    documents: list[RelationshipRelatedDocument] = Field(default_factory=list)
+    objects: list[RelationshipRelatedObject] = Field(default_factory=list)
 
 
 class RelationshipGraph(BaseModel):

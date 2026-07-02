@@ -103,6 +103,115 @@ function relationshipNodeSortValue(graph: RelationshipGraph, degree: Map<string,
   ].join("|");
 }
 
+function orderedRelationshipLayerNodes(
+  graph: RelationshipGraph,
+  degree: Map<string, number>,
+  layerBuckets: Map<RelationshipLayoutLayer, RelationshipGraphNode[]>
+) {
+  const nodeLayers = new Map<string, RelationshipLayoutLayer>();
+  layerBuckets.forEach((nodes, layer) => {
+    nodes.forEach((node) => nodeLayers.set(node.id, layer));
+  });
+
+  const baseSortValues = new Map<string, string>();
+  const ordered = new Map<RelationshipLayoutLayer, RelationshipGraphNode[]>();
+  relationshipLayerOrder.forEach((layer) => {
+    const layerNodes = layerBuckets.get(layer) ?? [];
+    const sortedNodes = [...layerNodes].sort((left, right) => {
+      const leftSort = relationshipNodeSortValue(graph, degree, left);
+      const rightSort = relationshipNodeSortValue(graph, degree, right);
+      baseSortValues.set(left.id, leftSort);
+      baseSortValues.set(right.id, rightSort);
+      return leftSort.localeCompare(rightSort, "hu-HU");
+    });
+    sortedNodes.forEach((node) => {
+      if (!baseSortValues.has(node.id)) {
+        baseSortValues.set(node.id, relationshipNodeSortValue(graph, degree, node));
+      }
+    });
+    if (sortedNodes.length > 0) {
+      ordered.set(layer, sortedNodes);
+    }
+  });
+
+  const adjacency = new Map<string, Set<string>>();
+  graph.edges.forEach((edge) => {
+    if (!nodeLayers.has(edge.source) || !nodeLayers.has(edge.target)) return;
+    if (!adjacency.has(edge.source)) adjacency.set(edge.source, new Set());
+    if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set());
+    adjacency.get(edge.source)?.add(edge.target);
+    adjacency.get(edge.target)?.add(edge.source);
+  });
+
+  const sortByNeighbors = (layer: RelationshipLayoutLayer, direction: "left" | "right") => {
+    const currentNodes = ordered.get(layer) ?? [];
+    if (currentNodes.length <= 1) return;
+    const layerIndex = relationshipLayerOrder.indexOf(layer);
+    const positions = relationshipLayerPositions(ordered);
+    const scoredNodes = currentNodes.map((node) => ({
+      node,
+      score: relationshipNeighborPositionScore(node, layerIndex, direction, adjacency, nodeLayers, positions)
+    }));
+    if (!scoredNodes.some((item) => item.score !== null)) return;
+    scoredNodes.sort((left, right) => {
+      if (left.score !== null && right.score !== null && Math.abs(left.score - right.score) > 0.001) {
+        return left.score - right.score;
+      }
+      if (left.score !== null && right.score === null) return -1;
+      if (left.score === null && right.score !== null) return 1;
+      return (baseSortValues.get(left.node.id) ?? "").localeCompare(baseSortValues.get(right.node.id) ?? "", "hu-HU");
+    });
+    ordered.set(layer, scoredNodes.map((item) => item.node));
+  };
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    relationshipLayerOrder.forEach((layer, index) => {
+      if (index > 0) sortByNeighbors(layer, "left");
+    });
+    [...relationshipLayerOrder].reverse().forEach((layer, reverseIndex) => {
+      if (reverseIndex > 0) sortByNeighbors(layer, "right");
+    });
+  }
+
+  return ordered;
+}
+
+function relationshipLayerPositions(ordered: Map<RelationshipLayoutLayer, RelationshipGraphNode[]>) {
+  const positions = new Map<string, number>();
+  ordered.forEach((nodes) => {
+    nodes.forEach((node, index) => positions.set(node.id, index));
+  });
+  return positions;
+}
+
+function relationshipNeighborPositionScore(
+  node: RelationshipGraphNode,
+  layerIndex: number,
+  direction: "left" | "right",
+  adjacency: Map<string, Set<string>>,
+  nodeLayers: Map<string, RelationshipLayoutLayer>,
+  positions: Map<string, number>
+) {
+  const neighborScores: number[] = [];
+  const neighbors = adjacency.get(node.id) ?? new Set<string>();
+  neighbors.forEach((neighborId) => {
+    const neighborLayer = nodeLayers.get(neighborId);
+    if (!neighborLayer) return;
+    const neighborLayerIndex = relationshipLayerOrder.indexOf(neighborLayer);
+    const isUsefulNeighbor = direction === "left" ? neighborLayerIndex < layerIndex : neighborLayerIndex > layerIndex;
+    if (!isUsefulNeighbor) return;
+    const position = positions.get(neighborId);
+    if (typeof position === "number") {
+      neighborScores.push(position);
+    }
+  });
+  if (neighborScores.length === 0) return null;
+  neighborScores.sort((left, right) => left - right);
+  const middle = Math.floor(neighborScores.length / 2);
+  if (neighborScores.length % 2 === 1) return neighborScores[middle];
+  return (neighborScores[middle - 1] + neighborScores[middle]) / 2;
+}
+
 function relationshipVisualEdgeDirection(edge: { source: string; target: string; type: string }) {
   if (edge.type === "HAS_SOURCE") {
     return { source: edge.target, target: edge.source };
@@ -157,13 +266,11 @@ function buildRelationshipFlowElements(
   });
 
   const nodes: FlowNode<RelationshipFlowNodeData>[] = [];
+  const orderedLayers = orderedRelationshipLayerNodes(graph, degree, layerBuckets);
   const sortedLayers = relationshipLayerOrder
-    .filter((layer) => layerBuckets.has(layer))
-    .map((layer) => [layer, layerBuckets.get(layer) ?? []] as const);
-  sortedLayers.forEach(([layer, layerNodes]) => {
-    const sortedLayerNodes = [...layerNodes].sort((left, right) =>
-      relationshipNodeSortValue(graph, degree, left).localeCompare(relationshipNodeSortValue(graph, degree, right), "hu-HU")
-    );
+    .filter((layer) => orderedLayers.has(layer))
+    .map((layer) => [layer, orderedLayers.get(layer) ?? []] as const);
+  sortedLayers.forEach(([layer, sortedLayerNodes]) => {
     const layerGap = 132;
     const centerOffset = ((sortedLayerNodes.length - 1) * layerGap) / 2;
     sortedLayerNodes.forEach((node, index) => {
@@ -220,6 +327,13 @@ export default function RelationshipFlowCanvas({
     () => buildRelationshipFlowElements(graph, labelObjectType, labelSourceValidationStatus),
     [graph, labelObjectType, labelSourceValidationStatus]
   );
+  const layoutKey = useMemo(
+    () => [
+      flowElements.nodes.map((node) => `${node.id}:${node.position.x}:${node.position.y}`).join("|"),
+      flowElements.edges.map((edge) => `${edge.id}:${edge.source}:${edge.target}`).join("|")
+    ].join("||"),
+    [flowElements]
+  );
   const [nodes, setNodes, onNodesChange] = useNodesState(flowElements.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(flowElements.edges);
 
@@ -239,6 +353,7 @@ export default function RelationshipFlowCanvas({
   return (
     <div className="relationship-flow-canvas" aria-label="Kapcsolati térkép vizuális nézete">
       <ReactFlow
+        key={layoutKey}
         nodes={selectableNodes}
         edges={selectableEdges}
         fitView

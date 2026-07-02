@@ -15,6 +15,7 @@ from app.services.relationship_graph import (
     RelationshipGraphValidationError,
     build_relationship_graph,
     build_relationship_graph_for_objects,
+    find_related_objects_by_documents,
 )
 
 
@@ -279,6 +280,60 @@ def test_relationship_graph_source_location_falls_back_to_document_chunk_chain()
     )
 
 
+def test_relationship_graph_related_objects_use_shared_document_not_shared_source() -> None:
+    db, ids = _seed_claim_graph_session()
+    second_claim_id = uuid4()
+    second_claim_source_id = uuid4()
+    second_source_reference_id = uuid4()
+    second_claim = ClaimModel(
+        id=second_claim_id,
+        case_id=ids["case_id"],
+        claim_type="document_fact",
+        claim_title="Ugyanabban az iratban szereplő másik állítás",
+        claim_text="Ez a másik állítás ugyanabban az iratban, de más forráshivatkozással szerepel.",
+        created_by_analysis_run_id=ids["run_id"],
+        source_validation_status="source_valid",
+        review_status="verified",
+    )
+    second_source_reference = SourceReferenceModel(
+        id=second_source_reference_id,
+        case_id=ids["case_id"],
+        document_id=ids["document_id"],
+        page_id=ids["page_id"],
+        chunk_id=ids["chunk_id"],
+        page_number=2,
+        quote_text="Ez egy másik forrás ugyanabból az iratból.",
+        quote_char_start=61,
+        quote_char_end=100,
+        citation_label="forras.pdf 2. oldal 0. szövegrész",
+        source_kind="chunk_quote",
+    )
+    second_claim_source = ClaimSourceModel(
+        id=second_claim_source_id,
+        claim_id=second_claim_id,
+        source_reference_id=second_source_reference_id,
+        relevance_rank=1,
+        support_type="direct",
+    )
+    db.add_object(second_claim, second_claim_id)
+    db.add_object(second_source_reference, second_source_reference_id)
+    db.add_rows(ClaimSourceModel, [*db.rows[ClaimSourceModel], second_claim_source])
+
+    response = find_related_objects_by_documents(
+        db,
+        case_id=ids["case_id"],
+        object_type="claim",
+        object_id=ids["claim_id"],
+    )
+
+    related_keys = {(item.object_type, item.object_id) for item in response.objects}
+    assert ("claim", second_claim_id) in related_keys
+    assert ("claim", ids["claim_id"]) not in related_keys
+    related_claim = next(item for item in response.objects if item.object_id == second_claim_id)
+    assert related_claim.shared_document_count == 1
+    assert related_claim.shared_documents[0].document_id == ids["document_id"]
+
+
 def test_relationship_graph_multi_focus_deduplicates_shared_source() -> None:
     db, ids = _seed_claim_graph_session()
     second_claim_id = uuid4()
@@ -326,6 +381,7 @@ def test_relationship_graph_multi_focus_deduplicates_shared_source() -> None:
     assert nodes_by_id[f"claim:{second_claim_id}"].metadata["is_focus"] is True
     assert node_ids.count(source_node_id) == 1
     assert sum(1 for edge in graph.edges if edge.type == "HAS_SOURCE" and edge.target == source_node_id) == 2
+    assert "SHARES_SOURCE_WITH" not in {edge.type for edge in graph.edges}
 
 
 def test_relationship_graph_multi_focus_rejects_source_invalid_focus() -> None:
@@ -339,16 +395,16 @@ def test_relationship_graph_multi_focus_rejects_source_invalid_focus() -> None:
         )
 
 
-def test_relationship_graph_multi_focus_rejects_too_many_focus_objects() -> None:
+def test_relationship_graph_multi_focus_rejects_more_than_50_focus_objects() -> None:
     db, ids = _seed_claim_graph_session()
 
-    with pytest.raises(RelationshipGraphValidationError):
+    with pytest.raises(RelationshipGraphValidationError, match="Too many graph focus objects"):
         build_relationship_graph_for_objects(
             db,
             case_id=ids["case_id"],
             focus_objects=[
                 RelationshipGraphFocusObject(object_type="claim", object_id=uuid4())
-                for _ in range(21)
+                for _ in range(51)
             ],
         )
 

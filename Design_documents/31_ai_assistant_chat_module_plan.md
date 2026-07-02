@@ -232,6 +232,15 @@ Nem javasolt elso korben:
 - tartos szemelyes profil,
 - cross-chat memoria.
 
+
+2026-07-02 frissites:
+
+A hosszu beszelgetesek csendes truncation alapu kezelese kulon terv szerint lett kemenyitve:
+
+- `Design_documents/33_ai_assistant_context_window_plan.md`
+
+Az ott rogzitett szelet minimalis altalanos system promptot, konzervativ karakterbudgetet, frontend/backend hard guardot es felhasznaloi jelzest vezetett be. Az egyedi assistant promptlimit is 120000 karakterre emelkedett, hogy nagy beillesztett iratszovegek is atmehessenek, mikozben a teljes chat guard tovabbra is megfogja a kovetkezo tulcsordulast. A cel az, hogy a regi uzenetek ne maradjanak a UI-ban lathato, de modellnek mar el nem kuldott lathatatlan kontextuskent.
+
 ## 8. Frontend UX terv
 
 Elfogadott elso baseline desktopon:
@@ -408,7 +417,7 @@ Ellenorzes:
 - npm --prefix frontend run build -> passed
 - git diff --check -> passed
 
-Kovetkezo logikus lepes: az AI-asszisztens jelenlegi baseline-ja elfogadott, tovabbi munka csak konkret live UX vagy mukodesi problema alapjan induljon. Streaming tovabbra sem cel.
+Kovetkezo logikus lepes: az AI-asszisztens jelenlegi baseline-ja elfogadott, es a hosszu beszelgetesek explicit kontextusablak-kezelese is implementalt a `Design_documents/33_ai_assistant_context_window_plan.md` szerint. Streaming tovabbra sem cel; tovabbi munka konkret live UX vagy mukodesi problema alapjan induljon.
 
 ## 15. Lezart es nyitott dontesek
 
@@ -427,7 +436,7 @@ Lezart elso-baseline dontesek:
 11. A composer fokuszvisszajelzese meretstabil border-szinvaltassal tortenik; uj plusz outline vagy layout-ugras nem hasznalhato.
 12. A scrollbark kinezetet globalis CSS tokenek adjak, nem komponensenkenti ad hoc szabalyok.
 
-Nyitott ismert AI-asszisztens szal nincs; tovabbi munka konkret live UX vagy mukodesi problema alapjan induljon.
+Nyitott ismert AI-asszisztens bug nincs. A kontextusablak explicit kezelese implementalt a `Design_documents/33_ai_assistant_context_window_plan.md` szerint; tovabbi munka konkret live UX vagy mukodesi problema alapjan induljon.
 
 ## 16. Elfogadasi kriterium
 

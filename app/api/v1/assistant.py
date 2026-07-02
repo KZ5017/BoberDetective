@@ -14,6 +14,8 @@ from app.schemas.assistant import (
     AssistantMessageSendResponse,
 )
 from app.services.assistant import (
+    ASSISTANT_CONTEXT_CHARACTER_BUDGET,
+    AssistantContextLimitError,
     AssistantLLMError,
     AssistantNotFoundError,
     AssistantValidationError,
@@ -79,6 +81,15 @@ def post_assistant_message(
         return send_assistant_message(db, chat_id, payload)
     except AssistantNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AssistantContextLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": exc.error_code,
+                "message": str(exc),
+                "character_budget": ASSISTANT_CONTEXT_CHARACTER_BUDGET,
+            },
+        ) from exc
     except AssistantValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except AssistantLLMError as exc:
@@ -95,6 +106,15 @@ def post_assistant_regenerate_last_message(
         return regenerate_last_assistant_message(db, chat_id, payload)
     except AssistantNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AssistantContextLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": exc.error_code,
+                "message": str(exc),
+                "character_budget": ASSISTANT_CONTEXT_CHARACTER_BUDGET,
+            },
+        ) from exc
     except AssistantValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except AssistantLLMError as exc:

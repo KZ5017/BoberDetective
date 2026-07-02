@@ -78,6 +78,7 @@ import {
   RelationshipGraphEdge,
   RelationshipGraphFocusObject,
   RelationshipGraphNode,
+  RelationshipRelatedObject,
   ResearchFindingLatestRunSummary,
   ResearchFindingRead,
   ReviewReport,
@@ -117,6 +118,7 @@ import {
   getLatestResearchFindingRunSummary,
   getLatestRagRunSummary,
   getRelationshipGraphForObjects,
+  getRelationshipRelatedObjectsByDocuments,
   getRagAnswer,
   getReviewReport,
   importDocument,
@@ -199,7 +201,7 @@ const workSurfaces = ["document_organizer", "case_workbench", "relationship_map"
 type WorkSurface = (typeof workSurfaces)[number];
 type ThemeMode = "light" | "dark";
 
-type AppDialogMode = "confirm" | "text_confirm";
+type AppDialogMode = "alert" | "confirm" | "text_confirm";
 
 type AppDialogState = {
   mode: AppDialogMode;
@@ -214,6 +216,10 @@ type AppDialogState = {
 };
 
 type AppDialogResult = boolean | string | null;
+
+const ASSISTANT_MESSAGE_CHARACTER_LIMIT = 120000;
+const ASSISTANT_CONTEXT_CHARACTER_BUDGET = 120000;
+const ASSISTANT_CONTEXT_LIMIT_ERROR_CODE = "assistant_context_limit_exceeded";
 
 
 type DocumentProcessingUnconfirmedDetail = {
@@ -250,7 +256,7 @@ type SearchableSelectOption = {
   disabled?: boolean;
 };
 
-type RelationshipGraphLayerKey = "document_node" | "page_node" | "source_chunk" | "source_reference" | "related_objects" | "contradictions";
+type RelationshipGraphLayerKey = "document_node" | "page_node" | "source_chunk" | "source_reference" | "contradictions";
 
 type RelationshipGraphLayerState = Record<RelationshipGraphLayerKey, boolean>;
 
@@ -259,7 +265,6 @@ const relationshipGraphLayerLabels: Record<RelationshipGraphLayerKey, string> = 
   page_node: "Oldal",
   source_chunk: "Szövegrész",
   source_reference: "Forráshivatkozás",
-  related_objects: "Kapcsolódó objektumok",
   contradictions: "Ellentmondások"
 };
 
@@ -268,11 +273,11 @@ const defaultRelationshipGraphLayers: RelationshipGraphLayerState = {
   page_node: false,
   source_chunk: false,
   source_reference: true,
-  related_objects: false,
   contradictions: false
 };
 
-const maxRelationshipFocusObjects = 20;
+const maxRelationshipFocusObjects = 50;
+const relationshipObjectReportFilters: ReviewReportFilterValues = { sourceValidationStatus: "source_valid" };
 
 type AiOperationStatus = {
   label: string;
@@ -609,6 +614,11 @@ export function App() {
   const [relationshipGraphLayers, setRelationshipGraphLayers] = useState<RelationshipGraphLayerState>(defaultRelationshipGraphLayers);
   const [selectedRelationshipEdgeId, setSelectedRelationshipEdgeId] = useState<string | null>(null);
   const [selectedRelationshipNodeId, setSelectedRelationshipNodeId] = useState<string | null>(null);
+  const [relationshipRelatedCandidates, setRelationshipRelatedCandidates] = useState<RelationshipRelatedObject[]>([]);
+  const [relationshipRelatedSelectedKeys, setRelationshipRelatedSelectedKeys] = useState<string[]>([]);
+  const [relationshipRelatedLoading, setRelationshipRelatedLoading] = useState(false);
+  const [relationshipRelatedError, setRelationshipRelatedError] = useState("");
+  const [relationshipRelatedSourceNodeId, setRelationshipRelatedSourceNodeId] = useState<string | null>(null);
   const [analysisSourceMode, setAnalysisSourceMode] = useState<AnalysisSourceMode>("case");
   const [analysisDocumentId, setAnalysisDocumentId] = useState("");
   const [analysisDocumentIds, setAnalysisDocumentIds] = useState<string[]>([]);
@@ -628,6 +638,7 @@ export function App() {
   const [sourceValidationStatus, setSourceValidationStatus] = useState("source_valid");
   const [reportSearch, setReportSearch] = useState("");
   const [report, setReport] = useState<ReviewReport | null>(null);
+  const [relationshipObjectReport, setRelationshipObjectReport] = useState<ReviewReport | null>(null);
   const [selectedReportItem, setSelectedReportItem] = useState<ReviewReportItem | null>(null);
   const objectDetailPanelRef = useRef<HTMLElement | null>(null);
   const analysisPanelRef = useRef<HTMLElement | null>(null);
@@ -721,6 +732,16 @@ export function App() {
   async function requestAppTextConfirmation(dialog: Omit<AppDialogState, "mode">) {
     const result = await openAppDialog({ ...dialog, mode: "text_confirm" });
     return typeof result === "string" ? result : null;
+  }
+
+  async function showAssistantContextLimitDialog() {
+    await openAppDialog({
+      mode: "alert",
+      title: "A beszélgetés elérte a kontextuskeretet",
+      message: "Ez az üzenet már nem küldhető el biztonságosan ebben a beszélgetésben.",
+      detail: "Nyiss új chatet a folytatáshoz, hogy a modell ne veszítsen el korábbi kontextust láthatatlanul.",
+      confirmLabel: "Rendben"
+    });
   }
 
   function resolveAppDialog(result: AppDialogResult) {
@@ -954,27 +975,28 @@ export function App() {
     return report.items.filter((item) => reportItemMatchesSearch(item, queryText));
   }, [report, reportSearch]);
   const relationshipObjectCandidates = useMemo(() => {
-    if (!report) return [];
+    if (!relationshipObjectReport) return [];
     const queryText = relationshipGraphObjectSearch.trim().toLocaleLowerCase("hu-HU");
-    return report.items.filter((item) => {
+    return relationshipObjectReport.items.filter((item) => {
       if (relationshipGraphObjectType && item.object_type !== relationshipGraphObjectType) return false;
       if (item.source_validation_status !== "source_valid") return false;
       return !queryText || reportItemMatchesSearch(item, queryText);
     });
-  }, [relationshipGraphObjectSearch, relationshipGraphObjectType, report]);
+  }, [relationshipGraphObjectSearch, relationshipGraphObjectType, relationshipObjectReport]);
   const relationshipVisibleCandidateKeys = useMemo(
     () => relationshipObjectCandidates.map((item) => relationshipFocusKey(item.object_type, item.object_id)),
     [relationshipObjectCandidates]
   );
   const selectedRelationshipFocusObjects = useMemo<RelationshipGraphFocusObject[]>(() => {
-    if (!report) return [];
+    if (!relationshipObjectReport) return [];
     const selectedKeys = new Set(relationshipGraphFocusKeys);
-    return report.items
+    return relationshipObjectReport.items
       .filter((item) => selectedKeys.has(relationshipFocusKey(item.object_type, item.object_id)))
       .filter((item) => item.source_validation_status === "source_valid")
       .map((item) => ({ object_type: item.object_type, object_id: item.object_id }));
-  }, [relationshipGraphFocusKeys, report]);
+  }, [relationshipGraphFocusKeys, relationshipObjectReport]);
   const selectedRelationshipFocusCount = selectedRelationshipFocusObjects.length;
+  const relationshipSelectableObjectCount = relationshipObjectReport?.items.length ?? 0;
   const relationshipFocusLimitReached = selectedRelationshipFocusCount >= maxRelationshipFocusObjects;
   const selectedRelationshipFocusLabels = useMemo(
     () =>
@@ -1073,6 +1095,9 @@ export function App() {
       setAnalysisRunDetail(null);
       setSelectedReportItem(null);
       setReport(null);
+      setRelationshipObjectReport(null);
+      setRelationshipGraph(null);
+      setRelationshipGraphFocusKeys([]);
       setDocumentProcessingItems([]);
       setDocumentProcessingItemsMarkedForDeletion([]);
       setLastFullDocumentRun(null);
@@ -1085,6 +1110,21 @@ export function App() {
       setRagSaveNote("");
     }
   }, [selectedCaseId]);
+
+  useEffect(() => {
+    if (!selectedCaseId || activeSurface !== "relationship_map") return;
+    let cancelled = false;
+    getReviewReport(selectedCaseId, relationshipObjectReportFilters)
+      .then((response) => {
+        if (!cancelled) setRelationshipObjectReport(response);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Kapcsolati objektumlista betöltése sikertelen.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSurface, selectedCaseId]);
 
   useEffect(() => {
     if (documentCollections.length === 0) {
@@ -1608,6 +1648,32 @@ export function App() {
     });
   }
 
+  function assistantChatCharacterCount(chat: AssistantChatDetail | null) {
+    return (chat?.messages ?? []).reduce((total, message) => total + message.content.length, 0);
+  }
+
+  function assistantDraftWouldExceedContext(content: string, chat: AssistantChatDetail | null) {
+    return assistantChatCharacterCount(chat) + content.length > ASSISTANT_CONTEXT_CHARACTER_BUDGET;
+  }
+
+  function assistantRegenerateWouldExceedContext(chat: AssistantChatDetail | null) {
+    const messages = chat?.messages ?? [];
+    const lastMessage = messages[messages.length - 1];
+    const contextMessages = lastMessage?.role === "assistant" ? messages.slice(0, -1) : messages;
+    return contextMessages.reduce((total, message) => total + message.content.length, 0) > ASSISTANT_CONTEXT_CHARACTER_BUDGET;
+  }
+
+  function isAssistantContextLimitError(err: unknown) {
+    if (!(err instanceof ApiError)) return false;
+    const detail = err.detail;
+    return Boolean(
+      detail &&
+      typeof detail === "object" &&
+      "code" in detail &&
+      detail.code === ASSISTANT_CONTEXT_LIMIT_ERROR_CODE
+    );
+  }
+
   async function handleCopyAssistantMessage(message: AssistantMessageRead) {
     try {
       await navigator.clipboard.writeText(message.content);
@@ -1619,6 +1685,10 @@ export function App() {
 
   async function handleRegenerateLastAssistantMessage() {
     if (!assistantActiveChatId || assistantMessageInFlightRef.current) return;
+    if (assistantRegenerateWouldExceedContext(assistantActiveChat)) {
+      await showAssistantContextLimitDialog();
+      return;
+    }
     const currentChat = assistantActiveChat;
     const messages = currentChat?.messages ?? [];
     const lastMessage = messages[messages.length - 1];
@@ -1639,6 +1709,9 @@ export function App() {
           setLastActionSummary(response.chat.title);
         } catch (err) {
           setAssistantActiveChat(currentChat);
+          if (isAssistantContextLimitError(err)) {
+            await showAssistantContextLimitDialog();
+          }
           throw err;
         } finally {
           setAssistantRegeneratingChatId("");
@@ -1652,6 +1725,11 @@ export function App() {
   async function handleSendAssistantMessage() {
     const content = assistantDraft.trim();
     if (!content || assistantMessageInFlightRef.current) return;
+    if (content.length > ASSISTANT_MESSAGE_CHARACTER_LIMIT) return;
+    if (assistantDraftWouldExceedContext(content, assistantActiveChat)) {
+      await showAssistantContextLimitDialog();
+      return;
+    }
     assistantMessageInFlightRef.current = true;
     setAssistantDraft("");
     try {
@@ -1672,6 +1750,12 @@ export function App() {
           setAssistantActiveChatId(response.chat.id);
           await refreshAssistantChats(false);
           setNotice("AI-asszisztens válasz elkészült.");
+        } catch (err) {
+          if (isAssistantContextLimitError(err)) {
+            setAssistantDraft(content);
+            await showAssistantContextLimitDialog();
+          }
+          throw err;
         } finally {
           setAssistantPendingMessage(null);
         }
@@ -2087,6 +2171,7 @@ Az iratok nem törlődnek.`,
         runsResponse,
         exportsResponse,
         reportResponse,
+        relationshipObjectReportResponse,
         manualClaimsResponse,
         claimsResponse,
         entitiesResponse,
@@ -2103,6 +2188,7 @@ Az iratok nem törlődnek.`,
         listAnalysisRuns(selectedCaseId),
         listExports(selectedCaseId),
         getReviewReport(selectedCaseId, reportFilters),
+        getReviewReport(selectedCaseId, relationshipObjectReportFilters),
         getManualContradictionClaims(selectedCaseId),
         listClaims(selectedCaseId),
         listEntities(selectedCaseId),
@@ -2129,6 +2215,7 @@ Az iratok nem törlődnek.`,
       setDetachedSourceItems(detachedSourcesResponse.data);
       setManualContradictionClaims(manualClaimsResponse.items);
       setReport(reportResponse);
+      setRelationshipObjectReport(relationshipObjectReportResponse);
       if (showNotice) {
         setNotice("Ugyadatok frissitve.");
       }
@@ -2841,15 +2928,16 @@ Az iratok nem törlődnek.`,
       const graph = await getRelationshipGraphForObjects(
         selectedCaseId,
         {
-          focus_objects: focusObjects,
-          include_shared_sources: true,
-          max_nodes: 150,
-          max_edges: 250
+          focus_objects: focusObjects
         }
       );
       setRelationshipGraph(graph);
       setSelectedRelationshipEdgeId(null);
       setSelectedRelationshipNodeId(graph.focus_node_id);
+      setRelationshipRelatedCandidates([]);
+      setRelationshipRelatedSelectedKeys([]);
+      setRelationshipRelatedError("");
+      setRelationshipRelatedSourceNodeId(null);
       setNotice("Kapcsolati térkép betöltve.");
       setLastActionSummary(`${graph.focus_node_ids.length} fókusz | ${graph.limits.node_count} elem | ${graph.limits.edge_count} kapcsolat`);
     });
@@ -5236,8 +5324,178 @@ Az iratok nem törlődnek.`,
     setRelationshipGraph(null);
     setSelectedRelationshipEdgeId(null);
     setSelectedRelationshipNodeId(null);
+    setRelationshipRelatedCandidates([]);
+    setRelationshipRelatedSelectedKeys([]);
+    setRelationshipRelatedError("");
+    setRelationshipRelatedSourceNodeId(null);
     setNotice("Kapcsolati térkép kiürítve.");
     setLastActionSummary("Nincs megjelenített kapcsolati térkép");
+  }
+
+  function toggleRelationshipRelatedObject(item: RelationshipRelatedObject) {
+    const key = relationshipFocusKey(item.object_type, item.object_id);
+    setRelationshipRelatedSelectedKeys((current) =>
+      current.includes(key) ? current.filter((value) => value !== key) : [...current, key]
+    );
+  }
+
+  function selectVisibleRelationshipRelatedObjects() {
+    if (relationshipRelatedCandidates.length === 0) return;
+    const currentFocusKeys = new Set((relationshipGraph?.focus_objects ?? selectedRelationshipFocusObjects).map((item) => relationshipFocusKey(item.object_type, item.object_id)));
+    const selectableKeys = relationshipRelatedCandidates
+      .map((item) => relationshipFocusKey(item.object_type, item.object_id))
+      .filter((key) => !currentFocusKeys.has(key));
+    setRelationshipRelatedSelectedKeys(selectableKeys);
+  }
+
+  async function handleFindRelationshipRelatedObjects(selectedNode: RelationshipGraphNode | null) {
+    if (!selectedCaseId || !selectedNode) return;
+    const focus = relationshipFocusFromGraphNode(selectedNode);
+    if (!focus) {
+      setRelationshipRelatedError("Kapcsolódó objektum csak szakmai objektumcsomópontról kereshető.");
+      return;
+    }
+    setRelationshipRelatedLoading(true);
+    setRelationshipRelatedError("");
+    setRelationshipRelatedSelectedKeys([]);
+    try {
+      const response = await getRelationshipRelatedObjectsByDocuments(selectedCaseId, {
+        object_type: focus.object_type,
+        object_id: focus.object_id,
+        max_results: 100
+      });
+      setRelationshipRelatedCandidates(response.objects);
+      setRelationshipRelatedSourceNodeId(selectedNode.id);
+      setNotice(`${response.objects.length} kapcsolódó objektum található közös iratok alapján.`);
+    } catch (exc) {
+      setRelationshipRelatedCandidates([]);
+      setRelationshipRelatedSourceNodeId(null);
+      setRelationshipRelatedError(exc instanceof Error ? exc.message : "Kapcsolódó objektumok keresése sikertelen.");
+    } finally {
+      setRelationshipRelatedLoading(false);
+    }
+  }
+
+  async function addSelectedRelationshipRelatedObjectsToMap() {
+    if (!selectedCaseId || relationshipRelatedSelectedKeys.length === 0) return;
+    const selectedKeys = new Set(relationshipRelatedSelectedKeys);
+    const currentFocuses = relationshipGraph?.focus_objects ?? selectedRelationshipFocusObjects;
+    const nextFocuses = [...currentFocuses];
+    const nextKeys = new Set(currentFocuses.map((item) => relationshipFocusKey(item.object_type, item.object_id)));
+    for (const item of relationshipRelatedCandidates) {
+      const key = relationshipFocusKey(item.object_type, item.object_id);
+      if (!selectedKeys.has(key) || nextKeys.has(key)) continue;
+      if (nextFocuses.length >= maxRelationshipFocusObjects) {
+        setNotice(`Legfeljebb ${maxRelationshipFocusObjects} objektum helyezhető térképre egyszerre.`);
+        break;
+      }
+      nextFocuses.push({ object_type: item.object_type, object_id: item.object_id });
+      nextKeys.add(key);
+    }
+    setRelationshipGraphFocusKeys(Array.from(nextKeys));
+    setRelationshipRelatedSelectedKeys([]);
+    await loadRelationshipGraphForObjects(nextFocuses);
+  }
+
+  function renderRelationshipRelatedObjectOption(item: RelationshipRelatedObject) {
+    const key = relationshipFocusKey(item.object_type, item.object_id);
+    const isSelected = relationshipRelatedSelectedKeys.includes(key);
+    const isAlreadyOnMap = Boolean(relationshipGraph?.focus_objects.some((focus) => relationshipFocusKey(focus.object_type, focus.object_id) === key));
+    const disabled = isAlreadyOnMap || (!isSelected && (relationshipGraph?.focus_objects.length ?? selectedRelationshipFocusObjects.length) >= maxRelationshipFocusObjects);
+    const tooltip = relationshipRelatedObjectTooltip(item);
+    return (
+      <label
+        key={key}
+        className={`checkbox-label source-document-option relationship-object-option ${relationshipObjectTypeClass(item.object_type)} ${isSelected ? "is-selected" : ""}`}
+        title={tooltip}
+      >
+        <input
+          type="checkbox"
+          checked={isSelected || isAlreadyOnMap}
+          disabled={disabled}
+          onChange={() => toggleRelationshipRelatedObject(item)}
+        />
+        <span>
+          <strong>{truncateText(item.title, 74)}</strong>
+          <small>{truncateText(item.body_excerpt ?? "Nincs rövid leírás.", 108)}</small>
+        </span>
+      </label>
+    );
+  }
+
+  function renderRelationshipRelatedPanel(selectedNode: RelationshipGraphNode | null) {
+    const focus = relationshipFocusFromGraphNode(selectedNode);
+    const sourceChanged = Boolean(relationshipRelatedSourceNodeId && selectedNode?.id !== relationshipRelatedSourceNodeId);
+    const canAddRelatedObjects = relationshipRelatedSelectedKeys.length > 0 && !busy && !relationshipRelatedLoading;
+    return (
+      <section className="panel relationship-related-panel">
+        <div className="section-heading">
+          <h2>Kapcsolódó objektumok</h2>
+          <GitMerge size={20} />
+        </div>
+        {!relationshipGraph && (
+          <div className="research-empty-state relationship-inspector-empty">
+            <strong>Nincs betöltött térkép</strong>
+            <p>Kapcsolódó objektum kereséséhez előbb nyiss meg egy kapcsolati térképet.</p>
+          </div>
+        )}
+        {relationshipGraph && !focus && (
+          <div className="research-empty-state relationship-inspector-empty">
+            <strong>Nincs kijelölt objektum</strong>
+            <p>Kattints egy szakmai objektumra a térképen, majd indítsd el a közös iratok alapján történő keresést.</p>
+          </div>
+        )}
+        {relationshipGraph && focus && (
+          <div className="relationship-related-content">
+            <div className="button-row relationship-related-actions">
+              <button
+                type="button"
+                className="relationship-related-search-button"
+                onClick={() => void handleFindRelationshipRelatedObjects(selectedNode)}
+                disabled={Boolean(busy) || relationshipRelatedLoading}
+              >
+                {relationshipRelatedLoading ? <Loader2 className="spin" size={17} /> : <Search size={17} />}
+                Keresés
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={selectVisibleRelationshipRelatedObjects}
+                disabled={relationshipRelatedCandidates.length === 0 || Boolean(busy) || relationshipRelatedLoading}
+              >
+                Láthatók kijelölése
+              </button>
+            </div>
+            {sourceChanged && <p className="field-hint">A lista egy korábbi kijelölt objektumhoz tartozik. Indíts új keresést az aktuális csomóponthoz.</p>}
+            {relationshipRelatedError && <p className="field-hint error-text">{relationshipRelatedError}</p>}
+            {relationshipRelatedCandidates.length === 0 && !relationshipRelatedLoading && !relationshipRelatedError && !sourceChanged && (
+              <div className="research-empty-state relationship-related-empty">
+                <strong>Nincs kapcsolódó objektumlista</strong>
+                <p>A keresés azokat az objektumokat adja vissza, amelyek ugyanazokban az iratokban szerepelnek, mint a kijelölt objektum.</p>
+              </div>
+            )}
+            {relationshipRelatedCandidates.length > 0 && (
+              <>
+                <div className="source-filter-list relationship-related-list">
+                  {relationshipRelatedCandidates.map(renderRelationshipRelatedObjectOption)}
+                </div>
+                <div className="metrics relationship-related-summary">
+                  <span>{relationshipRelatedSelectedKeys.length} kijelölve</span>
+                  <span>{relationshipRelatedCandidates.length} találat</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void addSelectedRelationshipRelatedObjectsToMap()}
+                  disabled={!canAddRelatedObjects}
+                >
+                  <GitMerge size={17} /> Kijelöltek térképre helyezése
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </section>
+    );
   }
 
   function renderRelationshipObjectOption(item: ReviewReportItem) {
@@ -5245,7 +5503,7 @@ Az iratok nem törlődnek.`,
     const isSelected = relationshipGraphFocusKeys.includes(focusKey);
     const disabled = !isSelected && relationshipFocusLimitReached;
     return (
-      <label key={item.object_id} className={`checkbox-label source-document-option relationship-object-option ${isSelected ? "is-selected" : ""}`}>
+      <label key={item.object_id} className={`checkbox-label source-document-option relationship-object-option ${relationshipObjectTypeClass(item.object_type)} ${isSelected ? "is-selected" : ""}`}>
         <input
           type="checkbox"
           checked={isSelected}
@@ -5325,13 +5583,13 @@ Az iratok nem törlődnek.`,
                 </button>
               </div>
               <div className="source-filter-list relationship-object-list">
-                {!report && (
+                {!relationshipObjectReport && (
                   <div className="research-empty-state relationship-object-empty">
-                    <strong>Nincs betöltött áttekintési jelentés</strong>
-                    <p>Az objektumválasztó az aktuális ügy áttekintési jelentéséből dolgozik.</p>
+                    <strong>Nincs betöltött objektumlista</strong>
+                    <p>Az objektumválasztó az aktuális ügy érvényes forráshivatkozású objektumaiból dolgozik.</p>
                   </div>
                 )}
-                {report && relationshipObjectCandidates.length === 0 && (
+                {relationshipObjectReport && relationshipObjectCandidates.length === 0 && (
                   <div className="research-empty-state relationship-object-empty">
                     <strong>Nincs választható objektum</strong>
                     <p>Ehhez a típushoz nincs érvényes forráshivatkozású találat, vagy a keresés nem adott eredményt.</p>
@@ -5341,6 +5599,7 @@ Az iratok nem törlődnek.`,
               </div>
               <div className="metrics relationship-focus-summary">
                 <span>{selectedRelationshipFocusCount} kijelölve / {maxRelationshipFocusObjects}</span>
+                <span>Összes: {relationshipSelectableObjectCount}</span>
                 {selectedRelationshipFocusSummary && <span>{selectedRelationshipFocusSummary}</span>}
               </div>
               <div className="button-row">
@@ -5357,6 +5616,8 @@ Az iratok nem törlődnek.`,
               </div>
             </div>
           </section>
+
+            {renderRelationshipRelatedPanel(selectedRelationshipNode)}
 
             <section className="panel relationship-inspector-panel">
               <div className="section-heading">
@@ -5514,7 +5775,9 @@ Az iratok nem törlődnek.`,
     const pendingMessage = assistantPendingMessage?.chatId === assistantActiveChatId ? assistantPendingMessage : null;
     const isRegeneratingAssistantMessage = Boolean(assistantActiveChatId) && assistantRegeneratingChatId === assistantActiveChatId;
     const hasConversationContent = messages.length > 0 || Boolean(pendingMessage) || isRegeneratingAssistantMessage;
-    const canSend = assistantDraft.trim().length > 0 && !busy;
+    const trimmedAssistantDraft = assistantDraft.trim();
+    const assistantDraftTooLong = trimmedAssistantDraft.length > ASSISTANT_MESSAGE_CHARACTER_LIMIT;
+    const canSend = trimmedAssistantDraft.length > 0 && !assistantDraftTooLong && !busy;
     const assistantMenuChat = assistantMenu ? assistantChats.find((chat) => chat.id === assistantMenu.chatId) : null;
     return (
       <section className="assistant-surface">
@@ -5589,14 +5852,20 @@ Az iratok nem törlődnek.`,
                     placeholder="Kérdezz bármit"
                     rows={1}
                     disabled={Boolean(busy)}
+                    aria-invalid={assistantDraftTooLong}
                   />
                 </div>
+                {assistantDraftTooLong && (
+                  <p className="assistant-composer-warning">
+                    Az üzenet túl hosszú. Rövidítsd a szöveget, hogy elküldhető legyen.
+                  </p>
+                )}
                 <button
                   type="button"
                   className={"assistant-reasoning-toggle " + (assistantReasoningEnabled ? "is-active" : "")}
                   onClick={() => setAssistantReasoningEnabled((current) => !current)}
                   disabled={Boolean(busy)}
-                  title="Gondolkodó mód"
+                  title={assistantReasoningEnabled ? "Gondolkodó mód kikapcsolása" : "Gondolkodó mód bekapcsolása"}
                   aria-pressed={assistantReasoningEnabled}
                 >
                   <Brain size={16} />
@@ -8373,9 +8642,11 @@ Az iratok nem törlődnek.`,
               </label>
             )}
             <div className="app-dialog-actions">
-              <button type="button" className="secondary-button" onClick={() => resolveAppDialog(null)} disabled={Boolean(busy)}>
-                {appDialog.cancelLabel ?? "Mégse"}
-              </button>
+              {appDialog.mode !== "alert" && (
+                <button type="button" className="secondary-button" onClick={() => resolveAppDialog(null)} disabled={Boolean(busy)}>
+                  {appDialog.cancelLabel ?? "Mégse"}
+                </button>
+              )}
               <button
                 type="submit"
                 className={appDialog.danger ? "danger-button" : undefined}
@@ -8592,6 +8863,30 @@ function relationshipFocusKey(objectType: string, objectId: string) {
   return `${objectType}:${objectId}`;
 }
 
+function relationshipObjectTypeClass(objectType: string) {
+  return `relationship-object-type-${objectType.replace(/_/g, "-")}`;
+}
+
+function relationshipRelatedObjectTooltip(item: RelationshipRelatedObject) {
+  const lines = [
+    `Típus: ${labelObjectType(item.object_type)}`,
+    `Közös irat: ${item.shared_document_count}`,
+    ...item.shared_documents.map((document) => document.filename).filter(Boolean),
+  ];
+  return lines.join("\n");
+}
+
+function relationshipFocusFromGraphNode(node: RelationshipGraphNode | null): RelationshipGraphFocusObject | null {
+  if (!node) return null;
+  if (!["claim", "event", "entity", "missing_item_candidate", "contradiction_candidate"].includes(node.type)) {
+    return null;
+  }
+  const [, ...idParts] = node.id.split(":");
+  const objectId = idParts.join(":");
+  if (!objectId) return null;
+  return { object_type: node.type, object_id: objectId };
+}
+
 function filterRelationshipGraphByLayers(
   graph: RelationshipGraph | null,
   layers: RelationshipGraphLayerState
@@ -8688,14 +8983,6 @@ function filterRelationshipGraphByLayers(
     }
   });
 
-  if (layers.related_objects) {
-    graph.nodes.forEach((node) => {
-      if (focusNodeIdSet.has(node.id)) return;
-      if (node.type === "claim" || node.type === "event" || node.type === "entity" || node.type === "missing_item_candidate") {
-        visibleNodeIds.add(node.id);
-      }
-    });
-  }
 
   graph.edges.forEach((edge) => {
     if ((edge.type === "CONTRADICTS_CLAIM_A" || edge.type === "CONTRADICTS_CLAIM_B") && focusNodeIdSet.has(edge.target)) {

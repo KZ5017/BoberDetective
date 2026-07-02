@@ -8,7 +8,17 @@ from fastapi import HTTPException
 import app.api.v1.assistant as assistant_api
 import app.services.assistant as assistant_service
 from app.schemas.assistant import AssistantChatCreateRequest, AssistantChatListItem, AssistantMessageRegenerateRequest, AssistantMessageSendRequest
-from app.services.assistant import AssistantLLMError, AssistantNotFoundError, _llm_reasoning_mode, _title_from_message
+from app.services.assistant import (
+    ASSISTANT_CONTEXT_LIMIT_ERROR_CODE,
+    ASSISTANT_SYSTEM_PROMPT,
+    AssistantContextLimitError,
+    AssistantLLMError,
+    AssistantNotFoundError,
+    _context_messages_for_llm,
+    _ensure_context_character_budget,
+    _llm_reasoning_mode,
+    _title_from_message,
+)
 
 
 def test_assistant_chat_create_request_defaults_to_normal_reasoning() -> None:
@@ -84,6 +94,44 @@ def test_assistant_api_maps_regenerate_validation_error(monkeypatch) -> None:
     assert exc.value.status_code == 400
 
 
+def test_assistant_context_messages_include_minimal_system_prompt(monkeypatch) -> None:
+    messages = [
+        SimpleNamespace(role="user", content="Első kérdés"),
+        SimpleNamespace(role="assistant", content="Első válasz"),
+        SimpleNamespace(role="user", content="Utolsó kérdés"),
+    ]
+    monkeypatch.setattr(assistant_service, "_stored_context_messages", lambda db, chat_id: messages)
+
+    llm_messages = _context_messages_for_llm(object(), uuid4())
+
+    assert [message.role for message in llm_messages] == ["system", "user", "assistant", "user"]
+    assert llm_messages[0].content == ASSISTANT_SYSTEM_PROMPT
+    assert llm_messages[-1].content == "Utolsó kérdés"
+
+
+def test_assistant_context_budget_rejects_oversized_history(monkeypatch) -> None:
+    monkeypatch.setattr(assistant_service, "ASSISTANT_CONTEXT_CHARACTER_BUDGET", 10)
+    messages = [SimpleNamespace(content="12345"), SimpleNamespace(content="67890")]
+
+    _ensure_context_character_budget(messages)
+    with pytest.raises(AssistantContextLimitError):
+        _ensure_context_character_budget(messages, additional_content="x")
+
+
+def test_assistant_api_maps_context_limit_error(monkeypatch) -> None:
+    def _context_limit(db, chat_id, payload):
+        raise AssistantContextLimitError("context full")
+
+    monkeypatch.setattr(assistant_api, "send_assistant_message", _context_limit)
+
+    with pytest.raises(HTTPException) as exc:
+        assistant_api.post_assistant_message(uuid4(), AssistantMessageSendRequest(content="Szia"), db=object())
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail["code"] == ASSISTANT_CONTEXT_LIMIT_ERROR_CODE
+    assert exc.value.detail["message"] == "context full"
+
+
 def test_assistant_regenerate_reuses_previous_user_message(monkeypatch) -> None:
     chat_id = uuid4()
     user_message = SimpleNamespace(id=uuid4(), role="user", content="Eredeti kérdés", sequence_index=1)
@@ -114,6 +162,7 @@ def test_assistant_regenerate_reuses_previous_user_message(monkeypatch) -> None:
 
     monkeypatch.setattr(assistant_service, "_get_active_chat", lambda db_arg, chat_id_arg: chat)
     monkeypatch.setattr(assistant_service, "_generate_assistant_response", fake_generate)
+    monkeypatch.setattr(assistant_service, "_validate_assistant_context_budget", lambda *args, **kwargs: None)
 
     assistant_service.regenerate_last_assistant_message(
         db,

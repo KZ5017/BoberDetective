@@ -304,6 +304,33 @@ export type RelationshipGraph = {
   limits: RelationshipGraphLimits;
 };
 
+export type RelationshipRelatedDocument = {
+  document_id: string;
+  filename: string;
+};
+
+export type RelationshipRelatedObject = {
+  object_type: string;
+  object_id: string;
+  title: string;
+  body_excerpt: string | null;
+  review_status: string | null;
+  source_validation_status: string | null;
+  shared_document_count: number;
+  shared_documents: RelationshipRelatedDocument[];
+};
+
+export type RelationshipRelatedByDocumentResponse = {
+  case_id: string;
+  source_object: {
+    object_type: string;
+    object_id: string;
+    title: string;
+  };
+  documents: RelationshipRelatedDocument[];
+  objects: RelationshipRelatedObject[];
+};
+
 export type ResearchFindingRead = {
   id: string;
   case_id: string;
@@ -1787,12 +1814,24 @@ export function getRelationshipGraphForObjects(
   caseId: string,
   payload: {
     focus_objects: RelationshipGraphFocusObject[];
-    include_shared_sources?: boolean;
-    max_nodes?: number;
-    max_edges?: number;
   }
 ): Promise<RelationshipGraph> {
   return request(`/cases/${caseId}/graph/objects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getRelationshipRelatedObjectsByDocuments(
+  caseId: string,
+  payload: {
+    object_type: string;
+    object_id: string;
+    max_results?: number;
+  }
+): Promise<RelationshipRelatedByDocumentResponse> {
+  return request(`/cases/${caseId}/graph/related-by-documents`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
