@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import boberDetectiveLogo from "./assets/boberdetective-logo.png";
+import boberDetectiveLogo from "./assets/boberdetective-logo-144.png";
 import {
   Archive,
   Brain,
@@ -615,6 +615,8 @@ export function App() {
   const [relationshipGraphLayers, setRelationshipGraphLayers] = useState<RelationshipGraphLayerState>(defaultRelationshipGraphLayers);
   const [selectedRelationshipEdgeId, setSelectedRelationshipEdgeId] = useState<string | null>(null);
   const [selectedRelationshipNodeId, setSelectedRelationshipNodeId] = useState<string | null>(null);
+  const [relationshipBulkSelectionMode, setRelationshipBulkSelectionMode] = useState(false);
+  const [relationshipBulkSelectedNodeIds, setRelationshipBulkSelectedNodeIds] = useState<string[]>([]);
   const [relationshipRelatedCandidates, setRelationshipRelatedCandidates] = useState<RelationshipRelatedObject[]>([]);
   const [relationshipRelatedSelectedKeys, setRelationshipRelatedSelectedKeys] = useState<string[]>([]);
   const [relationshipRelatedLoading, setRelationshipRelatedLoading] = useState(false);
@@ -2933,6 +2935,7 @@ Az iratok nem törlődnek.`,
         }
       );
       setRelationshipGraph(graph);
+      setRelationshipBulkSelectedNodeIds([]);
       setSelectedRelationshipEdgeId(null);
       setSelectedRelationshipNodeId(graph.focus_node_id);
       setRelationshipRelatedCandidates([]);
@@ -2954,6 +2957,7 @@ Az iratok nem törlődnek.`,
   async function handleLoadRelationshipGraph() {
     if (selectedRelationshipFocusObjects.length === 0) {
       setRelationshipGraph(null);
+      setRelationshipBulkSelectedNodeIds([]);
       setSelectedRelationshipEdgeId(null);
       setSelectedRelationshipNodeId(null);
       setNotice("Kapcsolati térkép kiürítve.");
@@ -5323,6 +5327,7 @@ Az iratok nem törlődnek.`,
   function clearRelationshipGraphAndSelection() {
     setRelationshipGraphFocusKeys([]);
     setRelationshipGraph(null);
+    setRelationshipBulkSelectedNodeIds([]);
     setSelectedRelationshipEdgeId(null);
     setSelectedRelationshipNodeId(null);
     setRelationshipRelatedCandidates([]);
@@ -5331,6 +5336,51 @@ Az iratok nem törlődnek.`,
     setRelationshipRelatedSourceNodeId(null);
     setNotice("Kapcsolati térkép kiürítve.");
     setLastActionSummary("Nincs megjelenített kapcsolati térkép");
+  }
+
+  async function handleRemoveRelationshipCanvasSelection() {
+    if (!relationshipGraph || !visibleRelationshipGraph) return;
+    const candidateNodeIds = relationshipBulkSelectedNodeIds.length > 0
+      ? relationshipBulkSelectedNodeIds
+      : selectedRelationshipNodeId
+        ? [selectedRelationshipNodeId]
+        : [];
+    if (candidateNodeIds.length === 0) return;
+
+    const visibleNodesById = new Map(visibleRelationshipGraph.nodes.map((node) => [node.id, node]));
+    const currentFocuses = relationshipGraph.focus_objects.length > 0 ? relationshipGraph.focus_objects : selectedRelationshipFocusObjects;
+    const currentFocusKeys = new Set(currentFocuses.map((focus) => relationshipFocusKey(focus.object_type, focus.object_id)));
+    const focusKeysToRemove = new Set<string>();
+
+    candidateNodeIds.forEach((nodeId) => {
+      const node = visibleNodesById.get(nodeId);
+      if (!node) return;
+      const focus = relationshipFocusFromGraphNode(node);
+      const focusKey = focus ? relationshipFocusKey(focus.object_type, focus.object_id) : null;
+      if (focusKey && currentFocusKeys.has(focusKey)) {
+        focusKeysToRemove.add(focusKey);
+      }
+    });
+
+    if (focusKeysToRemove.size === 0) return;
+
+    const nextFocuses = currentFocuses.filter(
+      (focus) => !focusKeysToRemove.has(relationshipFocusKey(focus.object_type, focus.object_id))
+    );
+    setRelationshipGraphFocusKeys(nextFocuses.map((focus) => relationshipFocusKey(focus.object_type, focus.object_id)));
+    setRelationshipBulkSelectedNodeIds([]);
+    setSelectedRelationshipEdgeId(null);
+    if (candidateNodeIds.includes(selectedRelationshipNodeId ?? "")) {
+      setSelectedRelationshipNodeId(null);
+    }
+
+    if (nextFocuses.length > 0) {
+      await loadRelationshipGraphForObjects(nextFocuses);
+    } else {
+      clearRelationshipGraphAndSelection();
+    }
+
+    setNotice(focusKeysToRemove.size + " objektum levéve a térképről.");
   }
 
   function toggleRelationshipRelatedObject(item: RelationshipRelatedObject) {
@@ -5526,6 +5576,22 @@ Az iratok nem törlődnek.`,
       selectedRelationshipFocusCount < maxRelationshipFocusObjects &&
       selectedVisibleRelationshipFocusCount < relationshipObjectCandidates.length;
     const canRemoveVisibleRelationshipObjects = selectedVisibleRelationshipFocusCount > 0;
+    const currentRelationshipFocusKeys = new Set(
+      (relationshipGraph?.focus_objects ?? selectedRelationshipFocusObjects).map((focus) => relationshipFocusKey(focus.object_type, focus.object_id))
+    );
+    const visibleRelationshipNodesById = new Map(visibleRelationshipGraph?.nodes.map((node) => [node.id, node]) ?? []);
+    const isRemovableRelationshipFocusNode = (nodeId: string | null) => {
+      if (!nodeId) return false;
+      const node = visibleRelationshipNodesById.get(nodeId);
+      const focus = relationshipFocusFromGraphNode(node ?? null);
+      return Boolean(focus && currentRelationshipFocusKeys.has(relationshipFocusKey(focus.object_type, focus.object_id)));
+    };
+    const relationshipCanvasSelectionCount = relationshipBulkSelectedNodeIds.length > 0
+      ? relationshipBulkSelectedNodeIds.filter(isRemovableRelationshipFocusNode).length
+      : isRemovableRelationshipFocusNode(selectedRelationshipNodeId)
+        ? 1
+        : 0;
+    const canRemoveRelationshipCanvasSelection = Boolean(relationshipGraph && visibleRelationshipGraph && relationshipCanvasSelectionCount > 0 && !busy);
     const selectedRelationshipNode = visibleRelationshipGraph?.nodes.find((node) => node.id === selectedRelationshipNodeId) ?? null;
     const selectedRelationshipEdge = visibleRelationshipGraph?.edges.find((edge) => edge.id === selectedRelationshipEdgeId) ?? null;
     const selectedRelationshipFocusSummary = Object.entries(selectedRelationshipFocusLabels)
@@ -5671,6 +5737,25 @@ Az iratok nem törlődnek.`,
                       <span>{relationshipGraphLayerLabels[layerKey]}</span>
                     </label>
                   ))}
+                  <button
+                    type="button"
+                    className={relationshipBulkSelectionMode ? "relationship-layer-action" : "secondary-button relationship-layer-action"}
+                    onClick={() => {
+                      setRelationshipBulkSelectionMode((current) => !current);
+                      setRelationshipBulkSelectedNodeIds([]);
+                    }}
+                  >
+                    Csoportos kijelölés
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button relationship-layer-action"
+                    onClick={() => void handleRemoveRelationshipCanvasSelection()}
+                    disabled={!canRemoveRelationshipCanvasSelection}
+                    title={relationshipCanvasSelectionCount > 0 ? relationshipCanvasSelectionCount + " kijelölt csomópont levétele" : "Válassz ki csomópontot a térképen"}
+                  >
+                    Eltávolítás
+                  </button>
                 </div>
                 {relationshipGraph.warnings.length > 0 && (
                   <div className="module-note module-note-warning">
@@ -5690,6 +5775,7 @@ Az iratok nem törlődnek.`,
                     graph={visibleRelationshipGraph}
                     labelObjectType={labelObjectType}
                     labelSourceValidationStatus={labelSourceValidationStatus}
+                    bulkSelectedNodeIds={relationshipBulkSelectedNodeIds}
                     selectedEdgeId={selectedRelationshipEdgeId}
                     selectedNodeId={selectedRelationshipNodeId}
                     onEdgeSelect={(edgeId) => {
@@ -5698,8 +5784,16 @@ Az iratok nem törlődnek.`,
                       setSelectedRelationshipNodeId(edge?.target ?? null);
                     }}
                     onNodeSelect={(nodeId) => {
+                      if (relationshipBulkSelectionMode && !isRemovableRelationshipFocusNode(nodeId)) {
+                        return;
+                      }
                       setSelectedRelationshipNodeId(nodeId);
                       setSelectedRelationshipEdgeId(null);
+                      if (relationshipBulkSelectionMode) {
+                        setRelationshipBulkSelectedNodeIds((current) =>
+                          current.includes(nodeId) ? current.filter((item) => item !== nodeId) : [...current, nodeId]
+                        );
+                      }
                     }}
                   />
                 </Suspense>

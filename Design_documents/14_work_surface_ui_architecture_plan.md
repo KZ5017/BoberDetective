@@ -38,7 +38,7 @@ CSS alap: typography/surface/spacing tokenek + role primitive-ek aktivak
 
 Topbar: ikon-only BoberDetective logo + nativ BoberDetective szoveg.
 Alcim: Lokális dokumentum- és tudásintelligencia rendszer.
-Asset: frontend/src/assets/boberdetective-logo.png.
+Asset: frontend/src/assets/boberdetective-logo-144.png.
 PNG import: frontend/src/vite-env.d.ts.
 Elv: a logo csak brand ikon, a cim/alcim tovabbra is nativ UI szoveg marad.
 

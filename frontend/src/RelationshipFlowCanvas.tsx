@@ -23,6 +23,7 @@ type RelationshipFlowCanvasProps = {
   graph: RelationshipGraph;
   labelObjectType: (value: string) => string;
   labelSourceValidationStatus: (value: string) => string;
+  bulkSelectedNodeIds?: string[];
   selectedEdgeId?: string | null;
   selectedNodeId?: string | null;
   onEdgeSelect?: (edgeId: string) => void;
@@ -318,6 +319,7 @@ export default function RelationshipFlowCanvas({
   graph,
   labelObjectType,
   labelSourceValidationStatus,
+  bulkSelectedNodeIds = [],
   selectedEdgeId,
   selectedNodeId,
   onEdgeSelect,
@@ -342,9 +344,14 @@ export default function RelationshipFlowCanvas({
     setEdges(flowElements.edges);
   }, [flowElements, setEdges, setNodes]);
 
+  const bulkSelectedNodeIdSet = new Set(bulkSelectedNodeIds);
   const selectableNodes = nodes.map((node) => ({
     ...node,
-    selected: node.id === selectedNodeId
+    selected: node.id === selectedNodeId,
+    className: [
+      node.className,
+      bulkSelectedNodeIdSet.has(node.id) ? "graph-flow-node-bulk-selected" : ""
+    ].filter(Boolean).join(" ")
   }));
   const selectableEdges = edges.map((edge) => ({
     ...edge,
