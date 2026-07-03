@@ -227,7 +227,8 @@ Viselkedes:
   - checkbox;
   - cim;
   - rovid leiras/reszlet;
-  - kozos irat: n chip;
+  - objektumtipus szerinti halk hatterszin;
+  - a kozos irat darabszam tooltipben maradjon, ne kulon harmadik sorban.
 - a mar terkepen levo vagy fokuszban levo objektumokat ne lehessen ujra
   hozzaadni;
 - ha az 50-es focus cap elerne a hatart, a tovabbi hozzaadas legyen tiltott
@@ -272,3 +273,10 @@ A szelet akkor tekintheto kesznek, ha:
    - tests/test_relationship_graph.py celzott bovites;
    - npm --prefix frontend run build;
    - git diff --check.
+
+## Implementalt UI allapot - 2026-07-03
+
+- A Kapcsolodo objektumok panel a top sorban kozvetlenul a Megjelenitendo objektum panel utan jelenik meg.
+- A kapcsolodo objektum kartyak ugyanazt az objektumtipus szerinti halk hatterszinezest hasznaljak, mint a normal graf objektumvalaszto kartyak.
+- A kozos iratok szama tooltip informacio, nem lathato harmadik kartyasor.
+- A kartyak magassaga tartalomvezerelt; nem oroklik a graf node/kartya fix minimum magassagat, mert display scaling mellett fuggoleges nyulast okozott.

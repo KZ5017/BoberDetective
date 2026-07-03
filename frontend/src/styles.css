@@ -506,6 +506,23 @@ label .field-hint,
   padding: var(--layout-page-padding) 1.25rem;
 }
 
+.topbar-brand {
+  align-items: center;
+  display: flex;
+  gap: var(--layout-toolbar-gap);
+  min-width: 0;
+}
+
+.topbar-logo {
+  flex: 0 0 auto;
+  height: 3.2rem;
+  width: auto;
+}
+
+.topbar-title {
+  min-width: 0;
+}
+
 .topbar h1,
 .topbar p {
   margin: 0;
@@ -1212,6 +1229,10 @@ label .field-hint,
   max-height: none;
   min-height: 0;
   overflow: auto;
+}
+
+.export-history-panel > .compact-list {
+  align-content: start;
 }
 
 .export-history-panel {
@@ -3718,7 +3739,8 @@ pre {
   align-items: flex-start;
   flex-direction: row;
   gap: var(--layout-card-gap);
-  min-height: var(--graph-object-card-min-height);
+  height: auto;
+  min-height: auto;
 }
 
 .relationship-object-option span {
@@ -4409,6 +4431,10 @@ pre {
   .topbar {
     gap: var(--layout-toolbar-gap);
     padding: 0.7rem;
+  }
+
+  .topbar-logo {
+    height: 2.75rem;
   }
 
   .status-strip,

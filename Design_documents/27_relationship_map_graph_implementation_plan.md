@@ -1648,6 +1648,7 @@ Fix tervkent megtartott hianyok:
 Jelenlegi baseline allapot:
 
 - 2026-07-02 frissites: a `Kapcsolati térkép` objektumvalasztoja sajat, source-valid objektumlistat hasznal, fuggetlenul az `Áttekintési jelentés` panel aktualis szuroitol. A multi-focus limit 50 fokuszobjektum; a UI `x kijelölve / 50` es `Összes: n` chipeket mutat, 50 utan a tovabbi nem kijelolt checkboxok disabled allapotba kerulnek. A backend nem csonkol node/edge cap alapjan normal mukodesben; a graf `limits` mezoi a visszaadott tenyleges node/edge darabszamot jelzik.
+- 2026-07-03 UI stabilizalas: a Megjelenitendo objektum es Kapcsolodo objektumok panel objektumkartyai tartalomvezerelt magassagot hasznalnak. A korabbi graph-object fix minimum magassag nem ervenyes ezekre a checkbox kartyakra, mert kijelzo/browser skalazasnal indokolatlan fuggoleges nyulast okozott.
 - a multi-focus backend es frontend mukodes technikailag kesznek tekintheto;
 - a publikus graph betoltes egysegesen a `POST /graph/objects` utvonalon megy;
 - az egyobjektumos handoff is ugyanazt az utat hasznalja;

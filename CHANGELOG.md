@@ -1,5 +1,18 @@
 # CHANGELOG.md
 
+## 2026-07-03
+
+### Changed
+
+- Added the new BoberDetective header brand treatment: the topbar now uses the icon-only logo asset beside native UI text, and the subtitle is updated to Lokális dokumentum- és tudásintelligencia rendszer so the shell reflects the broader document, knowledge, relationship-map, and AI workbench scope.
+- Fixed the Ügy munkapad export-history card stretch issue by keeping export cards at their natural height inside the fixed-height Export előzmények list.
+- Stabilized Kapcsolati térkép object cards in both Megjelenítendő objektum and Kapcsolódó objektumok: object cards now size from their content instead of a graph-specific fixed minimum height, avoiding vertical distortion under display scaling.
+
+### Verified
+
+- npm --prefix frontend run build
+- git diff --check
+
 ## 2026-07-02
 
 ### Changed

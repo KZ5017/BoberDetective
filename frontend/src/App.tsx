@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import boberDetectiveLogo from "./assets/boberdetective-logo.png";
 import {
   Archive,
   Brain,
@@ -6585,9 +6586,12 @@ Az iratok nem törlődnek.`,
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
-          <h1>BoberDetective</h1>
-          <p>Lokalis nyomozati iratintelligencia munkapad</p>
+        <div className="topbar-brand">
+          <img className="topbar-logo" src={boberDetectiveLogo} alt="" aria-hidden="true" />
+          <div className="topbar-title">
+            <h1>BoberDetective</h1>
+            <p>Lokális dokumentum- és tudásintelligencia rendszer</p>
+          </div>
         </div>
         <div className="status-strip">
           <span><ShieldCheck size={16} /> helyi</span>

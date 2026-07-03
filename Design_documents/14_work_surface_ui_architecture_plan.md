@@ -34,6 +34,14 @@ Vizualis nyelv: halkabb betusulyok, laposabb gombok, szolidabb chipek
 CSS alap: typography/surface/spacing tokenek + role primitive-ek aktivak
 ```
 
+2026-07-03 topbar/arculati allapot:
+
+Topbar: ikon-only BoberDetective logo + nativ BoberDetective szoveg.
+Alcim: Lokális dokumentum- és tudásintelligencia rendszer.
+Asset: frontend/src/assets/boberdetective-logo.png.
+PNG import: frontend/src/vite-env.d.ts.
+Elv: a logo csak brand ikon, a cim/alcim tovabbra is nativ UI szoveg marad.
+
 2026-06-02 dontes:
 
 ```text
