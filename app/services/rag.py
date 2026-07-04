@@ -120,6 +120,8 @@ def run_rag_query(db: Session, case_id: UUID, payload: RagQueryRequest) -> RagQu
     if not question:
         raise RagValidationError("A kérdés nem lehet üres")
 
+    retrieval_text, retrieval_query_source, explicit_retrieval_query = _resolve_rag_retrieval_query(payload)
+
     try:
         resolution = _resolve_rag_source_scope(db, case_id, payload)
     except CaseNotFoundError as exc:
@@ -129,7 +131,7 @@ def run_rag_query(db: Session, case_id: UUID, payload: RagQueryRequest) -> RagQu
     except DocumentCollectionScopeError as exc:
         raise RagValidationError(str(exc)) from exc
 
-    retrieved_chunks = _select_rag_source_chunks(db, case_id, payload, resolution)
+    retrieved_chunks = _select_rag_source_chunks(db, case_id, payload, resolution, retrieval_text=retrieval_text)
     settings = get_settings()
     ordered_chunks = order_retrieved_chunks_for_llm(retrieved_chunks)
     source_scope = _source_scope_summary(case_id, payload, resolution, resolved_chunk_count=len(retrieved_chunks))
@@ -141,6 +143,8 @@ def run_rag_query(db: Session, case_id: UUID, payload: RagQueryRequest) -> RagQu
         selected_chunk_count=len(retrieved_chunks),
         document_answer_count=document_answer_count,
         embedding_model=settings.llm_embedding_model if payload.retrieval_strategy in {"semantic", "hybrid"} else None,
+        retrieval_query=retrieval_text,
+        retrieval_query_source=retrieval_query_source,
     )
     run = start_analysis_run(
         db,
@@ -150,6 +154,9 @@ def run_rag_query(db: Session, case_id: UUID, payload: RagQueryRequest) -> RagQu
         model_name=settings.llm_chat_model,
         input_parameters={
             "question": question,
+            "retrieval_query": explicit_retrieval_query,
+            "effective_retrieval_query": retrieval_text,
+            "retrieval_query_source": retrieval_query_source,
             "source_mode": payload.source_mode,
             "document_id": str(payload.document_id) if payload.document_id is not None else None,
             "document_ids": [str(document_id) for document_id in payload.document_ids],
@@ -163,7 +170,18 @@ def run_rag_query(db: Session, case_id: UUID, payload: RagQueryRequest) -> RagQu
         output_schema_version="v1",
         retrieval_strategy=payload.retrieval_strategy,
     )
-    add_analysis_run_input(db, run.id, "query_text", 0, payload_json={"query": question})
+    add_analysis_run_input(
+        db,
+        run.id,
+        "query_text",
+        0,
+        payload_json={
+            "query": question,
+            "retrieval_query": explicit_retrieval_query,
+            "effective_retrieval_query": retrieval_text,
+            "retrieval_query_source": retrieval_query_source,
+        },
+    )
     for sequence_no, retrieved in enumerate(ordered_chunks, start=1):
         add_analysis_run_input(
             db,
@@ -279,9 +297,12 @@ def _select_rag_source_chunks(
     case_id: UUID,
     payload: RagQueryRequest,
     resolution: ScopeResolution,
+    *,
+    retrieval_text: str | None = None,
 ) -> list[RetrievedChunk]:
+    effective_retrieval_text = retrieval_text or _resolve_rag_retrieval_query(payload)[0]
     retrieval_payload = AnalysisModuleRunRequest(
-        query=payload.question,
+        query=effective_retrieval_text,
         source_mode="case",
         document_ids=resolution.resolved_document_ids,
         max_chunks=payload.max_chunks,
@@ -293,6 +314,13 @@ def _select_rag_source_chunks(
         retrieval_payload,
         document_ids=resolution.resolved_document_ids,
     )
+
+
+def _resolve_rag_retrieval_query(payload: RagQueryRequest) -> tuple[str, str, str | None]:
+    explicit = (payload.retrieval_query or "").strip()
+    if explicit:
+        return explicit, "explicit", explicit
+    return payload.question.strip(), "question_fallback", None
 
 
 def _group_retrieved_chunks_by_document(retrieved_chunks: list[RetrievedChunk]) -> list[list[RetrievedChunk]]:
@@ -635,6 +663,18 @@ def get_latest_rag_run_summary(db: Session, case_id: UUID) -> RagLatestRunSummar
         started_at=run.started_at,
         finished_at=run.finished_at,
         question=str(input_parameters.get("question") or "") or None,
+        retrieval_query=str(
+            retrieval_metadata.get("retrieval_query")
+            or input_parameters.get("effective_retrieval_query")
+            or ""
+        )
+        or None,
+        retrieval_query_source=str(
+            retrieval_metadata.get("retrieval_query_source")
+            or input_parameters.get("retrieval_query_source")
+            or ""
+        )
+        or None,
         source_mode=source_mode if source_mode in {"case", "document", "collection"} else None,
         document_id=source_scope.get("document_id") or input_parameters.get("document_id"),
         collection_id=source_scope.get("collection_id") or input_parameters.get("collection_id"),

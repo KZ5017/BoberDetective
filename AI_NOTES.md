@@ -24,6 +24,10 @@ Fresh-session baseline:
 
 Latest session update:
 
+- Implemented `Design_documents/36_search_findings_retrieval_focus_plan.md` for `Ügy munkapad / Kutatási találatok keresése`. The `Elemzés` panel now has optional `Keresés fókusza (ajánlott)` for source/chunk retrieval and required `Elemzési fókusz` for the LLM `QUERY`; backend `retrieval_query` drives source selection only, falls back to `query` when blank/missing, and is recorded in analysis-run input/latest-run metadata. `retrieval_query` cannot replace a missing analysis focus. Latest focused verification: `tests/test_analysis_modules.py tests/test_rag.py` 89 passed, `npm --prefix frontend run build` passed, `git diff --check` passed.
+
+- Implemented `Design_documents/35_general_rag_retrieval_focus_plan.md` as the first `Általános iratkérdező` retrieval-focus split. The UI now has optional `Keresés fókusza (ajánlott)` above the required `Kérdés`; backend `retrieval_query` drives source/chunk selection only, falls back to `question` when blank/missing, and is recorded in analysis-run input plus retrieval metadata. LLM prompts and saved-answer question semantics continue to use `question`. Latest focused verification: `tests/test_rag.py` 26 passed, `npm --prefix frontend run build` passed, `git diff --check` passed.
+
 - Implemented and documented Design_documents/34_relationship_map_canvas_selection_plan.md as the current Kapcsolati terkep canvas object-removal slice. It separates the single inspector-selected node from a frontend-only bulk canvas selection, limits canvas removal to focus object nodes, reloads the graph after focus-object removal, keeps context/provenance nodes non-removable, and keeps Kapcsolodo objektumok / inspector panels driven by one current node rather than the bulk selection.
 
 - Header branding was refreshed: the topbar now uses frontend/src/assets/boberdetective-logo-144.png as a compact icon-only brand mark, keeps BoberDetective as native UI text, and uses the broader subtitle Lokális dokumentum- és tudásintelligencia rendszer. PNG imports are supported through frontend/src/vite-env.d.ts.

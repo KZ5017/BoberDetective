@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 RagSourceMode = Literal["case", "document", "collection"]
@@ -12,6 +12,7 @@ RagRetrievalStrategy = Literal["keyword", "semantic", "hybrid"]
 
 class RagQueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
+    retrieval_query: str | None = Field(default=None, max_length=1000)
     source_mode: RagSourceMode = "case"
     document_id: UUID | None = None
     document_ids: list[UUID] = Field(default_factory=list)
@@ -20,6 +21,14 @@ class RagQueryRequest(BaseModel):
     retrieval_strategy: RagRetrievalStrategy = "hybrid"
     max_chunks: int = Field(default=45, ge=1, le=90)
     include_sources: bool = True
+
+    @field_validator("retrieval_query", mode="before")
+    @classmethod
+    def normalize_retrieval_query(cls, value):
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
 
     @model_validator(mode="after")
     def validate_source_scope(self) -> "RagQueryRequest":
@@ -71,6 +80,8 @@ class RagRetrievalMetadata(BaseModel):
     document_answer_count: int = 0
     embedding_model: str | None = None
     collection_name: str | None = None
+    retrieval_query: str | None = None
+    retrieval_query_source: str | None = None
 
 
 class RagAnswerPayload(BaseModel):
@@ -102,6 +113,8 @@ class RagLatestRunSummary(BaseModel):
     started_at: datetime
     finished_at: datetime | None = None
     question: str | None = None
+    retrieval_query: str | None = None
+    retrieval_query_source: str | None = None
     source_mode: RagSourceMode | None = None
     document_id: UUID | None = None
     collection_id: UUID | None = None

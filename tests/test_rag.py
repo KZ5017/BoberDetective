@@ -56,6 +56,19 @@ def test_rag_query_request_caps_max_chunks() -> None:
         RagQueryRequest(question="Mit tudunk erről?", max_chunks=91)
 
 
+def test_rag_query_request_normalizes_optional_retrieval_query() -> None:
+    payload = RagQueryRequest(question="Mit tudunk erről?", retrieval_query="  Dupin nyomozás  ")
+    blank = RagQueryRequest(question="Mit tudunk erről?", retrieval_query="   ")
+
+    assert payload.retrieval_query == "Dupin nyomozás"
+    assert blank.retrieval_query is None
+
+
+def test_rag_query_request_caps_retrieval_query() -> None:
+    with pytest.raises(ValidationError):
+        RagQueryRequest(question="Mit tudunk erről?", retrieval_query="x" * 1001)
+
+
 def test_rag_query_request_rejects_retired_answer_modes() -> None:
     with pytest.raises(ValidationError):
         RagQueryRequest(question="Mit tudunk erről?", answer_mode="source_focused")
@@ -166,6 +179,45 @@ def test_rag_select_source_chunks_adapts_to_existing_retrieval(monkeypatch) -> N
     assert captured["payload"].query == "Alfonzo Garcio"
     assert captured["payload"].source_mode == "case"
     assert captured["payload"].document_ids == [document_id]
+
+
+def test_rag_select_source_chunks_uses_explicit_retrieval_query(monkeypatch) -> None:
+    case_id = uuid4()
+    document_id = uuid4()
+    captured = {}
+
+    def _fake_retrieve(db, received_case_id, payload, *, document_ids=None):
+        captured["payload"] = payload
+        captured["document_ids"] = document_ids
+        return []
+
+    monkeypatch.setattr("app.services.rag.retrieve_source_scope_chunks", _fake_retrieve)
+    resolution = ScopeResolution(
+        source_mode="documents",
+        requested_document_ids=[document_id],
+        requested_collection_ids=[],
+        resolved_document_ids=[document_id],
+        inactive_document_count=0,
+        duplicate_membership_count=0,
+        warnings=[],
+    )
+
+    chunks = _select_rag_source_chunks(
+        db=object(),
+        case_id=case_id,
+        payload=RagQueryRequest(
+            question="Kérlek részletesen válaszolj.",
+            retrieval_query="Dupin nyomozás megoldás",
+            source_mode="case",
+            retrieval_strategy="hybrid",
+        ),
+        resolution=resolution,
+    )
+
+    assert chunks == []
+    assert captured["document_ids"] == [document_id]
+    assert captured["payload"].query == "Dupin nyomozás megoldás"
+    assert captured["payload"].query != "Kérlek részletesen válaszolj."
 
 
 def test_rag_placeholder_answer_distinguishes_missing_and_selected_sources() -> None:

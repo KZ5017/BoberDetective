@@ -30,6 +30,8 @@ from app.services.analysis_modules import (
 from app.services.analysis_module_findings import (
     SEARCH_FINDINGS_SYSTEM_PROMPT,
     build_search_findings_user_prompt,
+    _resolve_search_findings_retrieval_query,
+    _search_findings_retrieval_payload,
     parse_search_findings_llm_json_object,
 )
 from app.services.search import KeywordSearchHit
@@ -48,6 +50,48 @@ def test_analysis_module_request_uses_updated_chunk_cap_defaults() -> None:
     assert AnalysisModuleRunRequest(query="fokusz", max_chunks=90).max_chunks == 90
     with pytest.raises(ValidationError):
         AnalysisModuleRunRequest(query="fokusz", max_chunks=91)
+
+def test_analysis_module_request_normalizes_optional_retrieval_query() -> None:
+    payload = AnalysisModuleRunRequest(query="elemzesi fokusz", retrieval_query="  William Bird szabó  ")
+    blank = AnalysisModuleRunRequest(query="elemzesi fokusz", retrieval_query="   ")
+
+    assert payload.retrieval_query == "William Bird szabó"
+    assert blank.retrieval_query is None
+
+
+def test_analysis_module_request_caps_retrieval_query() -> None:
+    with pytest.raises(ValidationError):
+        AnalysisModuleRunRequest(query="elemzesi fokusz", retrieval_query="x" * 1001)
+
+
+def test_search_findings_retrieval_focus_uses_explicit_query_for_source_selection() -> None:
+    payload = AnalysisModuleRunRequest(query="William Bird szabó tanúvallomása", retrieval_query="William Bird szabó")
+
+    retrieval_payload, retrieval_text, retrieval_source, explicit = _search_findings_retrieval_payload(payload)
+
+    assert retrieval_payload.query == "William Bird szabó"
+    assert payload.query == "William Bird szabó tanúvallomása"
+    assert retrieval_text == "William Bird szabó"
+    assert retrieval_source == "explicit"
+    assert explicit == "William Bird szabó"
+
+
+def test_search_findings_retrieval_focus_falls_back_to_analysis_query() -> None:
+    payload = AnalysisModuleRunRequest(query="William Bird szabó tanúvallomása")
+
+    assert _resolve_search_findings_retrieval_query(payload) == (
+        "William Bird szabó tanúvallomása",
+        "query_fallback",
+        None,
+    )
+
+
+def test_search_findings_retrieval_focus_does_not_replace_missing_analysis_focus() -> None:
+    payload = AnalysisModuleRunRequest(query=None, retrieval_query="William Bird szabó")
+
+    with pytest.raises(AnalysisModuleError, match="Focus text is required"):
+        _search_findings_retrieval_payload(payload)
+
 
 
 @pytest.mark.parametrize(

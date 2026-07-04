@@ -2605,6 +2605,34 @@ pre {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.rag-retrieval-label-line {
+  align-items: baseline;
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.rag-retrieval-info-trigger {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: inline;
+  font-size: var(--text-body-muted-size);
+  font-weight: var(--font-weight-normal);
+  min-height: 0;
+  padding: 0;
+}
+
+.rag-retrieval-info-trigger:hover:not(:disabled),
+.rag-retrieval-info-trigger:active:not(:disabled) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--color-text-muted);
+}
+
 .rag-saved-panel .compact-list {
   align-content: start;
   height: 100%;

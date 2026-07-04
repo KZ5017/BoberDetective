@@ -1,13 +1,14 @@
 from uuid import UUID
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class AnalysisModuleRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str | None = Field(default=None, max_length=500)
+    retrieval_query: str | None = Field(default=None, max_length=1000)
     source_mode: Literal["case", "document", "collection"] = "case"
     document_id: UUID | None = None
     collection_id: UUID | None = None
@@ -19,6 +20,15 @@ class AnalysisModuleRunRequest(BaseModel):
     claim_review_scope: Literal["reviewable", "verified", "needs_review", "all_source_valid"] = "reviewable"
     retrieval_strategy: Literal["keyword", "semantic", "hybrid"] = "keyword"
     contradiction_candidate_limit: int = Field(default=5, ge=1, le=10)
+
+
+    @field_validator("retrieval_query", mode="before")
+    @classmethod
+    def normalize_retrieval_query(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     @model_validator(mode="after")
     def validate_page_range(self) -> "AnalysisModuleRunRequest":

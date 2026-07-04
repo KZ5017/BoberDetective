@@ -98,6 +98,8 @@ def get_latest_research_finding_run_summary(db: Session, case_id: UUID) -> Resea
         started_at=run.started_at,
         finished_at=run.finished_at,
         query=_string_or_none(input_parameters.get("query")),
+        retrieval_query=_string_or_none(input_parameters.get("effective_retrieval_query")),
+        retrieval_query_source=_string_or_none(input_parameters.get("retrieval_query_source")),
         source_mode=_string_or_none(input_parameters.get("source_mode")),
         document_id=_to_uuid(input_parameters.get("document_id")),
         collection_id=_to_uuid(input_parameters.get("collection_id")),

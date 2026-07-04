@@ -73,10 +73,30 @@ Ha nincs használható találat:
 """
 
 
+def _resolve_search_findings_retrieval_query(payload: AnalysisModuleRunRequest) -> tuple[str, str, str | None]:
+    analysis_query = (payload.query or "").strip()
+    explicit = (payload.retrieval_query or "").strip()
+    if explicit:
+        return explicit, "explicit", explicit
+    return analysis_query, "query_fallback", None
+
+
+def _search_findings_retrieval_payload(payload: AnalysisModuleRunRequest) -> tuple[AnalysisModuleRunRequest, str, str, str | None]:
+    retrieval_text, retrieval_query_source, explicit_retrieval_query = _resolve_search_findings_retrieval_query(payload)
+    if not (payload.query or "").strip():
+        raise AnalysisModuleError("Focus text is required for finding analysis")
+    return payload.model_copy(update={"query": retrieval_text}), retrieval_text, retrieval_query_source, explicit_retrieval_query
+
+
 def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRequest) -> AnalysisModuleRunResponse:
     settings = get_settings()
+    retrieval_payload, retrieval_text, retrieval_query_source, explicit_retrieval_query = _search_findings_retrieval_payload(payload)
+    analysis_query = (payload.query or "").strip()
     input_parameters = {
-        "query": payload.query,
+        "query": analysis_query,
+        "retrieval_query": explicit_retrieval_query,
+        "effective_retrieval_query": retrieval_text,
+        "retrieval_query_source": retrieval_query_source,
         "source_mode": payload.source_mode,
         "document_id": str(payload.document_id) if payload.document_id is not None else None,
         "collection_id": str(payload.collection_id) if payload.collection_id is not None else None,
@@ -101,8 +121,19 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
         retrieval_strategy=f"{payload.source_mode}_chunks_batch_v1",
     )
     try:
-        add_analysis_run_input(db, run.id, "query_text", 0, payload_json={"query": payload.query})
-        retrieved_chunks = select_source_chunks(db, case_id, payload)
+        add_analysis_run_input(
+            db,
+            run.id,
+            "query_text",
+            0,
+            payload_json={
+                "query": analysis_query,
+                "retrieval_query": explicit_retrieval_query,
+                "effective_retrieval_query": retrieval_text,
+                "retrieval_query_source": retrieval_query_source,
+            },
+        )
+        retrieved_chunks = select_source_chunks(db, case_id, retrieval_payload)
         if not retrieved_chunks:
             message = "No source chunks selected for finding search"
             finish_analysis_run(db, run, status="failed", validation_status="failed", error_message=message)
@@ -126,7 +157,7 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                         LLMChatMessage(role="system", content=SEARCH_FINDINGS_SYSTEM_PROMPT),
                         LLMChatMessage(
                             role="user",
-                            content=build_search_findings_user_prompt(payload.query, batch, batch_index, len(batches), db=db),
+                            content=build_search_findings_user_prompt(analysis_query, batch, batch_index, len(batches), db=db),
                         ),
                     ],
                     temperature=0.1,
@@ -204,6 +235,9 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                     "processed_batch_count": processed_batch_count,
                     "failed_batch_count": failed_batch_count,
                     "unsupported_items": unsupported_items[:5],
+                    "retrieval_query": explicit_retrieval_query,
+                    "effective_retrieval_query": retrieval_text,
+                    "retrieval_query_source": retrieval_query_source,
                 },
             )
             raise AnalysisModuleError(message)
@@ -232,6 +266,9 @@ def run_search_findings(db: Session, case_id: UUID, payload: AnalysisModuleRunRe
                 "source_invalid_research_finding_count": invalid_source_finding_count,
                 "unsupported_count": len(unsupported_items),
                 "unsupported_items": unsupported_items[:5],
+                "retrieval_query": explicit_retrieval_query,
+                "effective_retrieval_query": retrieval_text,
+                "retrieval_query_source": retrieval_query_source,
             },
         )
         return AnalysisModuleRunResponse(

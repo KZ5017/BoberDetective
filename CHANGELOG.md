@@ -1,5 +1,24 @@
 # CHANGELOG.md
 
+## 2026-07-05
+
+### Added
+
+- Added explicit retrieval-focus support to `Általános iratkérdező`: users can provide optional `Keresés fókusza (ajánlott)` for source/chunk selection while the required `Kérdés` remains the LLM answer instruction.
+- Added explicit retrieval-focus support to `Ügy munkapad / Kutatási találatok keresése`: users can provide optional `Keresés fókusza (ajánlott)` for keyword/semantic/hybrid source selection while required `Elemzési fókusz` remains the LLM `QUERY`.
+- Added `Design_documents/35_general_rag_retrieval_focus_plan.md` and `Design_documents/36_search_findings_retrieval_focus_plan.md` to capture the decisions, contracts, and implementation notes for the two retrieval-focus slices.
+
+### Changed
+
+- RAG and `search_findings` now persist retrieval-focus metadata in analysis-run input/latest-run summaries, including explicit/fallback source indicators, without mixing retrieval text into the LLM prompt.
+- `search_findings` now rejects calls where retrieval focus is present but analysis focus is missing, so source selection cannot replace the actual analysis task.
+
+### Verified
+
+- .venv/bin/python -m pytest tests/test_analysis_modules.py tests/test_rag.py (`89 passed`)
+- npm --prefix frontend run build
+- git diff --check
+
 ## 2026-07-03
 
 ### Changed

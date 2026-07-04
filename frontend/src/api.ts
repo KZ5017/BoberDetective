@@ -358,6 +358,8 @@ export type ResearchFindingLatestRunSummary = {
   started_at: string;
   finished_at: string | null;
   query: string | null;
+  retrieval_query: string | null;
+  retrieval_query_source: string | null;
   source_mode: AnalysisSourceMode | string | null;
   document_id: string | null;
   collection_id: string | null;
@@ -419,6 +421,8 @@ export type RagQueryResponse = {
     document_answer_count: number;
     embedding_model: string | null;
     collection_name: string | null;
+    retrieval_query: string | null;
+    retrieval_query_source: string | null;
   };
   can_save: boolean;
 };
@@ -430,6 +434,8 @@ export type RagLatestRunSummary = {
   started_at: string;
   finished_at: string | null;
   question: string | null;
+  retrieval_query: string | null;
+  retrieval_query_source: string | null;
   source_mode: RagSourceMode | null;
   document_id: string | null;
   collection_id: string | null;
@@ -883,6 +889,7 @@ export type RetrievalStrategy = "keyword" | "semantic" | "hybrid";
 
 export type AnalysisRunPayload = {
   query?: string | null;
+  retrieval_query?: string | null;
   source_mode?: AnalysisSourceMode;
   document_id?: string | null;
   collection_id?: string | null;
@@ -1409,6 +1416,7 @@ export function runRagQuery(
   caseId: string,
   payload: {
     question: string;
+    retrieval_query?: string | null;
     source_mode: RagSourceMode;
     document_id?: string | null;
     document_ids?: string[];

@@ -50,6 +50,8 @@ class ResearchFindingLatestRunSummary(BaseModel):
     started_at: datetime
     finished_at: datetime | None
     query: str | None
+    retrieval_query: str | None = None
+    retrieval_query_source: str | None = None
     source_mode: str | None
     document_id: UUID | None
     collection_id: UUID | None

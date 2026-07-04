@@ -567,7 +567,9 @@ export function App() {
   const [fullDocumentPageEnd, setFullDocumentPageEnd] = useState("1");
   const [moduleKey, setModuleKey] = useState("search_findings");
   const [query, setQuery] = useState("");
+  const [analysisRetrievalQuery, setAnalysisRetrievalQuery] = useState("");
   const [ragQuestion, setRagQuestion] = useState("");
+  const [ragRetrievalQuery, setRagRetrievalQuery] = useState("");
   const [ragSourceMode, setRagSourceMode] = useState<RagSourceMode>("case");
   const [ragDocumentId, setRagDocumentId] = useState("");
   const [ragDocumentIds, setRagDocumentIds] = useState<string[]>([]);
@@ -743,6 +745,27 @@ export function App() {
       title: "A beszélgetés elérte a kontextuskeretet",
       message: "Ez az üzenet már nem küldhető el biztonságosan ebben a beszélgetésben.",
       detail: "Nyiss új chatet a folytatáshoz, hogy a modell ne veszítsen el korábbi kontextust láthatatlanul.",
+      confirmLabel: "Rendben"
+    });
+  }
+
+  async function showRagRetrievalFocusInfo() {
+    await openAppDialog({
+      mode: "alert",
+      title: "Miért ajánlott a keresési fókusz?",
+      message: "A keresési fókusz segít, hogy a rendszer a válasz elkészítése előtt pontosabban válassza ki a releváns szövegrészeket.",
+      detail: "Ide tömör témamegjelölés kerüljön. A válasz formáját, részletességét és konkrét feladatát továbbra is a Kérdés mező határozza meg.",
+      confirmLabel: "Rendben"
+    });
+  }
+
+
+  async function showAnalysisRetrievalFocusInfo() {
+    await openAppDialog({
+      mode: "alert",
+      title: "Miért ajánlott a keresési fókusz?",
+      message: "A keresési fókusz segít, hogy a rendszer a találatok keresése előtt pontosabban válassza ki a releváns szövegrészeket.",
+      detail: "Ide tömör témamegjelölés kerüljön. A válasz formáját, részletességét és konkrét feladatát továbbra is az Elemzési fókusz mező határozza meg.",
       confirmLabel: "Rendben"
     });
   }
@@ -2583,6 +2606,7 @@ Az iratok nem törlődnek.`,
     await perform("analysis", async () => {
       const payload = {
         query: query.trim() ? query.trim() : null,
+        ...(moduleKey === "search_findings" ? { retrieval_query: analysisRetrievalQuery.trim() || null } : {}),
         source_mode: effectiveAnalysisSourceMode,
         document_id: effectiveAnalysisSourceMode === "document" ? analysisDocumentId : null,
         collection_id: effectiveAnalysisSourceMode === "collection" ? analysisCollectionId : null,
@@ -2648,6 +2672,7 @@ Az iratok nem törlődnek.`,
     await perform("rag-query", async () => {
       const response = await runRagQuery(selectedCaseId, {
         question: ragQuestion.trim(),
+        retrieval_query: ragRetrievalQuery.trim() || null,
         source_mode: ragSourceMode,
         document_id: ragSourceMode === "document" ? ragDocumentId : null,
         document_ids: ragSourceMode === "case" ? ragDocumentIds : [],
@@ -4860,6 +4885,9 @@ Az iratok nem törlődnek.`,
         </div>
         <div className="metrics">
           <span>{labelAnalysisSourceMode((lastResearchFindingRun.source_mode ?? "case") as AnalysisSourceMode)}</span>
+          {lastResearchFindingRun.retrieval_query_source === "explicit" && lastResearchFindingRun.retrieval_query && (
+            <span>Keresés: {truncateText(lastResearchFindingRun.retrieval_query, 80)}</span>
+          )}
           <span>{lastResearchFindingRun.selected_chunk_count} szövegrész</span>
           {lastResearchFindingRun.retrieval_strategy && <span>{labelRetrievalStrategy(lastResearchFindingRun.retrieval_strategy as RetrievalStrategy)}</span>}
           {lastResearchFindingRun.max_chunks !== null && <span>Plafon: {lastResearchFindingRun.max_chunks}</span>}
@@ -4982,6 +5010,9 @@ Az iratok nem törlődnek.`,
         </div>
         <div className="metrics">
           <span>{labelRagSourceMode((lastRagRun.source_mode ?? "case") as RagSourceMode)}</span>
+          {lastRagRun.retrieval_query_source === "explicit" && lastRagRun.retrieval_query && (
+            <span>Fókusz: {truncateText(lastRagRun.retrieval_query, 80)}</span>
+          )}
           <span>{lastRagRun.selected_chunk_count} szövegrész</span>
           {lastRagRun.retrieval_strategy && <span>{labelRetrievalStrategy(lastRagRun.retrieval_strategy)}</span>}
           {lastRagRun.max_chunks !== null && <span>Plafon: {lastRagRun.max_chunks}</span>}
@@ -6511,15 +6542,33 @@ Az iratok nem törlődnek.`,
                   </select>
                 </label>
                 <span className="field-hint analysis-settings-hint">
-                  A keresési mód a kérdés alapján választja ki a feldolgozandó szövegrészeket. Szemantikus vagy hybrid módhoz előbb indexeld a szövegrészeket.
+                  A keresési mód a keresési fókusz alapján választja ki a feldolgozandó szövegrészeket. Ha nem adsz meg fókuszt, a kérdést használja. Szemantikus vagy hybrid módhoz előbb indexeld a szövegrészeket.
                 </span>
               </div>
+              <label>
+                <span className="rag-retrieval-label-line">
+                  Keresés fókusza
+                  <button
+                    type="button"
+                    className="rag-retrieval-info-trigger"
+                    onClick={showRagRetrievalFocusInfo}
+                    title="Miért ajánlott?"
+                  >
+                    (ajánlott)
+                  </button>
+                </span>
+                <input
+                  value={ragRetrievalQuery}
+                  onChange={(event) => setRagRetrievalQuery(event.target.value)}
+                  placeholder="Kulcsszavak, nevek, témák a források megtalálásához."
+                />
+              </label>
               <label>
                 Kérdés
                 <textarea
                   value={ragQuestion}
                   onChange={(event) => setRagQuestion(event.target.value)}
-                  rows={6}
+                  rows={2}
                   placeholder="Írd be, mire szeretnél választ kapni kizárólag az ügy iratai alapján."
                 />
               </label>
@@ -7539,19 +7588,39 @@ Az iratok nem törlődnek.`,
                 </div>
               </>
             )}
+            {moduleKey === "search_findings" && (
+              <label>
+                <span className="rag-retrieval-label-line">
+                  Keresés fókusza
+                  <button
+                    type="button"
+                    className="rag-retrieval-info-trigger"
+                    onClick={showAnalysisRetrievalFocusInfo}
+                    title="Miért ajánlott?"
+                  >
+                    (ajánlott)
+                  </button>
+                </span>
+                <input
+                  value={analysisRetrievalQuery}
+                  onChange={(event) => setAnalysisRetrievalQuery(event.target.value)}
+                  placeholder="Tömör témamegjelölés a forráskereséshez"
+                />
+              </label>
+            )}
             <label>
-              Fokusz
+              {moduleKey === "search_findings" ? "Elemzési fókusz" : "Fokusz"}
               <textarea
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                rows={3}
+                rows={moduleKey === "search_findings" ? 2 : 3}
                 placeholder={analysisFocusPlaceholder(moduleKey, isContradictionModule)}
               />
             </label>
             <p className="field-hint">
               {isContradictionModule
                 ? "Kötelező: ez szűri a már kinyert állításokat és forráshivatkozási idézeteiket."
-                : "Kötelező: ez választja ki a releváns szövegrészeket a megadott forráskörben. (Rövid, konkrét fókusznál a 3 feletti batch méret ronthatja a találatok kiemelését. Ilyenkor érdemes 1-3 közötti értéket próbálni.)"}
+                : "Kötelező: ez határozza meg, milyen kutatási találatokat kérünk a kiválasztott forrásszövegekből. Ha a Keresés fókusza üres, ezt használjuk a szövegrészek kiválasztására is."}
             </p>
             {requiresFocusText && query.trim().length === 0 && (
               <p className="error-text">A feldolgozashoz adj meg fokuszt; enelkul nagy ugyeknel nem inditunk vak feldolgozast.</p>
@@ -8623,6 +8692,7 @@ Az iratok nem törlődnek.`,
                                   className="secondary-button"
                                   onClick={() => {
                                     setQuery(item.recommended_search_focus ?? item.display_label);
+                                    setAnalysisRetrievalQuery("");
                                     setModuleKey("search_findings");
                                     setActiveSurface("case_workbench");
                                     scrollToAnalysisPanel();
