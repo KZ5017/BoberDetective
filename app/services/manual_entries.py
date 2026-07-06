@@ -70,7 +70,7 @@ def attach_manual_source_to_existing_object(
                 "quote_text": source_reference.quote_text,
             },
         )
-        skipped_duplicate_source, target_reactivated = _attach_source_reference_to_existing_object(
+        skipped_duplicate_source, target_reactivated = attach_source_reference_to_existing_object(
             db,
             case_id=case_id,
             source_reference=source_reference,
@@ -188,7 +188,7 @@ def _start_manual_run_for_target(db: Session, case_id: UUID, object_type: str):
     return run
 
 
-def _attach_source_reference_to_existing_object(
+def attach_source_reference_to_existing_object(
     db: Session,
     *,
     case_id: UUID,

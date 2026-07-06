@@ -345,7 +345,7 @@ LLM benchmark megjegyzés:
 - `reasoning: "off"` csak reasoning-et támogató modelleknél küldhető; Llama esetén hibát ad.
 - LM Studio native model-load endpoint használható a konfigurált chat modell explicit betöltésére: `POST /api/v1/system/llm/load-chat-model`.
 - LM Studio native chat hívások előtt a backend ellenőrzi, van-e betöltött példány a konfigurált chat modellből. Ha van, az instance id-t használja; ha nincs, a konfigurált GPU-orientált load profillal betölti.
-- Jelenlegi preferált chat-modell load profil: `context_length=112640`, `eval_batch_size=4096`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`.
+- Jelenlegi preferált chat-modell load profil: `qwen/qwen3.6-35b-a3b`, `context_length=61440`, `eval_batch_size=512`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`. Korábbi sebességre optimalizált visszaváltási profil: `qwen/qwen3.5-9b`, `eval_batch_size=4096`, azonos context/attention/KV beállításokkal.
 - Embedding modell betöltésnél a jelenlegi profil `text-embedding-bge-m3` `context_length=4096`, és az LM Studio miatt nem küldjük az `eval_batch_size`, `flash_attention`, illetve `offload_kv_cache_to_gpu` mezőket.
 - Történeti model-load smoke eredmény: `qwen/qwen3.5-9b:2`, `status=loaded`, `load_time_seconds=10.784`, echoed config: `context_length=4096`, `eval_batch_size=4096`, `parallel=4`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`.
 - First source-cited analysis smoke endpoint elkészült: keyword retrieval -> analysis_run inputs -> Qwen native reasoning-off -> quote validation -> source_reference -> analysis_run output.

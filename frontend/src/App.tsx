@@ -91,6 +91,7 @@ import {
   archiveKnowledgeDocument,
   attachDetachedSourceItem,
   attachManualSourceToExistingObject,
+  attachResearchFindingSource,
   bulkDeleteDocumentProcessingItems,
   bulkDeleteResearchFindings,
   convertResearchFinding,
@@ -663,6 +664,8 @@ export function App() {
   const [detachedManualFields, setDetachedManualFields] = useState<Record<string, Record<string, string>>>({});
   const [researchFindingManualTypes, setResearchFindingManualTypes] = useState<Record<string, ManualObjectType>>({});
   const [researchFindingManualFields, setResearchFindingManualFields] = useState<Record<string, Record<string, string>>>({});
+  const [researchFindingAttachTypes, setResearchFindingAttachTypes] = useState<Record<string, ManualObjectType>>({});
+  const [researchFindingAttachTargets, setResearchFindingAttachTargets] = useState<Record<string, string>>({});
   const [showSetAsideResearchFindings, setShowSetAsideResearchFindings] = useState(false);
   const [researchFindingsMarkedForDeletion, setResearchFindingsMarkedForDeletion] = useState<string[]>([]);
   const [manualSource, setManualSource] = useState<{
@@ -3898,6 +3901,47 @@ Az iratok nem törlődnek.`,
       setSelectedReportItem(reportResponse.items.find((item) => item.object_id === response.object_id) ?? null);
       setNotice("Kutatási találat strukturált objektummá alakítva.");
       setLastActionSummary(`${labelObjectType(response.object_type)}: kutatási találatból létrehozva.`);
+    });
+  }
+
+
+  async function handleAttachResearchFindingSource(finding: ResearchFindingRead) {
+    if (!selectedCaseId || finding.conversion_status === "converted") return;
+    const targetType = researchFindingAttachTypes[finding.id] ?? suggestedResearchFindingManualType(finding);
+    const targetObjectId = researchFindingAttachTargets[finding.id] ?? "";
+    if (!targetObjectId) {
+      setError("Válassz céltalálatot a kutatási találat forráshivatkozásának csatolásához.");
+      return;
+    }
+    await perform("finding-attach-source", async () => {
+      const response = await attachResearchFindingSource(selectedCaseId, finding.id, {
+        target_object_type: targetType,
+        target_object_id: targetObjectId
+      });
+      setResearchFindingAttachTargets((current) => ({ ...current, [finding.id]: "" }));
+      setResearchFindingAttachTypes((current) => ({ ...current, [finding.id]: suggestedResearchFindingManualType(finding) }));
+      const [findingsResponse, reportResponse, manualClaimsResponse, runsResponse, claimsResponse, entitiesResponse, eventsResponse, missingItemsResponse] = await Promise.all([
+        listResearchFindings(selectedCaseId),
+        getReviewReport(selectedCaseId, reportFilters),
+        getManualContradictionClaims(selectedCaseId),
+        listAnalysisRuns(selectedCaseId),
+        listClaims(selectedCaseId),
+        listEntities(selectedCaseId),
+        listEvents(selectedCaseId),
+        listMissingItemCandidates(selectedCaseId)
+      ]);
+      setResearchFindings(findingsResponse.data);
+      setReport(reportResponse);
+      setAnalysisRuns(runsResponse.data);
+      setClaims(claimsResponse.data);
+      setEntities(entitiesResponse.data);
+      setEvents(eventsResponse.data);
+      setMissingItemCandidates(missingItemsResponse.data);
+      setManualContradictionClaims(manualClaimsResponse.items);
+      setSelectedReportItem(reportResponse.items.find((item) => item.object_id === response.target_object_id) ?? null);
+      const suffix = response.skipped_duplicate_source ? " A forráshivatkozás már szerepelt a célon, ezért nem duplikáltuk." : "";
+      setNotice(`Kutatási találat forráshivatkozása meglévő találathoz csatolva.${suffix}`);
+      setLastActionSummary(`${labelObjectType(response.target_object_type)}: kutatási találat forrása csatolva.`);
     });
   }
 
@@ -7906,6 +7950,8 @@ Az iratok nem törlődnek.`,
                   const sourceDocument = documents.find((document) => document.id === finding.source_reference?.document_id);
                   const conversionType = researchFindingManualTypes[finding.id] ?? suggestedResearchFindingManualType(finding);
                   const conversionFields = researchFindingManualFields[finding.id] ?? {};
+                  const attachType = researchFindingAttachTypes[finding.id] ?? suggestedResearchFindingManualType(finding);
+                  const attachTargetId = researchFindingAttachTargets[finding.id] ?? "";
                   const isMarkedForDeletion = researchFindingsMarkedForDeletion.includes(finding.id);
                   return (
                     <article
@@ -8000,6 +8046,52 @@ Az iratok nem törlődnek.`,
                             Strukturált találat létrehozása
                           </button>
                         </div>
+                      )}
+                      {finding.conversion_status !== "converted" && (
+                        <details className="finding-conversion-panel">
+                          <summary>Meglévő találathoz csatolás</summary>
+                          {finding.source_validation_status !== "source_valid" ? (
+                            <p className="field-hint">Csak érvényes forráshivatkozású kutatási találat csatolható meglévő találathoz.</p>
+                          ) : (
+                            <div className="manual-entry-panel">
+                              <div className="finding-conversion-type-row">
+                                <label>
+                                  Cél típusa
+                                  <select
+                                    value={attachType}
+                                    onChange={(event) => {
+                                      const nextType = event.target.value as ManualObjectType;
+                                      setResearchFindingAttachTypes((current) => ({ ...current, [finding.id]: nextType }));
+                                      setResearchFindingAttachTargets((current) => ({ ...current, [finding.id]: "" }));
+                                    }}
+                                  >
+                                    {(Object.keys(manualObjectTypeLabels) as ManualObjectType[]).map((type) => (
+                                      <option key={type} value={type}>
+                                        {manualObjectTypeLabels[type]}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                {renderSearchableSelect({
+                                  queryKey: `research-finding-attach-target:${finding.id}`,
+                                  value: attachTargetId,
+                                  onChange: (targetId) => setResearchFindingAttachTargets((current) => ({ ...current, [finding.id]: targetId })),
+                                  options: manualSourceAttachTargetOptions(attachType),
+                                  placeholder: "Válassz céltalálatot",
+                                  searchPlaceholder: "Keresés a céltalálatok között",
+                                  ariaLabel: "Kutatási találat forráshivatkozásának csatolási célja"
+                                })}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleAttachResearchFindingSource(finding)}
+                                disabled={Boolean(busy) || !attachTargetId}
+                              >
+                                Forráshivatkozás csatolása
+                              </button>
+                            </div>
+                          )}
+                        </details>
                       )}
                       {finding.conversion_status === "converted" && finding.target_object_type && finding.target_object_id && (
                         <p className="field-hint">

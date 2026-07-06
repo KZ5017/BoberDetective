@@ -6,11 +6,12 @@ import pytest
 from app.models.research_finding import ResearchFindingModel
 from app.models.source_reference import SourceReferenceModel
 from app.schemas.manual_entry import ManualObjectFromSourceCreate
-from app.schemas.research_finding import ResearchFindingCreate, ResearchFindingRead
+from app.schemas.research_finding import ResearchFindingAttachSourceRequest, ResearchFindingCreate, ResearchFindingRead
 from app.api.v1.research_findings import _source_excerpt
 from app.services import research_findings
 from app.services.research_findings import (
     ResearchFindingValidationError,
+    attach_research_finding_source_to_existing_object,
     convert_research_finding_to_manual_object,
     create_research_finding,
     delete_research_findings,
@@ -252,6 +253,176 @@ def test_convert_research_finding_marks_target_and_preserves_source(monkeypatch)
     assert finding.conversion_status == "converted"
     assert finding.target_object_type == "claim"
     assert finding.target_object_id == target_object_id
+
+
+def test_attach_research_finding_source_marks_converted_and_preserves_target(monkeypatch) -> None:
+    case_id = uuid4()
+    finding_id = uuid4()
+    source_reference_id = uuid4()
+    target_object_id = uuid4()
+    run_id = uuid4()
+    finding = ResearchFindingModel(
+        id=finding_id,
+        case_id=case_id,
+        analysis_run_id=uuid4(),
+        source_reference_id=source_reference_id,
+        title="Találat",
+        finding_text="Forráshoz kötött találat.",
+        suggested_type="entity",
+        suggested_type_reason=None,
+        relevance_reason="A fókuszhoz kapcsolódik.",
+        source_validation_status="source_valid",
+        llm_support_status="confirmed",
+        conversion_status="not_converted",
+        target_object_type=None,
+        target_object_id=None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    source_reference = SourceReferenceModel(
+        id=source_reference_id,
+        case_id=case_id,
+        document_id=uuid4(),
+        page_id=uuid4(),
+        chunk_id=uuid4(),
+        quote_text="forrás idézet",
+        source_kind="chunk_quote",
+    )
+
+    class FakeRun:
+        id = run_id
+
+    class FakeDb(_FakeDb):
+        def get(self, model, key):
+            if model is ResearchFindingModel and key == finding_id:
+                return finding
+            if model is SourceReferenceModel and key == source_reference_id:
+                return source_reference
+            return None
+
+    monkeypatch.setattr(research_findings, "ensure_source_reference_document_is_active", lambda *args, **kwargs: None)
+    monkeypatch.setattr(research_findings, "start_analysis_run", lambda *args, **kwargs: FakeRun())
+    monkeypatch.setattr(research_findings, "add_analysis_run_input", lambda *args, **kwargs: None)
+    monkeypatch.setattr(research_findings, "add_analysis_run_output", lambda *args, **kwargs: None)
+    monkeypatch.setattr(research_findings, "finish_analysis_run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(research_findings, "DatabaseAuditWriter", FakeAuditWriter)
+    monkeypatch.setattr(research_findings, "JsonlAuditWriter", FakeAuditWriter)
+
+    def fake_attach_source_reference_to_existing_object(
+        db,
+        *,
+        case_id: object,
+        source_reference: object,
+        target_object_type: str,
+        target_object_id: object,
+        run_id: object,
+    ):
+        assert case_id == expected_case_id
+        assert source_reference is expected_source_reference
+        assert target_object_type == "entity"
+        assert target_object_id == expected_target_object_id
+        assert run_id == expected_run_id
+        return False, False
+
+    expected_case_id = case_id
+    expected_source_reference = source_reference
+    expected_target_object_id = target_object_id
+    expected_run_id = run_id
+    monkeypatch.setattr(research_findings, "attach_source_reference_to_existing_object", fake_attach_source_reference_to_existing_object)
+
+    converted, returned_run_id, converted_source, object_type, object_id, skipped_duplicate, target_reactivated = (
+        attach_research_finding_source_to_existing_object(
+            FakeDb(),
+            case_id,
+            finding_id,
+            ResearchFindingAttachSourceRequest(target_object_type="entity", target_object_id=target_object_id),
+        )
+    )
+
+    assert converted is finding
+    assert returned_run_id == run_id
+    assert converted_source is source_reference
+    assert object_type == "entity"
+    assert object_id == target_object_id
+    assert skipped_duplicate is False
+    assert target_reactivated is False
+    assert finding.conversion_status == "converted"
+    assert finding.target_object_type == "entity"
+    assert finding.target_object_id == target_object_id
+
+
+def test_attach_research_finding_source_rejects_invalid_source() -> None:
+    case_id = uuid4()
+    finding_id = uuid4()
+    finding = ResearchFindingModel(
+        id=finding_id,
+        case_id=case_id,
+        analysis_run_id=uuid4(),
+        source_reference_id=uuid4(),
+        title="Találat",
+        finding_text="Forráshoz kötött találat.",
+        suggested_type="entity",
+        suggested_type_reason=None,
+        relevance_reason="A fókuszhoz kapcsolódik.",
+        source_validation_status="source_invalid",
+        llm_support_status="unconfirmed",
+        conversion_status="not_converted",
+        target_object_type=None,
+        target_object_id=None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class FakeDb(_FakeDb):
+        def get(self, model, key):
+            if model is ResearchFindingModel and key == finding_id:
+                return finding
+            return None
+
+    with pytest.raises(ResearchFindingValidationError):
+        attach_research_finding_source_to_existing_object(
+            FakeDb(),
+            case_id,
+            finding_id,
+            ResearchFindingAttachSourceRequest(target_object_type="entity", target_object_id=uuid4()),
+        )
+
+
+def test_attach_research_finding_source_rejects_converted() -> None:
+    case_id = uuid4()
+    finding_id = uuid4()
+    finding = ResearchFindingModel(
+        id=finding_id,
+        case_id=case_id,
+        analysis_run_id=uuid4(),
+        source_reference_id=uuid4(),
+        title="Találat",
+        finding_text="Forráshoz kötött találat.",
+        suggested_type="entity",
+        suggested_type_reason=None,
+        relevance_reason="A fókuszhoz kapcsolódik.",
+        source_validation_status="source_valid",
+        llm_support_status="confirmed",
+        conversion_status="converted",
+        target_object_type="entity",
+        target_object_id=uuid4(),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class FakeDb(_FakeDb):
+        def get(self, model, key):
+            if model is ResearchFindingModel and key == finding_id:
+                return finding
+            return None
+
+    with pytest.raises(ResearchFindingValidationError):
+        attach_research_finding_source_to_existing_object(
+            FakeDb(),
+            case_id,
+            finding_id,
+            ResearchFindingAttachSourceRequest(target_object_type="entity", target_object_id=uuid4()),
+        )
 
 
 def test_set_aside_research_finding_parks_without_target() -> None:

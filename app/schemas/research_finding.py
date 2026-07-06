@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.source_reference import SourceReferenceRead
-from app.schemas.manual_entry import ManualObjectCreateResponse, ManualObjectFromSourceCreate
+from app.schemas.manual_entry import ManualObjectCreateResponse, ManualObjectFromSourceCreate, ManualSourceAttachmentResponse
 
 
 class ResearchFindingCreate(BaseModel):
@@ -81,6 +81,15 @@ class ResearchFindingConvertRequest(ManualObjectFromSourceCreate):
 
 
 class ResearchFindingConvertResponse(ManualObjectCreateResponse):
+    finding: ResearchFindingRead
+
+
+class ResearchFindingAttachSourceRequest(BaseModel):
+    target_object_type: str = Field(pattern="^(claim|entity|event|missing_item_candidate)$")
+    target_object_id: UUID
+
+
+class ResearchFindingAttachSourceResponse(ManualSourceAttachmentResponse):
     finding: ResearchFindingRead
 
 

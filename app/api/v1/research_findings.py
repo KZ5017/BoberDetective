@@ -8,6 +8,8 @@ from app.models.document import DocumentChunkModel, DocumentPageModel
 from app.models.research_finding import ResearchFindingModel
 from app.models.source_reference import SourceReferenceModel
 from app.schemas.research_finding import (
+    ResearchFindingAttachSourceRequest,
+    ResearchFindingAttachSourceResponse,
     ResearchFindingBulkDeleteRequest,
     ResearchFindingBulkDeleteResponse,
     ResearchFindingConvertRequest,
@@ -22,6 +24,7 @@ from app.schemas.source_reference import SourceReferenceRead
 from app.services.research_findings import (
     ResearchFindingNotFoundError,
     ResearchFindingValidationError,
+    attach_research_finding_source_to_existing_object,
     convert_research_finding_to_manual_object,
     delete_research_finding,
     delete_research_findings,
@@ -83,6 +86,41 @@ def post_research_finding_conversion(
         source_reference=SourceReferenceRead.model_validate(source_reference),
         object_type=object_type,
         object_id=object_id,
+        finding=_research_finding_read(db, finding),
+    )
+
+
+@router.post(
+    "/cases/{case_id}/research-findings/{finding_id}/attach-source",
+    response_model=ResearchFindingAttachSourceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_research_finding_source_attachment(
+    case_id: UUID,
+    finding_id: UUID,
+    payload: ResearchFindingAttachSourceRequest,
+    db: Session = Depends(get_db),
+) -> ResearchFindingAttachSourceResponse:
+    try:
+        finding, run_id, source_reference, target_object_type, target_object_id, skipped_duplicate_source, target_reactivated = (
+            attach_research_finding_source_to_existing_object(
+                db,
+                case_id,
+                finding_id,
+                payload,
+            )
+        )
+    except ResearchFindingNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (ResearchFindingValidationError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return ResearchFindingAttachSourceResponse(
+        analysis_run_id=run_id,
+        source_reference=SourceReferenceRead.model_validate(source_reference),
+        target_object_type=target_object_type,
+        target_object_id=target_object_id,
+        skipped_duplicate_source=skipped_duplicate_source,
+        target_reactivated=target_reactivated,
         finding=_research_finding_read(db, finding),
     )
 

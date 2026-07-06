@@ -11,10 +11,10 @@ Aktualis pontositas: a kutatasi talalatbol letrehozott strukturalt objektumoknal
 Aktualis fo workflow:
 
 ```text
-forraskereses -> kutatasi talalat munkalista -> emberi dontes -> strukturalt objektum
+forraskereses -> kutatasi talalat munkalista -> emberi dontes -> strukturalt objektum vagy meglevo strukturalt objektumhoz csatolt forras
 ```
 
-Ha a kutatasi talalatbol strukturalt objektum keszul, a kutatasi talalat tobbe nem jelenik meg az aktiv munkalistaban. A celobjektum hordozza tovabb a forrashivatkozast es a szakmai feldolgozas szempontjabol relevans allapotokat.
+Ha a kutatasi talalatbol uj strukturalt objektum keszul, vagy a kutatasi talalat forrashivatkozasa meglevo strukturalt objektumhoz kerul, a kutatasi talalat tobbe nem jelenik meg az aktiv munkalistaban. A celobjektum hordozza tovabb a forrashivatkozast es a szakmai feldolgozas szempontjabol relevans allapotokat. A kutatasi talalat ilyenkor `converted` provenance rekordkent megmarad `target_object_type` / `target_object_id` kapcsolattal; a talalat LLM-metaadata nem irja at automatikusan a celobjektum szoveges tartalmat.
 
 ## 1. Cel
 

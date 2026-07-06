@@ -48,7 +48,7 @@ Completed:
 - LM Studio model-list smoke endpoint
 - LM Studio configured chat-model load endpoint with GPU-oriented load profile
 - LM Studio native chat auto-load guard for the configured model
-- Current chat load profile uses `qwen/qwen3.5-9b` with `context_length=61440`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`
+- Current chat load profile uses `qwen/qwen3.6-35b-a3b` with `context_length=61440`, `eval_batch_size=512`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`. The previous speed-optimized workstation profile remains `qwen/qwen3.5-9b` with the same context/attention/KV settings and `eval_batch_size=4096`.
 - Analysis run provenance foundation
 - Synthetic LLM model benchmark script
 - LM Studio native benchmark mode with Qwen reasoning disabled

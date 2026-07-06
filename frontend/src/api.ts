@@ -875,6 +875,10 @@ export type ResearchFindingConvertResponse = ManualObjectResponse & {
   finding: ResearchFindingRead;
 };
 
+export type ResearchFindingAttachSourceResponse = ManualSourceAttachmentResponse & {
+  finding: ResearchFindingRead;
+};
+
 export type ManualContradictionCandidatePayload = {
   claim_id_a: string;
   claim_id_b: string;
@@ -1623,6 +1627,18 @@ export function convertResearchFinding(
   payload: ManualObjectFromSourcePayload
 ): Promise<ResearchFindingConvertResponse> {
   return request(`/cases/${caseId}/research-findings/${findingId}/convert`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function attachResearchFindingSource(
+  caseId: string,
+  findingId: string,
+  payload: { target_object_type: ManualObjectType; target_object_id: string }
+): Promise<ResearchFindingAttachSourceResponse> {
+  return request(`/cases/${caseId}/research-findings/${findingId}/attach-source`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)

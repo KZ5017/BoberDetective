@@ -9,10 +9,11 @@ from app.models.analysis import AnalysisRunInputModel, AnalysisRunModel
 from app.models.audit import AuditEventModel
 from app.models.research_finding import ResearchFindingModel
 from app.models.source_reference import SourceReferenceModel
-from app.schemas.research_finding import ResearchFindingLatestRunSummary
+from app.schemas.research_finding import ResearchFindingAttachSourceRequest, ResearchFindingLatestRunSummary
 from app.schemas.manual_entry import ManualObjectFromSourceCreate
 from app.services.audit import AuditEvent, DatabaseAuditWriter, JsonlAuditWriter
-from app.services.manual_entries import ManualEntryError, create_manual_object_from_source_reference
+from app.services.analysis_runs import add_analysis_run_input, add_analysis_run_output, finish_analysis_run, start_analysis_run
+from app.services.manual_entries import ManualEntryError, attach_source_reference_to_existing_object, create_manual_object_from_source_reference
 from app.services.source_references import ensure_source_reference_document_is_active
 from app.services.storage import StoragePaths
 
@@ -238,6 +239,131 @@ def convert_research_finding_to_manual_object(
     db.commit()
     db.refresh(finding)
     return finding, run_id, source_reference, object_type, object_id
+
+
+def attach_research_finding_source_to_existing_object(
+    db: Session,
+    case_id: UUID,
+    finding_id: UUID,
+    payload: ResearchFindingAttachSourceRequest,
+) -> tuple[ResearchFindingModel, UUID, SourceReferenceModel, str, UUID, bool, bool]:
+    finding = get_research_finding(db, case_id, finding_id)
+    if finding.conversion_status == "converted":
+        raise ResearchFindingValidationError("Research finding has already been converted")
+    if finding.source_validation_status != "source_valid":
+        raise ResearchFindingValidationError("Only source-valid research findings can be attached to an existing object")
+    source_reference = db.get(SourceReferenceModel, finding.source_reference_id)
+    if source_reference is None or source_reference.case_id != case_id:
+        raise ResearchFindingValidationError("Source reference not found for this research finding")
+    ensure_source_reference_document_is_active(db, case_id, source_reference, ResearchFindingValidationError)
+
+    run = start_analysis_run(
+        db,
+        case_id,
+        "manual_entry",
+        provider_type="human",
+        model_name=None,
+        input_parameters={"object_type": payload.target_object_type, "input_kind": "manual_research_finding_source_attachment"},
+        output_schema_name="manual_object",
+        output_schema_version="v1",
+        retrieval_strategy="user_selected_source",
+    )
+    try:
+        add_analysis_run_input(
+            db,
+            run.id,
+            "chunk" if source_reference.chunk_id is not None else "page",
+            0,
+            document_id=source_reference.document_id,
+            page_id=source_reference.page_id,
+            chunk_id=source_reference.chunk_id,
+            payload_json={
+                "input_kind": "manual_research_finding_source_attachment",
+                "research_finding_id": str(finding.id),
+                "source_reference_id": str(source_reference.id),
+                "target_object_type": payload.target_object_type,
+                "target_object_id": str(payload.target_object_id),
+                "quote_text": source_reference.quote_text,
+            },
+        )
+        skipped_duplicate_source, target_reactivated = attach_source_reference_to_existing_object(
+            db,
+            case_id=case_id,
+            source_reference=source_reference,
+            target_object_type=payload.target_object_type,
+            target_object_id=payload.target_object_id,
+            run_id=run.id,
+        )
+        finding.conversion_status = "converted"
+        finding.target_object_type = payload.target_object_type
+        finding.target_object_id = payload.target_object_id
+        finding.updated_at = datetime.now(UTC)
+        db.add(finding)
+        db.flush()
+        add_analysis_run_output(db, run.id, "source_reference", source_reference.id, 0)
+        add_analysis_run_output(db, run.id, payload.target_object_type, payload.target_object_id, 1)
+        add_analysis_run_output(db, run.id, "research_finding", finding.id, 2)
+        finish_analysis_run(
+            db,
+            run,
+            status="succeeded",
+            validation_status="passed",
+            output_summary={
+                "operation": "manual_research_finding_source_attachment",
+                "research_finding_id": str(finding.id),
+                "conversion_status": finding.conversion_status,
+                "target_object_type": payload.target_object_type,
+                "target_object_id": str(payload.target_object_id),
+                "source_reference_id": str(source_reference.id),
+                "skipped_duplicate_source": skipped_duplicate_source,
+                "target_reactivated": target_reactivated,
+            },
+        )
+        event = AuditEvent(
+            event_type="research_finding_source_attached",
+            success=True,
+            case_id=str(case_id),
+            user_id=str(source_reference.created_by_user_id) if source_reference.created_by_user_id is not None else None,
+            analysis_run_id=str(run.id),
+            related_object_type="research_finding",
+            related_object_id=str(finding.id),
+            related_document_id=str(source_reference.document_id),
+            related_page_id=str(source_reference.page_id) if source_reference.page_id is not None else None,
+            related_chunk_id=str(source_reference.chunk_id) if source_reference.chunk_id is not None else None,
+            input_summary={
+                "research_finding_id": str(finding.id),
+                "source_reference_id": str(source_reference.id),
+                "target_object_type": payload.target_object_type,
+                "target_object_id": str(payload.target_object_id),
+            },
+            output_summary={
+                "conversion_status": finding.conversion_status,
+                "skipped_duplicate_source": skipped_duplicate_source,
+                "target_reactivated": target_reactivated,
+            },
+        )
+        DatabaseAuditWriter(db).write(event)
+        JsonlAuditWriter(StoragePaths(get_settings().data_root)).write(event)
+        db.commit()
+        db.refresh(finding)
+        db.refresh(source_reference)
+        return (
+            finding,
+            run.id,
+            source_reference,
+            payload.target_object_type,
+            payload.target_object_id,
+            skipped_duplicate_source,
+            target_reactivated,
+        )
+    except ManualEntryError as exc:
+        db.rollback()
+        finish_analysis_run(db, run, status="failed", validation_status="failed", error_message=str(exc))
+        raise ResearchFindingValidationError(str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        finish_analysis_run(db, run, status="failed", validation_status="failed", error_message=str(exc))
+        raise
 
 
 def set_aside_research_finding(

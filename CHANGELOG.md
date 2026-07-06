@@ -1,5 +1,25 @@
 # CHANGELOG.md
 
+## 2026-07-06
+
+### Changed
+
+- Switched the active LM Studio chat-model default to `qwen/qwen3.6-35b-a3b` for quality testing, keeping `context_length=61440`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`, while reducing `eval_batch_size` to `512` so the larger model can fit the current workstation.
+- Documented the previous speed-optimized fallback profile explicitly: `qwen/qwen3.5-9b` with the same context/attention/KV settings and `eval_batch_size=4096`.
+
+### Added
+
+- Added and implemented `Design_documents/37_research_finding_attach_existing_object_plan.md`: `Kutatási találatok` can now attach their existing source reference directly to an existing structured object through a new backend endpoint and frontend `Meglévő találathoz csatolás` card section, then disappear from the active worklist as `converted` provenance-linked findings.
+
+### Verified
+
+- .venv/bin/python -m pytest tests/test_llm.py -q (`17 passed`)
+- .venv/bin/python -m pytest tests/test_research_findings.py -q (`17 passed`)
+- .venv/bin/python -m pytest tests/test_research_findings.py tests/test_manual_entries.py -q (`22 passed`)
+- npm --prefix frontend run build
+- Live backend `POST /api/v1/system/llm/load-chat-model` returned `qwen/qwen3.6-35b-a3b`, `status=loaded`, `load_time_seconds=18.773`, `context_length=61440`, `eval_batch_size=512`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`
+- git diff --check
+
 ## 2026-07-05
 
 ### Added

@@ -3371,6 +3371,19 @@ pre {
   --compact-surface-gap: var(--layout-toolbar-gap);
 }
 
+.finding-conversion-panel > button {
+  width: 100%;
+}
+
+.finding-conversion-panel summary {
+  cursor: pointer;
+}
+
+.finding-conversion-panel summary + * {
+  margin-top: var(--layout-toolbar-gap);
+}
+
+
 .finding-conversion-heading {
   align-items: baseline;
   display: flex;
