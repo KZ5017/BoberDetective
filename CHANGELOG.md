@@ -1,5 +1,22 @@
 # CHANGELOG.md
 
+## 2026-07-28
+
+### Changed
+
+- Restored the active LM Studio workstation profile to `qwen/qwen3.5-9b` with `context_length=61440`, `eval_batch_size=4096`, flash attention, and KV-cache GPU offload. The larger `qwen/qwen3.6-35b-a3b` quality profile remains documented as an opt-in with `eval_batch_size=512`.
+- Moved the BoberDetective development backend/frontend pair to `8001` / `5174`; Vite now uses strict port binding and proxies `/api` to `8001`, allowing parallel operation beside AI Assistant on `8000` / `5173`.
+
+### Added
+
+- Added local root `.env` loading without overriding explicit process environment variables. This supports authenticated LM Studio API access through the existing Bearer-token provider header while keeping the real key out of Git.
+- Added tracked `scripts/start.ps1` / `scripts/stop.ps1` entry points plus WSL service helpers. They start and stop only BoberDetective Docker services, backend, and frontend, with PID/log files under `/tmp/boberdetective-*`.
+
+### Verified
+
+- Authenticated LM Studio smoke and backend health succeeded with the local `.env` token.
+- `npm --prefix frontend run build`
+- `git diff --check`
 ## 2026-07-06
 
 ### Changed

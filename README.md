@@ -48,7 +48,7 @@ Completed:
 - LM Studio model-list smoke endpoint
 - LM Studio configured chat-model load endpoint with GPU-oriented load profile
 - LM Studio native chat auto-load guard for the configured model
-- Current chat load profile uses `qwen/qwen3.6-35b-a3b` with `context_length=61440`, `eval_batch_size=512`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`. The previous speed-optimized workstation profile remains `qwen/qwen3.5-9b` with the same context/attention/KV settings and `eval_batch_size=4096`.
+- Current active chat load profile uses `qwen/qwen3.5-9b` with `context_length=61440`, `eval_batch_size=4096`, `flash_attention=true`, and `offload_kv_cache_to_gpu=true`. The quality profile `qwen/qwen3.6-35b-a3b` remains a documented local opt-in with `eval_batch_size=512`.
 - Analysis run provenance foundation
 - Synthetic LLM model benchmark script
 - LM Studio native benchmark mode with Qwen reasoning disabled
@@ -154,14 +154,11 @@ Next:
 
 Frontend dev URL:
 
-- Start infrastructure from the repo root: `docker compose up -d`
-- For an interactive terminal, start backend from the repo root: `.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000`
-- For an interactive terminal, start frontend from `frontend/`: `npm run dev`
-- When running, open `http://localhost:5173`; Vite proxies `/api` to `http://127.0.0.1:8000`.
-- When Codex starts backend/frontend from a non-interactive WSL command, use `setsid -f` so the processes survive shell cleanup:
-  - backend: `setsid -f sh -c ".venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/boberdetective-backend.log 2>&1 < /dev/null"`
-  - frontend: `setsid -f sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1 < /dev/null"`
-  Verify with `ss -ltnp | grep -E ":(8000|5173)"`, `curl -fsS http://127.0.0.1:8000/api/v1/system/health`, and `curl -I http://127.0.0.1:5173`.
+- BoberDetective uses dedicated local ports so it can run beside AI Assistant: backend `8001`, frontend `5174`.
+- Start the complete local BoberDetective stack from PowerShell with: `powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu-24.04\home\bober\projects\Codex_BoberDetective\scripts\start.ps1`
+- Stop only the BoberDetective stack with: `powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu-24.04\home\bober\projects\Codex_BoberDetective\scripts\stop.ps1`
+- When running, open `http://localhost:5174`; Vite proxies `/api` to `http://127.0.0.1:8001`.
+- The PowerShell entry points delegate to tracked WSL scripts under `scripts/`; they start/stop only BoberDetective Docker services and its own backend/frontend processes.
 
 ## Design documents
 
@@ -262,7 +259,7 @@ Frontend:
 
 - React/Vite scaffold under `frontend/`
 - Dev server: `cd frontend && npm run dev`
-- API proxy: `/api` -> `http://127.0.0.1:8000`
+- API proxy: `/api` -> `http://127.0.0.1:8001`
 - Current UI workflows: case create/list, multi-file TXT/PDF import without import-time taxonomy selection, document list, document lifecycle actions, page/chunk drill-down, OCR recommendation, explicit PDF text review and chunk creation, analysis run with elapsed-time feedback, analysis history/detail, review report filtering by object/review/source status, object detail inspection, source detail inspection, review history, review actions, manual source-bound object creation, manual contradiction candidate creation, JSON/HTML export, export history
 - Active `search_findings` UI supports selected-document and whole-case source scopes with required focus text, `Szovegresz plafon` defaulting to 45 and capped at 90, retrieval strategy, and batch controls. Selected-document mode searches the full selected document.
 - Raw-chunk analysis can choose keyword, semantic, or hybrid source retrieval after chunk indexing

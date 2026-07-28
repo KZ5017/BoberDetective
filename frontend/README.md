@@ -4,46 +4,27 @@ Minimal React/Vite workbench for the local backend.
 
 ## Development
 
-Start the backend from the repository root:
+BoberDetective uses dedicated local ports so it can run beside AI Assistant:
 
-```bash
-.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+- backend: `8001`
+- frontend: `5174`
+- Vite proxy: `/api` -> `http://127.0.0.1:8001`
+
+From Windows PowerShell, start the complete local stack with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu-24.04\home\bober\projects\Codex_BoberDetective\scripts\start.ps1
 ```
 
-Start the frontend from this directory:
+Open the frontend at `http://localhost:5174`.
 
-```bash
-npm run dev
+Stop only BoberDetective with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu-24.04\home\bober\projects\Codex_BoberDetective\scripts\stop.ps1
 ```
 
-Open the frontend at:
-
-```text
-http://localhost:5173
-```
-
-The Vite dev server listens on port `5173` and proxies `/api` to `http://127.0.0.1:8000`.
-
-For Codex/non-interactive WSL background startup, start the infrastructure first:
-
-```bash
-docker compose up -d
-```
-
-Then detach backend and frontend with `setsid -f` from the repository root:
-
-```bash
-setsid -f sh -c ".venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/boberdetective-backend.log 2>&1 < /dev/null"
-setsid -f sh -c "npm --prefix frontend run dev -- --host 0.0.0.0 > /tmp/boberdetective-frontend.log 2>&1 < /dev/null"
-```
-
-Verify:
-
-```bash
-ss -ltnp | grep -E ":(8000|5173)"
-curl -fsS http://127.0.0.1:8000/api/v1/system/health
-curl -I http://127.0.0.1:5173
-```
+The PowerShell entry points invoke `scripts/start-services.sh` and `scripts/stop-services.sh` in WSL. These manage only BoberDetective's Docker services, backend, and frontend.
 
 Current workflows:
 

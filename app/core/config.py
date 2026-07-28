@@ -4,6 +4,26 @@ import os
 from pathlib import Path
 
 
+def _load_project_env_file() -> None:
+    """Load local development settings without overriding process environment."""
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    if not env_path.is_file():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        name = name.strip()
+        if not name:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {chr(34), chr(39)}:
+            value = value[1:-1]
+        os.environ.setdefault(name, value)
+
+
 def _getenv(name: str, default: str) -> str:
     value = os.getenv(name)
     if value is None or value == "":
@@ -48,6 +68,7 @@ class Settings:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    _load_project_env_file()
     data_root = Path(_getenv("BOBERDETECTIVE_DATA_ROOT", "/home/bober/boberdetective-data")).expanduser()
     return Settings(
         environment=_getenv("BOBERDETECTIVE_ENV", "development"),
@@ -60,12 +81,12 @@ def get_settings() -> Settings:
         llm_provider=_getenv("BOBERDETECTIVE_LLM_PROVIDER", "lm_studio"),
         llm_base_url=_getenv("BOBERDETECTIVE_LLM_BASE_URL", "http://127.0.0.1:1234/v1"),
         llm_api_key=_getenv("BOBERDETECTIVE_LLM_API_KEY", "lm-studio"),
-        llm_chat_model=_getenv("BOBERDETECTIVE_LLM_CHAT_MODEL", "qwen/qwen3.6-35b-a3b"),
+        llm_chat_model=_getenv("BOBERDETECTIVE_LLM_CHAT_MODEL", "qwen/qwen3.5-9b"),
         llm_embedding_model=_getenv("BOBERDETECTIVE_LLM_EMBEDDING_MODEL", "text-embedding-bge-m3"),
         llm_timeout_seconds=float(_getenv("BOBERDETECTIVE_LLM_TIMEOUT_SECONDS", "900")),
         llm_chat_context_length=int(_getenv("BOBERDETECTIVE_LLM_CHAT_CONTEXT_LENGTH", "61440")),
         llm_embedding_context_length=int(_getenv("BOBERDETECTIVE_LLM_EMBEDDING_CONTEXT_LENGTH", "4096")),
-        llm_eval_batch_size=int(_getenv("BOBERDETECTIVE_LLM_EVAL_BATCH_SIZE", "512")),
+        llm_eval_batch_size=int(_getenv("BOBERDETECTIVE_LLM_EVAL_BATCH_SIZE", "4096")),
         llm_flash_attention=_getenv_bool("BOBERDETECTIVE_LLM_FLASH_ATTENTION", True),
         llm_offload_kv_cache_to_gpu=_getenv_bool("BOBERDETECTIVE_LLM_OFFLOAD_KV_CACHE_TO_GPU", True),
         llm_auto_load_chat_model=_getenv_bool("BOBERDETECTIVE_LLM_AUTO_LOAD_CHAT_MODEL", True),
